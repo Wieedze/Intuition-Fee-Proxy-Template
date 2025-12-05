@@ -26,10 +26,9 @@ async function main() {
   }
   const admins = admin2 ? [admin1, admin2] : [admin1];
 
-  // Fee configuration
-  const CREATION_FEE = ethers.parseEther(process.env.CREATION_FEE || "0.1");     // Fixed fee per atom/triple creation
-  const DEPOSIT_FIXED_FEE = ethers.parseEther(process.env.DEPOSIT_FEE || "0");   // Fixed fee per deposit
-  const DEPOSIT_PERCENTAGE = BigInt(process.env.DEPOSIT_PERCENTAGE || "500");    // Percentage fee (500 = 5%, base 10000)
+  // Fee configuration - FEES ARE ONLY APPLIED ON DEPOSITS
+  const DEPOSIT_FIXED_FEE = ethers.parseEther(process.env.DEPOSIT_FEE || "0.1");   // Fixed fee per deposit (default: 0.1 TRUST)
+  const DEPOSIT_PERCENTAGE = BigInt(process.env.DEPOSIT_PERCENTAGE || "500");      // Percentage fee (500 = 5%, base 10000)
 
   // ============ END CONFIGURATION ============
 
@@ -54,8 +53,7 @@ async function main() {
   console.log("- MultiVault address:", multiVault);
   console.log("- Fee recipient:", FEE_RECIPIENT);
   console.log("- Admins:", admins.join(", "));
-  console.log("- Creation fee:", ethers.formatEther(CREATION_FEE), "ETH");
-  console.log("- Deposit fixed fee:", ethers.formatEther(DEPOSIT_FIXED_FEE), "ETH");
+  console.log("- Deposit fixed fee:", ethers.formatEther(DEPOSIT_FIXED_FEE), "TRUST");
   console.log("- Deposit percentage:", Number(DEPOSIT_PERCENTAGE) / 100, "%");
 
   // Deploy IntuitionFeeProxy
@@ -64,7 +62,6 @@ async function main() {
   const proxy = await IntuitionFeeProxy.deploy(
     multiVault,
     FEE_RECIPIENT,
-    CREATION_FEE,
     DEPOSIT_FIXED_FEE,
     DEPOSIT_PERCENTAGE,
     admins
@@ -94,7 +91,6 @@ async function main() {
         constructorArguments: [
           multiVault,
           FEE_RECIPIENT,
-          CREATION_FEE,
           DEPOSIT_FIXED_FEE,
           DEPOSIT_PERCENTAGE,
           admins,

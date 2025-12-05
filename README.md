@@ -1,14 +1,39 @@
 # Intuition Fee Proxy
 
-A customizable proxy contract for the [Intuition](https://intuition.systems) MultiVault that allows you to collect fees on atom/triple creation and deposits.
+A customizable proxy contract for the [Intuition](https://intuition.systems) MultiVault that allows you to collect fees on deposits.
 
 ## Features
 
-- **Creation fees**: Fixed fee per atom or triple created
-- **Deposit fees**: Fixed fee + percentage fee on deposits
+- **Deposit-based fees**: Fixed fee per deposit + percentage fee on deposit amounts
 - **Admin system**: Whitelisted admins can update fees and settings
 - **Receiver pattern**: Shares are deposited directly to users (requires approval)
 - **Full MultiVault compatibility**: All view functions pass through to MultiVault
+
+## Fee Structure
+
+All fees are applied **per deposit** (added on top of the deposit amount):
+
+| Fee Type | Default | Description |
+|----------|---------|-------------|
+| Fixed fee | 0.1 TRUST | Applied per deposit operation |
+| Percentage fee | 5% | Applied on deposit amounts |
+
+Fees apply to:
+- `deposit()` - direct deposits
+- `createAtoms()` - deposits made during atom creation
+- `createTriples()` - deposits made during triple creation
+- `depositBatch()` - batch deposits
+
+### Example
+
+For a 10 TRUST deposit:
+- Fixed fee: 0.1 TRUST
+- Percentage fee: 0.5 TRUST (5% of 10)
+- **Total fee: 0.6 TRUST**
+- **User sends: 10.6 TRUST**
+- **Deposited to MultiVault: 10 TRUST**
+
+Note: MultiVault may apply its own internal fees on deposits.
 
 ## Prerequisites
 
@@ -46,9 +71,8 @@ FEE_RECIPIENT=0x...
 ADMIN_1=0x...
 ADMIN_2=0x...  # Optional
 
-# Fee configuration
-CREATION_FEE=0.1        # Fixed fee per atom/triple (in TRUST)
-DEPOSIT_FEE=0           # Fixed fee per deposit (in TRUST)
+# Fee configuration - ONLY APPLIED ON DEPOSITS
+DEPOSIT_FEE=0.1         # Fixed fee per deposit (in TRUST)
 DEPOSIT_PERCENTAGE=500  # Percentage fee (500 = 5%, base 10000)
 ```
 
@@ -71,28 +95,33 @@ npx hardhat run scripts/deploy.ts --network intuition-testnet
 npx hardhat run scripts/deploy.ts --network intuition
 ```
 
-## Configuration
+## Fee Calculation
 
-### Fee Structure
+```
+fee = (depositFixedFee * depositCount) + (totalDeposit * depositPercentageFee / 10000)
+```
 
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `creationFixedFee` | Fixed fee per atom/triple creation | 0.1 TRUST |
-| `depositFixedFee` | Fixed fee per deposit | 0 TRUST |
-| `depositPercentageFee` | Percentage of deposit amount | 500 (5%) |
+Where:
+- `depositCount` = number of **non-zero** deposits in the `assets[]` array
+- `totalDeposit` = sum of all deposit amounts
 
-### Fee Calculation
+**Important**: Fees are ONLY charged on deposits, NOT on atom/triple creation itself. The `atomCost` and `tripleCost` from MultiVault are passed through without any additional fee.
 
-- **Creation**: `fee = creationFixedFee * count`
-- **Deposit**: `fee = depositFixedFee + (amount * depositPercentageFee / 10000)`
+### Examples
 
-### Example
+**Single deposit of 0.05 TRUST on an existing vault**:
+- Fee = (0.1 × 1) + (0.05 × 5%) = 0.1 + 0.0025 = **0.1025 TRUST**
+- User sends: 0.1525 TRUST
 
-For a user depositing 10 TRUST with default config (0 fixed, 5% percentage):
-- Fee = 0 + (10 * 500 / 10000) = 0.5 TRUST
-- User sends: 10.5 TRUST
-- MultiVault receives: 10 TRUST
-- Fee recipient receives: 0.5 TRUST
+**Creating 1 triple with a 0.1 TRUST deposit on it**:
+- Triple creation cost: ~0.0004 TRUST (paid to MultiVault, no fee)
+- Deposit fee: (0.1 × 1) + (0.1 × 5%) = 0.1 + 0.005 = **0.105 TRUST**
+- User sends: tripleCost + 0.1 + 0.105 = ~0.2054 TRUST
+
+
+**Batch deposit on 3 vaults** (assets = [0.01, 0.05, 0.1]):
+- Deposit fee: (0.1 × 3) + (0.16 × 5%) = 0.3 + 0.008 = **0.308 TRUST**
+- User sends: 0.16 + 0.308 = 0.468 TRUST
 
 ## User Approval Flow
 
@@ -110,10 +139,10 @@ This allows the proxy to deposit shares on behalf of the user.
 ### User Functions
 
 ```solidity
-// Create atoms with fee
+// Create atoms with fee on deposits
 createAtoms(receiver, data[], assets[], curveId) payable
 
-// Create triples with fee
+// Create triples with fee on deposits
 createTriples(receiver, subjectIds[], predicateIds[], objectIds[], assets[], curveId) payable
 
 // Deposit with fee
@@ -126,7 +155,6 @@ depositBatch(receiver, termIds[], curveIds[], assets[], minShares[]) payable
 ### Admin Functions
 
 ```solidity
-setCreationFixedFee(newFee)
 setDepositFixedFee(newFee)
 setDepositPercentageFee(newFee)
 setFeeRecipient(newRecipient)
@@ -136,10 +164,14 @@ setWhitelistedAdmin(admin, status)
 ### View Functions
 
 ```solidity
-calculateCreationFee(count)
-calculateDepositFee(amount)
-getTotalCreationCost(count, multiVaultCost)
+// Calculate fee for deposits
+calculateDepositFee(depositCount, totalDeposit)
+
+// Get total cost including fees
 getTotalDepositCost(depositAmount)
+getTotalCreationCost(depositCount, totalDeposit, multiVaultCost)
+
+// Calculate MultiVault amount from msg.value
 getMultiVaultAmountFromValue(msgValue)
 ```
 
@@ -153,12 +185,28 @@ getMultiVaultAmountFromValue(msgValue)
 ## Frontend Integration
 
 ```typescript
-// Calculate total cost for a deposit
+// For a single deposit
 const depositAmount = parseEther("10");
 const totalCost = await proxy.getTotalDepositCost(depositAmount);
-
-// Send transaction
 await proxy.deposit(userAddress, termId, curveId, 0, { value: totalCost });
+
+// For createTriples with deposits
+const tripleCost = await proxy.getTripleCost();
+const depositAmounts = [parseEther("1"), parseEther("1")]; // 2 triples
+const depositCount = 2; // non-zero deposits
+const totalDeposit = parseEther("2");
+const multiVaultCost = (tripleCost * 2n) + totalDeposit;
+const totalCost = await proxy.getTotalCreationCost(depositCount, totalDeposit, multiVaultCost);
+
+await proxy.createTriples(
+  userAddress,
+  subjectIds,
+  predicateIds,
+  objectIds,
+  depositAmounts,
+  curveId,
+  { value: totalCost }
+);
 ```
 
 ## Security Considerations

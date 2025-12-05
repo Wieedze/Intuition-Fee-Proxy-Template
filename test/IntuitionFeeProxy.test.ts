@@ -7,8 +7,7 @@ import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 describe("IntuitionFeeProxy", function () {
   // Constants - customize these for your deployment
   const FEE_RECIPIENT = "0x0000000000000000000000000000000000000001"; // Replace with your address
-  const CREATION_FEE = ethers.parseEther("0.1"); // 0.1 TRUST
-  const DEPOSIT_FEE = ethers.parseEther("0.1"); // 0.1 TRUST
+  const DEPOSIT_FEE = ethers.parseEther("0.1"); // 0.1 TRUST per deposit
   const DEPOSIT_PERCENTAGE = 500n; // 5%
   const FEE_DENOMINATOR = 10000n;
 
@@ -26,7 +25,6 @@ describe("IntuitionFeeProxy", function () {
     const proxy = await IntuitionFeeProxyFactory.deploy(
       await mockMultiVault.getAddress(),
       FEE_RECIPIENT,
-      CREATION_FEE,
       DEPOSIT_FEE,
       DEPOSIT_PERCENTAGE,
       [admin1.address, admin2.address, admin3.address]
@@ -45,11 +43,6 @@ describe("IntuitionFeeProxy", function () {
     it("Should set correct fee recipient", async function () {
       const { proxy } = await loadFixture(deployFixture);
       expect(await proxy.feeRecipient()).to.equal(FEE_RECIPIENT);
-    });
-
-    it("Should set correct creation fee", async function () {
-      const { proxy } = await loadFixture(deployFixture);
-      expect(await proxy.creationFixedFee()).to.equal(CREATION_FEE);
     });
 
     it("Should set correct deposit fees", async function () {
@@ -78,7 +71,6 @@ describe("IntuitionFeeProxy", function () {
         IntuitionFeeProxyFactory.deploy(
           ethers.ZeroAddress,
           FEE_RECIPIENT,
-          CREATION_FEE,
           DEPOSIT_FEE,
           DEPOSIT_PERCENTAGE,
           [admin.address]
@@ -95,7 +87,6 @@ describe("IntuitionFeeProxy", function () {
         IntuitionFeeProxyFactory.deploy(
           await mockMultiVault.getAddress(),
           ethers.ZeroAddress,
-          CREATION_FEE,
           DEPOSIT_FEE,
           DEPOSIT_PERCENTAGE,
           [admin.address]
@@ -105,63 +96,54 @@ describe("IntuitionFeeProxy", function () {
   });
 
   describe("Fee Calculations", function () {
-    it("Should calculate deposit fee correctly", async function () {
+    it("Should calculate deposit fee correctly (single deposit)", async function () {
       const { proxy } = await loadFixture(deployFixture);
       const depositAmount = ethers.parseEther("10");
 
-      // Fee = 0.1 + (10 * 2%) = 0.1 + 0.2 = 0.3 TRUST
+      // Fee = 0.1 + (10 * 5%) = 0.1 + 0.5 = 0.6 TRUST
       const expectedFee = DEPOSIT_FEE + (depositAmount * DEPOSIT_PERCENTAGE / FEE_DENOMINATOR);
-      expect(await proxy.calculateDepositFee(depositAmount)).to.equal(expectedFee);
-      expect(expectedFee).to.equal(ethers.parseEther("0.3"));
+      expect(await proxy.calculateDepositFee(1n, depositAmount)).to.equal(expectedFee);
+      expect(expectedFee).to.equal(ethers.parseEther("0.6"));
     });
 
-    it("Should calculate creation fee correctly", async function () {
+    it("Should calculate deposit fee correctly (multiple deposits)", async function () {
       const { proxy } = await loadFixture(deployFixture);
-      const count = 5n;
+      const depositCount = 3n;
+      const totalDeposit = ethers.parseEther("30");
 
-      // Fee = 0.1 * 5 = 0.5 TRUST
-      const expectedFee = CREATION_FEE * count;
-      expect(await proxy.calculateCreationFee(count)).to.equal(expectedFee);
-      expect(expectedFee).to.equal(ethers.parseEther("0.5"));
+      // Fee = (0.1 * 3) + (30 * 5%) = 0.3 + 1.5 = 1.8 TRUST
+      const expectedFee = (DEPOSIT_FEE * depositCount) + (totalDeposit * DEPOSIT_PERCENTAGE / FEE_DENOMINATOR);
+      expect(await proxy.calculateDepositFee(depositCount, totalDeposit)).to.equal(expectedFee);
+      expect(expectedFee).to.equal(ethers.parseEther("1.8"));
     });
 
     it("Should calculate total deposit cost correctly", async function () {
       const { proxy } = await loadFixture(deployFixture);
       const depositAmount = ethers.parseEther("10");
 
-      const fee = await proxy.calculateDepositFee(depositAmount);
+      const fee = await proxy.calculateDepositFee(1n, depositAmount);
       const totalCost = await proxy.getTotalDepositCost(depositAmount);
       expect(totalCost).to.equal(depositAmount + fee);
     });
 
     it("Should calculate total creation cost correctly", async function () {
       const { proxy } = await loadFixture(deployFixture);
-      const count = 3n;
+      const depositCount = 3n;
+      const totalDeposit = ethers.parseEther("0.03");
       const multiVaultCost = ethers.parseEther("1");
 
-      const fee = await proxy.calculateCreationFee(count);
-      const totalCost = await proxy.getTotalCreationCost(count, multiVaultCost);
+      const fee = await proxy.calculateDepositFee(depositCount, totalDeposit);
+      const totalCost = await proxy.getTotalCreationCost(depositCount, totalDeposit, multiVaultCost);
       expect(totalCost).to.equal(multiVaultCost + fee);
     });
   });
 
   describe("Admin Functions", function () {
-    it("Should allow admin to set creation fee", async function () {
+    it("Should allow admin to set deposit fixed fee", async function () {
       const { proxy, admin1 } = await loadFixture(deployFixture);
       const newFee = ethers.parseEther("0.2");
 
-      await expect(proxy.connect(admin1).setCreationFixedFee(newFee))
-        .to.emit(proxy, "CreationFixedFeeUpdated")
-        .withArgs(CREATION_FEE, newFee);
-
-      expect(await proxy.creationFixedFee()).to.equal(newFee);
-    });
-
-    it("Should allow admin to set deposit fee", async function () {
-      const { proxy, admin2 } = await loadFixture(deployFixture);
-      const newFee = ethers.parseEther("0.05");
-
-      await expect(proxy.connect(admin2).setDepositFixedFee(newFee))
+      await expect(proxy.connect(admin1).setDepositFixedFee(newFee))
         .to.emit(proxy, "DepositFixedFeeUpdated")
         .withArgs(DEPOSIT_FEE, newFee);
 
@@ -169,10 +151,10 @@ describe("IntuitionFeeProxy", function () {
     });
 
     it("Should allow admin to set deposit percentage", async function () {
-      const { proxy, admin3 } = await loadFixture(deployFixture);
-      const newPercentage = 500n; // 5%
+      const { proxy, admin2 } = await loadFixture(deployFixture);
+      const newPercentage = 1000n; // 10%
 
-      await expect(proxy.connect(admin3).setDepositPercentageFee(newPercentage))
+      await expect(proxy.connect(admin2).setDepositPercentageFee(newPercentage))
         .to.emit(proxy, "DepositPercentageFeeUpdated")
         .withArgs(DEPOSIT_PERCENTAGE, newPercentage);
 
@@ -209,7 +191,7 @@ describe("IntuitionFeeProxy", function () {
     it("Should revert when non-admin tries to set fees", async function () {
       const { proxy, nonAdmin } = await loadFixture(deployFixture);
 
-      await expect(proxy.connect(nonAdmin).setCreationFixedFee(ethers.parseEther("0.5")))
+      await expect(proxy.connect(nonAdmin).setDepositFixedFee(ethers.parseEther("0.5")))
         .to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_NotWhitelistedAdmin");
     });
 
@@ -229,17 +211,18 @@ describe("IntuitionFeeProxy", function () {
   });
 
   describe("Proxy Functions - createAtoms", function () {
-    it("Should collect fees on createAtoms", async function () {
+    it("Should collect fees on createAtoms (fees based on deposits)", async function () {
       const { proxy, mockMultiVault, user } = await loadFixture(deployFixture);
 
       const data = [ethers.toUtf8Bytes("ipfs://atom1"), ethers.toUtf8Bytes("ipfs://atom2")];
       const assets = [ethers.parseEther("0.01"), ethers.parseEther("0.01")];
       const curveId = 1n;
 
-      const fee = await proxy.calculateCreationFee(2n);
       const atomCost = await mockMultiVault.getAtomCost();
-      const totalAssets = ethers.parseEther("0.02");
-      const multiVaultCost = (atomCost * 2n) + totalAssets;
+      const totalDeposit = ethers.parseEther("0.02");
+      const depositCount = 2n; // Both have non-zero deposits
+      const fee = await proxy.calculateDepositFee(depositCount, totalDeposit);
+      const multiVaultCost = (atomCost * 2n) + totalDeposit;
       const totalRequired = fee + multiVaultCost;
 
       const initialBalance = await ethers.provider.getBalance(FEE_RECIPIENT);
@@ -250,6 +233,26 @@ describe("IntuitionFeeProxy", function () {
 
       const finalBalance = await ethers.provider.getBalance(FEE_RECIPIENT);
       expect(finalBalance - initialBalance).to.equal(fee);
+    });
+
+    it("Should not charge fees for zero deposits in createAtoms", async function () {
+      const { proxy, mockMultiVault, user } = await loadFixture(deployFixture);
+
+      const data = [ethers.toUtf8Bytes("ipfs://atom1"), ethers.toUtf8Bytes("ipfs://atom2")];
+      const assets = [0n, 0n]; // No deposits
+      const curveId = 1n;
+
+      const atomCost = await mockMultiVault.getAtomCost();
+      const fee = 0n; // No deposits = no fee
+      const multiVaultCost = atomCost * 2n;
+      const totalRequired = fee + multiVaultCost;
+
+      const initialBalance = await ethers.provider.getBalance(FEE_RECIPIENT);
+
+      await proxy.connect(user).createAtoms(user.address, data, assets, curveId, { value: totalRequired });
+
+      const finalBalance = await ethers.provider.getBalance(FEE_RECIPIENT);
+      expect(finalBalance - initialBalance).to.equal(0n);
     });
 
     it("Should revert on insufficient value for createAtoms", async function () {
@@ -266,7 +269,7 @@ describe("IntuitionFeeProxy", function () {
   });
 
   describe("Proxy Functions - createTriples", function () {
-    it("Should collect fees on createTriples", async function () {
+    it("Should collect fees on createTriples (fees based on deposits)", async function () {
       const { proxy, mockMultiVault, user } = await loadFixture(deployFixture);
 
       const subjectIds = [ethers.zeroPadValue("0x01", 32)];
@@ -275,10 +278,11 @@ describe("IntuitionFeeProxy", function () {
       const assets = [ethers.parseEther("0.01")];
       const curveId = 1n;
 
-      const fee = await proxy.calculateCreationFee(1n);
       const tripleCost = await mockMultiVault.getTripleCost();
-      const totalAssets = ethers.parseEther("0.01");
-      const multiVaultCost = tripleCost + totalAssets;
+      const totalDeposit = ethers.parseEther("0.01");
+      const depositCount = 1n;
+      const fee = await proxy.calculateDepositFee(depositCount, totalDeposit);
+      const multiVaultCost = tripleCost + totalDeposit;
       const totalRequired = fee + multiVaultCost;
 
       const initialBalance = await ethers.provider.getBalance(FEE_RECIPIENT);
@@ -322,14 +326,14 @@ describe("IntuitionFeeProxy", function () {
 
       const finalBalance = await ethers.provider.getBalance(FEE_RECIPIENT);
       const collectedFee = finalBalance - initialBalance;
-      const expectedFee = await proxy.calculateDepositFee(desiredDepositAmount);
+      const expectedFee = await proxy.calculateDepositFee(1n, desiredDepositAmount);
       expect(collectedFee).to.be.closeTo(expectedFee, 1);
     });
 
     it("Should calculate multiVaultAmount correctly", async function () {
       const { proxy } = await loadFixture(deployFixture);
 
-      const totalSent = ethers.parseEther("10.3");
+      const totalSent = ethers.parseEther("10.6"); // 10 + 0.1 fixed + 0.5 (5% of 10)
       const multiVaultAmount = await proxy.getMultiVaultAmountFromValue(totalSent);
 
       expect(multiVaultAmount).to.be.closeTo(ethers.parseEther("10"), ethers.parseEther("0.001"));
@@ -367,7 +371,7 @@ describe("IntuitionFeeProxy", function () {
       const minShares = [0n, 0n];
 
       const totalDeposit = ethers.parseEther("10");
-      const fee = (DEPOSIT_FEE * 2n) + ((totalDeposit * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR);
+      const fee = await proxy.calculateDepositFee(2n, totalDeposit);
       const totalRequired = totalDeposit + fee;
 
       const initialBalance = await ethers.provider.getBalance(FEE_RECIPIENT);
