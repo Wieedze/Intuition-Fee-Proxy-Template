@@ -1,0 +1,35 @@
+# Build artifacts
+cache/
+artifacts/
+out/
+typechain-types/
+
+# Ignores development broadcast logs
+!/broadcast
+/broadcast/*/31337/
+/broadcast/**/dry-run/
+
+# Docs
+docs/
+
+# Dotenv file
+.env
+
+# Coverage
+lcov.info
+coverage/
+
+# Node modules
+node_modules/
+package-lock.json
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Foundry cache
+forge-cache/
