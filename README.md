@@ -20,7 +20,6 @@ All fees are applied **per deposit** (added on top of the deposit amount):
 
 Fees apply to:
 - `deposit()` - direct deposits
-- `createAtoms()` - deposits made during atom creation
 - `createTriples()` - deposits made during triple creation
 - `depositBatch()` - batch deposits
 
