@@ -30,7 +30,7 @@ const config: HardhatUserConfig = {
       accounts: [PRIVATE_KEY],
     },
     // Intuition Testnet
-    "intuition-testnet": {
+    intuitionTestnet: {
       url: process.env.INTUITION_TESTNET_RPC_URL || "https://testnet.rpc.intuition.systems",
       chainId: 13579,
       accounts: [PRIVATE_KEY],
@@ -39,7 +39,7 @@ const config: HardhatUserConfig = {
   etherscan: {
     apiKey: {
       intuition: "no-api-key-needed",
-      "intuition-testnet": "no-api-key-needed",
+      intuitionTestnet: "no-api-key-needed",
     },
     customChains: [
       {
@@ -51,7 +51,7 @@ const config: HardhatUserConfig = {
         },
       },
       {
-        network: "intuition-testnet",
+        network: intuitionTestnet,
         chainId: 13579,
         urls: {
           apiURL: "https://testnet.explorer.intuition.systems/api",
