@@ -69,7 +69,7 @@ describe("IntuitionFeeProxyFactory", function () {
 
       // Extract proxy address from the event
       const log = receipt!.logs.find(
-        (l) => "fragment" in l && (l as any).fragment?.name === "ProxyCreated"
+        (l: any) => "fragment" in l && l.fragment?.name === "ProxyCreated"
       ) as any;
       expect(log, "ProxyCreated event not found").to.exist;
       const proxyAddr: string = log.args.proxy;
@@ -133,7 +133,7 @@ describe("IntuitionFeeProxyFactory", function () {
         .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address]);
       const receipt = await tx.wait();
       const log = receipt!.logs.find(
-        (l) => "fragment" in l && (l as any).fragment?.name === "ProxyCreated"
+        (l: any) => "fragment" in l && l.fragment?.name === "ProxyCreated"
       ) as any;
       const proxy = (await ethers.getContractAt(
         "IntuitionFeeProxyV2",
@@ -195,7 +195,7 @@ describe("IntuitionFeeProxyFactory", function () {
         .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address]);
       const receipt = await tx.wait();
       const log = receipt!.logs.find(
-        (l) => "fragment" in l && (l as any).fragment?.name === "ProxyCreated"
+        (l: any) => "fragment" in l && l.fragment?.name === "ProxyCreated"
       ) as any;
       const existingProxyAddr: string = log.args.proxy;
 
@@ -214,7 +214,7 @@ describe("IntuitionFeeProxyFactory", function () {
         .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address]);
       const r2 = await tx2.wait();
       const log2 = r2!.logs.find(
-        (l) => "fragment" in l && (l as any).fragment?.name === "ProxyCreated"
+        (l: any) => "fragment" in l && l.fragment?.name === "ProxyCreated"
       ) as any;
       const freshAddr: string = log2.args.proxy;
       const fresh = await ethers.getContractAt("IntuitionFeeProxyV3Mock", freshAddr);
