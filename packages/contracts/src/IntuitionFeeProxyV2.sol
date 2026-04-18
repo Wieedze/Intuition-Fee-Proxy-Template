@@ -3,7 +3,9 @@ pragma solidity ^0.8.21;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+// OZ v5.5+ removed `ReentrancyGuardUpgradeable` because `ReentrancyGuard` now uses
+// ERC-7201 namespaced storage and is proxy-safe out of the box.
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IEthMultiVault} from "./interfaces/IEthMultiVault.sol";
 import {IIntuitionFeeProxyV2} from "./interfaces/IIntuitionFeeProxyV2.sol";
@@ -21,7 +23,7 @@ contract IntuitionFeeProxyV2 is
     IIntuitionFeeProxyV2,
     Initializable,
     UUPSUpgradeable,
-    ReentrancyGuardUpgradeable
+    ReentrancyGuard
 {
     // ============ Constants ============
 
@@ -105,8 +107,8 @@ contract IntuitionFeeProxyV2 is
             revert Errors.IntuitionFeeProxy_NoAdminsProvided();
         }
 
-        __UUPSUpgradeable_init();
-        __ReentrancyGuard_init();
+        // OZ v5: UUPSUpgradeable is stateless (uses immutable __self) and
+        // ReentrancyGuard uses ERC-7201 namespaced storage — no initializers needed.
 
         _ethMultiVault = IEthMultiVault(ethMultiVault_);
         depositFixedFee = depositFixedFee_;
