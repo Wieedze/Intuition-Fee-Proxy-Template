@@ -1,19 +1,19 @@
 # Build artifacts
-cache/
-artifacts/
-out/
-typechain-types/
+**/cache/
+**/artifacts/
+**/out/
+**/typechain-types/
+**/dist/
+**/.next/
 
 # Ignores development broadcast logs
 !/broadcast
 /broadcast/*/31337/
 /broadcast/**/dry-run/
 
-# Docs
-docs/
-
 # Dotenv file
 .env
+.env.local
 
 # Coverage
 lcov.info
@@ -22,6 +22,10 @@ coverage/
 # Node modules
 node_modules/
 package-lock.json
+yarn.lock
+
+# Bun
+.bun/
 
 # IDE
 .idea/
@@ -33,3 +37,6 @@ Thumbs.db
 
 # Foundry cache
 forge-cache/
+
+# Auto-synced ABIs
+packages/sdk/src/abis/*.json
