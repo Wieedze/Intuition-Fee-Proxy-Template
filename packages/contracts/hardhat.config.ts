@@ -51,7 +51,7 @@ const config: HardhatUserConfig = {
         },
       },
       {
-        network: intuitionTestnet,
+        network: "intuitionTestnet",
         chainId: 13579,
         urls: {
           apiURL: "https://testnet.explorer.intuition.systems/api",
