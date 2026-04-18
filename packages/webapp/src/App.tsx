@@ -1,10 +1,19 @@
+import { Route, Routes } from 'react-router-dom'
+import Layout from './components/Layout'
+import HomePage from './pages/Home'
+import DeployPage from './pages/Deploy'
+import MyProxiesPage from './pages/MyProxies'
+import ProxyDetailPage from './pages/ProxyDetail'
+
 export default function App() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-3xl font-bold">Intuition Fee Proxy Factory</h1>
-        <p className="mt-2 text-gray-600">Webapp scaffolding — contracts & UI coming soon</p>
-      </div>
-    </div>
+    <Routes>
+      <Route element={<Layout />}>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/deploy" element={<DeployPage />} />
+        <Route path="/my-proxies" element={<MyProxiesPage />} />
+        <Route path="/proxy/:address" element={<ProxyDetailPage />} />
+      </Route>
+    </Routes>
   )
 }
