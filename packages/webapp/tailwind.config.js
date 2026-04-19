@@ -31,11 +31,17 @@ export default {
       },
       animation: {
         'fade-in': 'fade-in 0.4s ease-out',
+        'proxy-wheel': 'proxy-wheel 9s cubic-bezier(0.65, 0, 0.35, 1) infinite',
       },
       keyframes: {
         'fade-in': {
           '0%': { opacity: '0', transform: 'translateY(4px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        'proxy-wheel': {
+          '0%, 42%': { transform: 'translate3d(0, 0%, 0)' },
+          '50%, 92%': { transform: 'translate3d(0, -33.3333%, 0)' },
+          '100%': { transform: 'translate3d(0, -66.6667%, 0)' },
         },
       },
     },
