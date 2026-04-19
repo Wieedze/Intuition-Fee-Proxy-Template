@@ -14,13 +14,26 @@ export const intuitionTestnet = defineChain({
   rpcUrls: { default: { http: [...INTUITION_TESTNET.rpcUrls.default.http] } },
 })
 
+/** Local Hardhat node for dev. Enabled automatically when DEV. */
+export const hardhatLocal = defineChain({
+  id: 31337,
+  name: 'Hardhat (local)',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: ['http://127.0.0.1:8545'] } },
+  testnet: true,
+})
+
 const projectId =
   (import.meta.env.VITE_WALLETCONNECT_PROJECT_ID as string | undefined) ??
   'dev-placeholder-project-id'
 
+const chains = import.meta.env.DEV
+  ? ([intuitionMainnet, intuitionTestnet, hardhatLocal] as const)
+  : ([intuitionMainnet, intuitionTestnet] as const)
+
 export const wagmiConfig = getDefaultConfig({
   appName: 'Intuition Fee Proxy Factory',
   projectId,
-  chains: [intuitionMainnet, intuitionTestnet],
+  chains,
   ssr: false,
 })
