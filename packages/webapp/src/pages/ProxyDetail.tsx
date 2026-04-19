@@ -13,10 +13,13 @@ import {
 import { useAccount, useBlockNumber, useWaitForTransactionReceipt } from 'wagmi'
 
 import {
+  useAdmins,
   useIsAdmin,
+  useProxyChannel,
   useProxyMetrics,
   useProxyStats,
   useSetFees,
+  useSetWhitelistedAdmin,
   useWithdraw,
   type ProxyMetrics,
 } from '../hooks/useProxy'
@@ -27,9 +30,19 @@ import {
   useSetDefaultVersion,
   useSetProxyName,
 } from '../hooks/useVersionedProxy'
+import {
+  useClaimLimits,
+  useClaimStatus,
+  useCreditUser,
+  useSetClaimLimits,
+  useSponsoredMetrics,
+  useSponsoredPool,
+  useUncreditUser,
+  useUserCredit,
+} from '../hooks/useSponsoredProxy'
 import Address from '../components/Address'
 
-type TabId = 'overview' | 'metrics'
+type TabId = 'overview' | 'metrics' | 'admins' | 'sponsoring'
 
 export default function ProxyDetailPage() {
   const { address: proxyParam } = useParams()
@@ -44,6 +57,7 @@ export default function ProxyDetailPage() {
     useProxyMetrics(proxy)
   const { name, unsupported: nameUnsupported, refetch: refetchName } =
     useProxyName(proxy)
+  const { channel } = useProxyChannel(proxy)
   const isProxyAdmin =
     account && proxyAdmin && account.toLowerCase() === proxyAdmin.toLowerCase()
 
@@ -86,7 +100,7 @@ export default function ProxyDetailPage() {
         )}
       </header>
 
-      <Tabs active={tab} onChange={setTab} />
+      <Tabs active={tab} onChange={setTab} isSponsored={channel === 'sponsored'} />
 
       {isLoading && (
         <div className="grid gap-4 sm:grid-cols-3">
@@ -140,6 +154,14 @@ export default function ProxyDetailPage() {
           unsupported={Boolean(metricsUnsupported)}
         />
       )}
+
+      {tab === 'admins' && (
+        <AdminsPanel proxy={proxy} connectedAccount={account} />
+      )}
+
+      {tab === 'sponsoring' && channel === 'sponsored' && (
+        <SponsoringPanel proxy={proxy} isAdmin={isAdmin} />
+      )}
     </div>
   )
 }
@@ -147,13 +169,17 @@ export default function ProxyDetailPage() {
 function Tabs({
   active,
   onChange,
+  isSponsored,
 }: {
   active: TabId
   onChange: (t: TabId) => void
+  isSponsored: boolean
 }) {
   const items: { id: TabId; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'metrics', label: 'Metrics' },
+    { id: 'admins', label: 'Admins' },
+    ...(isSponsored ? [{ id: 'sponsoring' as TabId, label: 'Sponsoring' }] : []),
   ]
   return (
     <div className="flex items-center gap-6 border-b border-line">
@@ -829,5 +855,559 @@ function RenameButton({
         </span>
       )}
     </div>
+  )
+}
+
+// ============ Admins tab ============
+
+function AdminsPanel({
+  proxy,
+  connectedAccount,
+}: {
+  proxy: Address
+  connectedAccount: Address | undefined
+}) {
+  const { admins, isLoading, error, refetch } = useAdmins(proxy)
+  const { isAdmin: connectedIsAdmin } = useIsAdmin(proxy, connectedAccount)
+  const { setAdmin, hash, isPending, error: writeError, reset } = useSetWhitelistedAdmin(proxy)
+  const receipt = useWaitForTransactionReceipt({ hash })
+  const [addDraft, setAddDraft] = useState('')
+
+  useEffect(() => {
+    if (receipt.isSuccess) {
+      refetch()
+      reset()
+      setAddDraft('')
+    }
+  }, [hash, receipt.isSuccess])
+
+  const addValid = isAddress(addDraft) && !admins.some((a) => a.toLowerCase() === addDraft.toLowerCase())
+
+  async function onAdd() {
+    if (!addValid) return
+    try {
+      await setAdmin(addDraft as Address, true)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  async function onRevoke(addr: Address) {
+    try {
+      await setAdmin(addr, false)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  return (
+    <section className="space-y-6">
+      <div>
+        <h2 className="text-sm font-medium uppercase tracking-wider text-subtle">
+          Whitelisted admins
+        </h2>
+        <p className="mt-1 text-sm text-muted">
+          Admins can withdraw accumulated fees, change fee settings, add /
+          revoke other admins, and on sponsored proxies fund user credit + set
+          claim limits. Reconstructed from on-chain events.
+        </p>
+      </div>
+
+      {isLoading && (
+        <div className="space-y-2">
+          <div className="skeleton h-12 w-full" />
+          <div className="skeleton h-12 w-full" />
+        </div>
+      )}
+
+      {error && (
+        <p className="text-sm font-mono text-rose-400">
+          Failed to load admins: {error.message.split('\n')[0]}
+        </p>
+      )}
+
+      {!isLoading && admins.length > 0 && (
+        <ul className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
+          {admins.map((addr) => {
+            const isSelf =
+              connectedAccount && addr.toLowerCase() === connectedAccount.toLowerCase()
+            const isLastAdmin = admins.length === 1
+            const canRevoke =
+              connectedIsAdmin && !(isSelf && isLastAdmin)
+            return (
+              <li
+                key={addr}
+                className="flex items-center justify-between gap-3 px-5 py-3 flex-wrap"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <Address value={addr} variant="short" />
+                  {isSelf && (
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-subtle border border-line rounded px-1.5 py-0.5">
+                      you
+                    </span>
+                  )}
+                </div>
+                {canRevoke && (
+                  <button
+                    type="button"
+                    onClick={() => onRevoke(addr)}
+                    disabled={isPending || receipt.isLoading}
+                    className="text-xs text-muted hover:text-rose-400 transition-colors"
+                  >
+                    Revoke
+                  </button>
+                )}
+                {isSelf && isLastAdmin && (
+                  <span className="text-[11px] text-subtle">
+                    Last admin — cannot self-revoke
+                  </span>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {connectedIsAdmin ? (
+        <div className="rounded-xl border border-line bg-surface p-5 space-y-3">
+          <div>
+            <div className="text-sm font-medium text-ink">Add an admin</div>
+            <div className="text-xs text-subtle">
+              Use a Safe or multisig address for production deployments — adding
+              an EOA concentrates trust.
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              value={addDraft}
+              onChange={(e) => setAddDraft(e.target.value)}
+              placeholder="0x…"
+              className="input font-mono text-xs flex-1 min-w-[260px]"
+            />
+            <button
+              type="button"
+              onClick={onAdd}
+              disabled={!addValid || isPending || receipt.isLoading}
+              className="btn-primary text-xs px-4 py-2"
+            >
+              {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Add admin'}
+            </button>
+          </div>
+          {addDraft && !isAddress(addDraft) && (
+            <p className="text-xs text-rose-400">Invalid address.</p>
+          )}
+          {addDraft && isAddress(addDraft) && !addValid && (
+            <p className="text-xs text-subtle">Already an admin.</p>
+          )}
+          {writeError && (
+            <p className="text-xs text-rose-400 font-mono">
+              {writeError.message.split('\n')[0]}
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-subtle border-l-2 border-line pl-3">
+          Connect as a whitelisted admin to add or revoke admins.
+        </p>
+      )}
+    </section>
+  )
+}
+
+// ============ Sponsoring tab ============
+
+function SponsoringPanel({
+  proxy,
+  isAdmin,
+}: {
+  proxy: Address
+  isAdmin: boolean
+}) {
+  const { limits, refetch: refetchLimits } = useClaimLimits(proxy)
+  const { pool, refetch: refetchPool } = useSponsoredPool(proxy)
+  const { metrics: sMetrics, refetch: refetchMetrics } = useSponsoredMetrics(proxy)
+
+  function onWriteDone() {
+    refetchLimits()
+    refetchPool()
+    refetchMetrics()
+  }
+
+  return (
+    <section className="space-y-10">
+      <div>
+        <h2 className="text-sm font-medium uppercase tracking-wider text-subtle">
+          Sponsoring
+        </h2>
+        <p className="mt-1 text-sm text-muted max-w-2xl">
+          This proxy runs a sponsored-channel implementation. Whitelisted admins
+          fund per-user credit that regular users then draw from via{' '}
+          <code className="font-mono text-ink">deposit</code> /{' '}
+          <code className="font-mono text-ink">createAtoms</code> with reduced
+          or zero <code className="font-mono text-ink">msg.value</code>. Rate
+          limits protect the pool.
+        </p>
+      </div>
+
+      <section className="grid gap-4 sm:grid-cols-3">
+        <Stat
+          label="Credit pool"
+          value={
+            pool ? `${formatEther(pool.totalSponsoredCredit)} TRUST` : '—'
+          }
+          emphasize
+        />
+        <Stat
+          label="Sponsored deposits"
+          value={sMetrics ? sMetrics.sponsoredDeposits.toString() : '—'}
+        />
+        <Stat
+          label="Unique receivers"
+          value={sMetrics ? sMetrics.uniqueSponsoredReceivers.toString() : '—'}
+        />
+        <Stat
+          label="Sponsored volume"
+          value={
+            sMetrics ? `${formatEther(sMetrics.sponsoredVolume)} TRUST` : '—'
+          }
+        />
+        <Stat
+          label="Max claim / tx"
+          value={limits ? `${formatEther(limits.maxClaimPerTx)} TRUST` : '—'}
+        />
+        <Stat
+          label="Max claims / day"
+          value={limits ? limits.maxClaimsPerDay.toString() : '—'}
+        />
+      </section>
+
+      {isAdmin ? (
+        <>
+          <CreditUserPanel proxy={proxy} onDone={onWriteDone} />
+          <UncreditUserPanel proxy={proxy} onDone={onWriteDone} />
+          <ClaimLimitsPanel proxy={proxy} current={limits} onDone={onWriteDone} />
+        </>
+      ) : (
+        <p className="text-sm text-subtle border-l-2 border-line pl-3">
+          Connect as a whitelisted admin to fund credit, reclaim, or change
+          claim limits.
+        </p>
+      )}
+    </section>
+  )
+}
+
+function CreditUserPanel({
+  proxy,
+  onDone,
+}: {
+  proxy: Address
+  onDone: () => void
+}) {
+  const [user, setUser] = useState('')
+  const [amount, setAmount] = useState('')
+  const { credit: creditUser, hash, isPending, error, reset } = useCreditUser(proxy)
+  const receipt = useWaitForTransactionReceipt({ hash })
+
+  const { credit: currentCredit } = useUserCredit(
+    proxy,
+    user && isAddress(user) ? (user as Address) : undefined,
+  )
+
+  useEffect(() => {
+    if (receipt.isSuccess) {
+      onDone()
+      setUser('')
+      setAmount('')
+      reset()
+    }
+  }, [hash, receipt.isSuccess])
+
+  const userValid = isAddress(user)
+  const amountValid = amount !== '' && Number(amount) > 0
+
+  async function onSubmit() {
+    if (!userValid || !amountValid) return
+    try {
+      await creditUser(user as Address, parseEther(amount))
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  return (
+    <section className="card space-y-4">
+      <div>
+        <h3 className="font-semibold">Credit a user</h3>
+        <p className="text-xs text-subtle">
+          Fund a user&apos;s sponsored credit with TRUST from your wallet.
+          They&apos;ll be able to deposit / create with reduced msg.value until
+          the credit is spent or reclaimed.
+        </p>
+      </div>
+
+      <label className="block space-y-1">
+        <div className="text-xs text-muted">User address</div>
+        <input
+          value={user}
+          onChange={(e) => setUser(e.target.value)}
+          placeholder="0x…"
+          className="input font-mono text-xs"
+        />
+        {user && userValid && currentCredit !== undefined && (
+          <div className="text-xs text-subtle mt-1">
+            Current credit: {formatEther(currentCredit)} TRUST
+          </div>
+        )}
+      </label>
+
+      <label className="block space-y-1">
+        <div className="text-xs text-muted">Amount (TRUST)</div>
+        <input
+          type="number"
+          step="any"
+          min="0"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="1.0"
+          className="input"
+        />
+      </label>
+
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={
+          !userValid || !amountValid || isPending || receipt.isLoading
+        }
+        className="btn-primary"
+      >
+        {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Credit user'}
+      </button>
+
+      {error && (
+        <p className="text-xs text-rose-400 font-mono">
+          {error.message.split('\n')[0]}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function UncreditUserPanel({
+  proxy,
+  onDone,
+}: {
+  proxy: Address
+  onDone: () => void
+}) {
+  const [user, setUser] = useState('')
+  const [amount, setAmount] = useState('')
+  const [to, setTo] = useState('')
+  const { uncredit, hash, isPending, error, reset } = useUncreditUser(proxy)
+  const receipt = useWaitForTransactionReceipt({ hash })
+
+  const { credit: userCredit } = useUserCredit(
+    proxy,
+    user && isAddress(user) ? (user as Address) : undefined,
+  )
+
+  useEffect(() => {
+    if (receipt.isSuccess) {
+      onDone()
+      setAmount('')
+      reset()
+    }
+  }, [hash, receipt.isSuccess])
+
+  const userValid = isAddress(user)
+  const toValid = isAddress(to)
+  const amountValid = amount !== '' && Number(amount) > 0
+
+  async function onSubmit() {
+    if (!userValid || !toValid || !amountValid) return
+    try {
+      await uncredit(user as Address, parseEther(amount), to as Address)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  return (
+    <section className="card space-y-4">
+      <div>
+        <h3 className="font-semibold">Reclaim user credit</h3>
+        <p className="text-xs text-subtle">
+          Pull back a user&apos;s unspent credit. Funds are sent to the
+          recipient address you choose (your treasury, a Safe, etc).
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block space-y-1">
+          <div className="text-xs text-muted">User</div>
+          <input
+            value={user}
+            onChange={(e) => setUser(e.target.value)}
+            placeholder="0x…"
+            className="input font-mono text-xs"
+          />
+          {user && userValid && userCredit !== undefined && (
+            <div className="text-xs text-subtle mt-1">
+              Available: {formatEther(userCredit)} TRUST
+            </div>
+          )}
+        </label>
+        <label className="block space-y-1">
+          <div className="text-xs text-muted">Recipient</div>
+          <input
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="0x…"
+            className="input font-mono text-xs"
+          />
+        </label>
+      </div>
+
+      <label className="block space-y-1">
+        <div className="text-xs text-muted">Amount (TRUST)</div>
+        <input
+          type="number"
+          step="any"
+          min="0"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="0.5"
+          className="input"
+        />
+      </label>
+
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={
+          !userValid ||
+          !toValid ||
+          !amountValid ||
+          isPending ||
+          receipt.isLoading
+        }
+        className="btn-primary"
+      >
+        {isPending
+          ? 'Sign…'
+          : receipt.isLoading
+            ? 'Mining…'
+            : 'Reclaim credit'}
+      </button>
+
+      {error && (
+        <p className="text-xs text-rose-400 font-mono">
+          {error.message.split('\n')[0]}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function ClaimLimitsPanel({
+  proxy,
+  current,
+  onDone,
+}: {
+  proxy: Address
+  current: { maxClaimPerTx: bigint; maxClaimsPerDay: bigint } | undefined
+  onDone: () => void
+}) {
+  const [maxPerTx, setMaxPerTx] = useState('')
+  const [maxPerDay, setMaxPerDay] = useState('')
+  const { setClaimLimits, hash, isPending, error, reset } =
+    useSetClaimLimits(proxy)
+  const receipt = useWaitForTransactionReceipt({ hash })
+
+  useEffect(() => {
+    if (current) {
+      setMaxPerTx(formatEther(current.maxClaimPerTx))
+      setMaxPerDay(current.maxClaimsPerDay.toString())
+    }
+  }, [current?.maxClaimPerTx, current?.maxClaimsPerDay])
+
+  useEffect(() => {
+    if (receipt.isSuccess) {
+      onDone()
+      reset()
+    }
+  }, [hash, receipt.isSuccess])
+
+  const txValid = Number(maxPerTx) > 0
+  const dayValid = Number.isInteger(Number(maxPerDay)) && Number(maxPerDay) > 0
+
+  async function onSubmit() {
+    if (!txValid || !dayValid) return
+    try {
+      await setClaimLimits(parseEther(maxPerTx), BigInt(maxPerDay))
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  return (
+    <section className="card space-y-4">
+      <div>
+        <h3 className="font-semibold">Claim limits</h3>
+        <p className="text-xs text-subtle">
+          Safeguards against drain / spam. Both must stay &gt; 0 — there is no
+          &ldquo;unlimited&rdquo; mode.
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block space-y-1">
+          <div className="text-xs text-muted">Max claim per tx (TRUST)</div>
+          <input
+            type="number"
+            step="any"
+            min="0"
+            value={maxPerTx}
+            onChange={(e) => setMaxPerTx(e.target.value)}
+            className="input"
+          />
+          {!txValid && <p className="text-xs text-rose-400 mt-1">Must be &gt; 0.</p>}
+        </label>
+        <label className="block space-y-1">
+          <div className="text-xs text-muted">Max claims per 24h window</div>
+          <input
+            type="number"
+            step="1"
+            min="1"
+            value={maxPerDay}
+            onChange={(e) => setMaxPerDay(e.target.value)}
+            className="input"
+          />
+          {!dayValid && (
+            <p className="text-xs text-rose-400 mt-1">Integer &gt; 0.</p>
+          )}
+        </label>
+      </div>
+
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={!txValid || !dayValid || isPending || receipt.isLoading}
+        className="btn-primary"
+      >
+        {isPending
+          ? 'Sign…'
+          : receipt.isLoading
+            ? 'Mining…'
+            : 'Update limits'}
+      </button>
+
+      {error && (
+        <p className="text-xs text-rose-400 font-mono">
+          {error.message.split('\n')[0]}
+        </p>
+      )}
+    </section>
   )
 }
