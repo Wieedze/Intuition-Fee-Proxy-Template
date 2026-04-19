@@ -63,7 +63,7 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
         address initialImpl,
         bytes memory initData,
         bytes32 initialName
-    ) payable {
+    ) {
         if (admin == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
         if (initialVersion == bytes32(0)) revert Errors.VersionedFeeProxy_InvalidVersion();
         if (initialImpl == address(0) || initialImpl.code.length == 0) {
