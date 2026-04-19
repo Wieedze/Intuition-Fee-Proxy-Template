@@ -2,6 +2,14 @@
 
 Features discutées pendant la planification V2 mais déplacées hors scope pour rester bounty-compliant. À considérer pour V2.1+.
 
+## Status update (2026-04-19)
+
+Intégré directement dans V2 après coup (hors scope initial mais utile) :
+
+- ✅ **Metrics on-chain agrégées** — baked into V2 : `totalAtomsCreated`, `totalTriplesCreated`, `totalDeposits`, `totalVolume`, `totalUniqueUsers`, `lastActivityBlock`. Event `MetricsUpdated` émis à chaque call write-path. Backend on-chain prêt pour un dashboard — il reste la viz front à construire (voir "Dashboard multi-instance" plus bas).
+
+Tout le reste ci-dessous est toujours V2.1+ / V3.
+
 ## V2.1 — Sécurité renforcée
 
 ### TimelockController sur les upgrades (48h delay)
