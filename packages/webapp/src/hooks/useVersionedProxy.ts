@@ -1,5 +1,5 @@
 import { useReadContract, useReadContracts, useWriteContract } from 'wagmi'
-import type { Address, Hex } from 'viem'
+import { hexToString, stringToHex, type Address, type Hex } from 'viem'
 
 import { IntuitionVersionedFeeProxyABI } from '@intuition-fee-proxy/sdk'
 
@@ -67,4 +67,47 @@ export function useSetDefaultVersion(proxy: Address | undefined) {
   }
 
   return { setDefault, hash: data, isPending, error, reset }
+}
+
+/** Read the proxy's human-readable name (bytes32, decoded to string). */
+export function useProxyName(proxy: Address | undefined) {
+  const result = useReadContract({
+    abi,
+    address: proxy,
+    functionName: 'getName',
+    query: { enabled: Boolean(proxy) },
+  })
+
+  const raw = result.data as Hex | undefined
+  const name = (() => {
+    if (!raw) return ''
+    try {
+      return hexToString(raw, { size: 32 }).replace(/\0+$/, '')
+    } catch {
+      return ''
+    }
+  })()
+
+  const unsupported = Boolean(result.error)
+
+  return { ...result, name, unsupported }
+}
+
+export function useSetProxyName(proxy: Address | undefined) {
+  const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
+
+  function setName(newName: string) {
+    if (!proxy) throw new Error('Proxy address missing')
+    const bytes: Hex = newName
+      ? stringToHex(newName, { size: 32 })
+      : '0x0000000000000000000000000000000000000000000000000000000000000000'
+    return writeContractAsync({
+      abi,
+      address: proxy,
+      functionName: 'setName',
+      args: [bytes],
+    })
+  }
+
+  return { setName, hash: data, isPending, error, reset }
 }

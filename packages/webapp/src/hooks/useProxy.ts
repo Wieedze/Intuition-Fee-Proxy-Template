@@ -44,6 +44,54 @@ export function useProxyStats(proxy: Address | undefined) {
   return { ...result, stats }
 }
 
+export type ProxyMetrics = {
+  totalAtomsCreated: bigint
+  totalTriplesCreated: bigint
+  totalDeposits: bigint
+  totalVolume: bigint
+  totalUniqueUsers: bigint
+  lastActivityBlock: bigint
+}
+
+/** Read the aggregate on-chain metrics from the proxy. */
+export function useProxyMetrics(proxy: Address | undefined) {
+  const result = useReadContracts({
+    contracts: [
+      { abi, address: proxy, functionName: 'getMetrics' },
+    ],
+    allowFailure: true,
+    query: { enabled: Boolean(proxy) },
+  })
+
+  const entry = result.data?.[0]
+  const ok = entry && entry.status === 'success'
+  const raw = ok
+    ? (entry.result as {
+        totalAtomsCreated: bigint
+        totalTriplesCreated: bigint
+        totalDeposits: bigint
+        totalVolume: bigint
+        totalUniqueUsers: bigint
+        lastActivityBlock: bigint
+      })
+    : undefined
+
+  const metrics: ProxyMetrics | undefined = raw
+    ? {
+        totalAtomsCreated: raw.totalAtomsCreated,
+        totalTriplesCreated: raw.totalTriplesCreated,
+        totalDeposits: raw.totalDeposits,
+        totalVolume: raw.totalVolume,
+        totalUniqueUsers: raw.totalUniqueUsers,
+        lastActivityBlock: raw.lastActivityBlock,
+      }
+    : undefined
+
+  const unsupported = entry && entry.status === 'failure'
+
+  return { ...result, metrics, unsupported }
+}
+
 /** Check whether an address is a whitelisted admin on the given proxy. */
 export function useIsAdmin(proxy: Address | undefined, account: Address | undefined) {
   const result = useReadContracts({

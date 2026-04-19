@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useAccount, useChainId, useReadContract, useWriteContract } from 'wagmi'
-import type { Address } from 'viem'
+import { stringToHex, type Address, type Hex } from 'viem'
 
 import { IntuitionFeeProxyFactoryABI } from '@intuition-fee-proxy/sdk'
 import { addressesFor, networkFor } from '../lib/addresses'
@@ -23,8 +23,12 @@ export function useDeployProxy() {
     depositFixedFee: bigint
     depositPercentageFee: bigint
     admins: Address[]
+    name?: string
   }) {
     if (!factory) throw new Error('Factory address not configured for this network')
+    const nameBytes: Hex = params.name
+      ? stringToHex(params.name, { size: 32 })
+      : '0x0000000000000000000000000000000000000000000000000000000000000000'
     return writeContractAsync({
       abi: IntuitionFeeProxyFactoryABI as any,
       address: factory,
@@ -34,6 +38,7 @@ export function useDeployProxy() {
         params.depositFixedFee,
         params.depositPercentageFee,
         params.admins,
+        nameBytes,
       ],
     })
   }

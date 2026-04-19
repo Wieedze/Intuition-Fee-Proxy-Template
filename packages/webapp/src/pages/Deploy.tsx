@@ -17,6 +17,7 @@ export default function DeployPage() {
 
   const defaultMV = MULTIVAULT_ADDRESSES[network]
 
+  const [name, setName] = useState<string>('')
   const [ethMultiVault, setEthMultiVault] = useState<string>(defaultMV)
   const [fixedFeeEth, setFixedFeeEth] = useState<string>('0.1')
   const [percentageBps, setPercentageBps] = useState<string>('500')
@@ -37,8 +38,10 @@ export default function DeployPage() {
     return Number.isInteger(n) && n >= 0 && n <= Number(FEE_DENOMINATOR)
   })()
   const fixedValid = Number(fixedFeeEth) >= 0
+  const nameValid = new Blob([name]).size <= 32
 
-  const canSubmit = isConnected && factory && adminsValid && mvValid && pctValid && fixedValid
+  const canSubmit =
+    isConnected && factory && adminsValid && mvValid && pctValid && fixedValid && nameValid
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -49,6 +52,7 @@ export default function DeployPage() {
         depositFixedFee: parseEther(fixedFeeEth),
         depositPercentageFee: BigInt(percentageBps),
         admins: admins as Address[],
+        name: name.trim(),
       })
     } catch (err) {
       console.error(err)
@@ -93,6 +97,24 @@ export default function DeployPage() {
       )}
 
       <form onSubmit={onSubmit} className="space-y-5">
+        <Field
+          label="Name (optional)"
+          hint="Human-readable label — max 32 bytes. Editable later by the proxy admin. Leave empty for an unnamed proxy."
+        >
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="input"
+            placeholder="My DAO Fees"
+            maxLength={32}
+          />
+          {!nameValid && (
+            <p className="text-xs text-rose-400 mt-1">
+              Name too long — max 32 bytes (≈ 32 ASCII chars).
+            </p>
+          )}
+        </Field>
+
         <Field
           label="MultiVault address"
           hint="Intuition MultiVault contract this proxy will wrap."
