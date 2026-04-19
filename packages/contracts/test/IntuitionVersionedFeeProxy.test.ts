@@ -368,17 +368,18 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
       ]);
       const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       const NAME = ethers.encodeBytes32String("My DAO Fees");
-      const deployTx = VersionedFactory.deploy(
+      const deployed = await VersionedFactory.deploy(
         proxyAdmin.address,
         V2,
         await implV2.getAddress(),
         initData,
         NAME,
       );
+      await deployed.waitForDeployment();
+      const deployTx = deployed.deploymentTransaction();
       await expect(deployTx)
-        .to.emit(VersionedFactory, "NameChanged")
+        .to.emit(deployed, "NameChanged")
         .withArgs(ethers.ZeroHash, NAME);
-      const deployed = await deployTx;
       const typed = (await ethers.getContractAt(
         "IntuitionVersionedFeeProxy",
         await deployed.getAddress(),

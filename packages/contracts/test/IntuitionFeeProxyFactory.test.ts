@@ -135,6 +135,7 @@ describe("IntuitionFeeProxyFactory (UUPS)", function () {
           DEPOSIT_PERCENTAGE,
           [admin1.address, admin2.address],
           ethers.ZeroHash,
+          0 /* Standard */,
         );
       const receipt = await tx.wait();
 
@@ -181,13 +182,13 @@ describe("IntuitionFeeProxyFactory (UUPS)", function () {
       const { factory, deployerA, deployerB, admin1, mv } = await loadFixture(deployFixture);
       await factory
         .connect(deployerA)
-        .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash);
+        .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash, 0 /* Standard */);
       await factory
         .connect(deployerA)
-        .createProxy(await mv.getAddress(), 0n, 0n, [admin1.address], ethers.ZeroHash);
+        .createProxy(await mv.getAddress(), 0n, 0n, [admin1.address], ethers.ZeroHash, 0 /* Standard */);
       await factory
         .connect(deployerB)
-        .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash);
+        .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash, 0 /* Standard */);
 
       expect(await factory.allProxiesLength()).to.equal(3n);
       expect((await factory.getProxiesByDeployer(deployerA.address)).length).to.equal(2);
@@ -199,7 +200,7 @@ describe("IntuitionFeeProxyFactory (UUPS)", function () {
       await expect(
         factory
           .connect(deployerA)
-          .createProxy(ethers.ZeroAddress, DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash),
+          .createProxy(ethers.ZeroAddress, DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash, 0 /* Standard */),
       ).to.be.revertedWithCustomError(implV2, "IntuitionFeeProxy_InvalidMultiVaultAddress");
     });
 
@@ -207,7 +208,7 @@ describe("IntuitionFeeProxyFactory (UUPS)", function () {
       const { factory, factoryOwner, deployerA, admin1, mv } = await loadFixture(deployFixture);
       const tx = await factory
         .connect(deployerA)
-        .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash);
+        .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash, 0 /* Standard */);
       const receipt = await tx.wait();
       const log = receipt!.logs.find(
         (l: any) => "fragment" in l && l.fragment?.name === "ProxyCreated",
@@ -272,7 +273,7 @@ describe("IntuitionFeeProxyFactory (UUPS)", function () {
       // Deploy one proxy with current impl
       const tx = await factory
         .connect(deployerA)
-        .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash);
+        .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash, 0 /* Standard */);
       const receipt = await tx.wait();
       const log = receipt!.logs.find(
         (l: any) => "fragment" in l && l.fragment?.name === "ProxyCreated",
@@ -297,7 +298,7 @@ describe("IntuitionFeeProxyFactory (UUPS)", function () {
       // Fresh deploy now uses new impl + version
       const tx2 = await factory
         .connect(deployerA)
-        .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash);
+        .createProxy(await mv.getAddress(), DEPOSIT_FEE, DEPOSIT_PERCENTAGE, [admin1.address], ethers.ZeroHash, 0 /* Standard */);
       const r2 = await tx2.wait();
       const log2 = r2!.logs.find(
         (l: any) => "fragment" in l && l.fragment?.name === "ProxyCreated",
@@ -364,6 +365,7 @@ describe("IntuitionFeeProxyFactory (UUPS)", function () {
           DEPOSIT_PERCENTAGE,
           [admin1.address],
           NAME,
+          0 /* Standard */,
         );
       const receipt = await tx.wait();
       const log = receipt!.logs.find(
@@ -388,6 +390,7 @@ describe("IntuitionFeeProxyFactory (UUPS)", function () {
           DEPOSIT_PERCENTAGE,
           [admin1.address],
           NAME,
+          0 /* Standard */,
         );
       const receipt = await (await tx).wait();
       const log = receipt!.logs.find(

@@ -53,6 +53,9 @@ library Errors {
     /// @notice Direct ETH transfer rejected (no `receive()` in V2) — kept for documentation
     error IntuitionFeeProxy_DirectTransferNotAllowed();
 
+    /// @notice Refund of excess `msg.value` to the caller failed
+    error IntuitionFeeProxy_RefundFailed();
+
     // ============ Factory errors ============
 
     /// @notice Factory received an invalid implementation (zero address or not a contract)
@@ -83,4 +86,27 @@ library Errors {
 
     /// @notice Delegatecall into the versioned implementation failed without returndata
     error VersionedFeeProxy_DelegateCallFailed();
+
+    // ============ Sponsored-proxy errors ============
+
+    /// @notice Admin tried to credit / uncredit zero amount
+    error Sponsored_NothingToCredit();
+
+    /// @notice Admin tried to reclaim more credit than the user currently holds
+    error Sponsored_InsufficientClaim();
+
+    /// @notice Refund of unspent credit failed
+    error Sponsored_RefundFailed();
+
+    /// @notice Withdraw would breach the totalSponsoredCredit invariant (balance - amount < totalSponsoredCredit)
+    error Sponsored_WithdrawBreachesCreditInvariant();
+
+    /// @notice `receiver` for a *For function is zero
+    error Sponsored_ZeroReceiver();
+
+    /// @notice User has hit `maxClaimsPerDay` in the current 24h window
+    error Sponsored_RateLimited();
+
+    /// @notice setClaimLimits called with zero max — zero is never "unlimited", it's zero
+    error Sponsored_InvalidLimit();
 }

@@ -22,6 +22,11 @@ contract MockMultiVault is IEthMultiVault {
     uint256 public depositCallCount;
     uint256 public depositBatchCallCount;
 
+    /// @dev Monotonic counter used to mint deterministic atom IDs across calls.
+    ///      Avoids reliance on block.timestamp which made tests flaky when two
+    ///      atoms landed in the same block.
+    uint256 private _atomIdSeq;
+
     // Storage for mock data
     mapping(bytes32 => bool) public termCreated;
     mapping(bytes32 => bytes32) public tripleSubjects;
@@ -44,7 +49,8 @@ contract MockMultiVault is IEthMultiVault {
         atomIds = new bytes32[](data.length);
 
         for (uint256 i = 0; i < data.length; i++) {
-            atomIds[i] = keccak256(abi.encodePacked(data[i], block.timestamp, i));
+            unchecked { ++_atomIdSeq; }
+            atomIds[i] = keccak256(abi.encodePacked(data[i], _atomIdSeq));
             termCreated[atomIds[i]] = true;
         }
 

@@ -45,14 +45,16 @@ async function main() {
   const factory = await ethers.getContractAt("IntuitionFeeProxyFactory", factoryAddr);
 
   // ── 1. Deploy a fresh proxy via the Factory ───────────────────────
-  console.log("\n① createProxy …");
+  console.log("\n① createProxy (Standard channel) …");
   const PROXY_NAME = ethers.encodeBytes32String("E2E demo proxy");
+  const CHANNEL_STANDARD = 0;
   const deployTx = await factory.connect(deployer).createProxy(
     MOCK_MULTIVAULT,
     ethers.parseEther("0.1"),      // 0.1 TRUST fixed fee per deposit
     500n,                           // 5% percentage fee
     [deployer.address],             // initial admin (fee withdrawals)
     PROXY_NAME,                     // human-readable label (bytes32)
+    CHANNEL_STANDARD,               // Standard channel (no sponsoring)
   );
   const deployRc = await deployTx.wait();
   // ProxyCreated(proxy, …) — proxy is the first indexed arg

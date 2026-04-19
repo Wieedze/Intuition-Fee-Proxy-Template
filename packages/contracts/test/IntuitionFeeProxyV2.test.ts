@@ -584,6 +584,102 @@ describe("IntuitionFeeProxyV2", function () {
     });
   });
 
+  // ============ Excess msg.value refund (H-01) ============
+
+  describe("Excess msg.value refund (H-01)", function () {
+    it("createAtoms refunds excess so contract balance == accumulatedFees", async function () {
+      const { proxy, user, mockMultiVault } = await loadFixture(deployFixture);
+      const atomCost = await mockMultiVault.getAtomCost();
+      const data = [ethers.toUtf8Bytes("a")];
+      const assets = [ethers.parseEther("1")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = atomCost + assets[0] + fee;
+      const overpay = ethers.parseEther("0.5");
+
+      await proxy.connect(user).createAtoms(data, assets, 1n, {
+        value: totalRequired + overpay,
+      });
+
+      const accumulated = await proxy.accumulatedFees();
+      const balance = await ethers.provider.getBalance(await proxy.getAddress());
+      expect(balance).to.equal(accumulated);
+      expect(accumulated).to.equal(fee);
+    });
+
+    it("createTriples refunds excess so contract balance == accumulatedFees", async function () {
+      const { proxy, user, mockMultiVault } = await loadFixture(deployFixture);
+      const tripleCost = await mockMultiVault.getTripleCost();
+      const s = ethers.zeroPadValue("0x01", 32);
+      const p = ethers.zeroPadValue("0x02", 32);
+      const o = ethers.zeroPadValue("0x03", 32);
+      const assets = [ethers.parseEther("0.5")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = tripleCost + assets[0] + fee;
+      const overpay = ethers.parseEther("1");
+
+      await proxy.connect(user).createTriples([s], [p], [o], assets, 1n, {
+        value: totalRequired + overpay,
+      });
+
+      const accumulated = await proxy.accumulatedFees();
+      const balance = await ethers.provider.getBalance(await proxy.getAddress());
+      expect(balance).to.equal(accumulated);
+      expect(accumulated).to.equal(fee);
+    });
+
+    it("depositBatch refunds excess so contract balance == accumulatedFees", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termId = ethers.zeroPadValue("0x01", 32);
+      const assets = [ethers.parseEther("1"), ethers.parseEther("2")];
+      const totalDeposit = assets[0] + assets[1];
+      const fee = DEPOSIT_FEE * 2n + (totalDeposit * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = totalDeposit + fee;
+      const overpay = ethers.parseEther("0.75");
+
+      await proxy
+        .connect(user)
+        .depositBatch([termId, termId], [1n, 1n], assets, [0n, 0n], {
+          value: totalRequired + overpay,
+        });
+
+      const accumulated = await proxy.accumulatedFees();
+      const balance = await ethers.provider.getBalance(await proxy.getAddress());
+      expect(balance).to.equal(accumulated);
+    });
+
+    it("proxy balance only grows by fee (excess credited back, not retained)", async function () {
+      const { proxy, user, mockMultiVault } = await loadFixture(deployFixture);
+      const atomCost = await mockMultiVault.getAtomCost();
+      const data = [ethers.toUtf8Bytes("a")];
+      const assets = [ethers.parseEther("1")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = atomCost + assets[0] + fee;
+      const overpay = ethers.parseEther("0.5");
+
+      await expect(
+        proxy.connect(user).createAtoms(data, assets, 1n, {
+          value: totalRequired + overpay,
+        })
+      ).to.changeEtherBalance(proxy, fee);
+    });
+
+    it("exact msg.value produces no refund and no stuck ETH", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termId = ethers.zeroPadValue("0x01", 32);
+      const assets = [ethers.parseEther("1")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = assets[0] + fee;
+
+      await proxy
+        .connect(user)
+        .depositBatch([termId], [1n], assets, [0n], { value: totalRequired });
+
+      expect(await ethers.provider.getBalance(await proxy.getAddress())).to.equal(
+        await proxy.accumulatedFees()
+      );
+    });
+  });
+
   // ============ Metrics ============
 
   describe("Metrics", function () {
