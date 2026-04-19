@@ -67,7 +67,7 @@ export default function Layout() {
               Intuition ↗
             </a>
             <a
-              href="https://github.com/0xIntuition"
+              href="https://github.com/intuition-box"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-ink transition-colors"
@@ -87,13 +87,10 @@ function Wordmark() {
       <LogoMark />
       <div className="flex items-baseline gap-1.5">
         <span className="font-semibold text-[15px] tracking-tight text-ink">
-          Intuition
+          Intuition.box
         </span>
         <span className="font-normal text-[15px] text-muted tracking-tight">
           Proxy Factory
-        </span>
-        <span className="ml-0.5 rounded-sm border border-line px-1 py-px text-[9px] font-mono font-medium text-subtle leading-none translate-y-[-1px]">
-          v2
         </span>
       </div>
     </Link>
@@ -164,23 +161,24 @@ function ThemeToggle() {
 
 function LogoMark() {
   return (
-    <svg
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      aria-hidden="true"
-    >
-      <circle
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        className="text-ink opacity-90"
+    <>
+      <img
+        src="/icon-dark.svg"
+        alt=""
+        width={22}
+        height={22}
+        className="block dark:hidden rounded-[5px]"
+        aria-hidden="true"
       />
-      <circle cx="12" cy="12" r="3.25" className="fill-brand" />
-    </svg>
+      <img
+        src="/icon-light.svg"
+        alt=""
+        width={22}
+        height={22}
+        className="hidden dark:block rounded-[5px]"
+        aria-hidden="true"
+      />
+    </>
   )
 }
 
