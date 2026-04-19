@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 
 export default function HomePage() {
   return (
-    <div className="space-y-24">
+    <div className="space-y-10">
       <section className="max-w-3xl space-y-6 pt-6">
         <h1 className="text-5xl font-semibold tracking-tight text-ink leading-[1.1]">
           A versioned fee layer for the{' '}
@@ -26,7 +26,17 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="grid gap-6 sm:grid-cols-3">
+      <section className="space-y-8">
+        <CallFlow />
+        <Link
+          to="/docs"
+          className="inline-block text-sm text-muted hover:text-ink transition-colors"
+        >
+          See the full architecture →
+        </Link>
+      </section>
+
+      <section className="grid gap-12 sm:grid-cols-3">
         {[
           {
             title: 'Versioned',
@@ -49,19 +59,6 @@ export default function HomePage() {
             <p className="mt-2 text-sm text-muted leading-relaxed">{f.body}</p>
           </div>
         ))}
-      </section>
-
-      <section className="space-y-8">
-        <h2 className="text-sm font-medium uppercase tracking-wider text-subtle">
-          Call flow
-        </h2>
-        <CallFlow />
-        <Link
-          to="/docs"
-          className="inline-block text-sm text-muted hover:text-ink transition-colors"
-        >
-          See the full architecture →
-        </Link>
       </section>
 
     </div>
@@ -142,7 +139,7 @@ function ProxyWheel() {
 }
 
 function WheelSlide({ children }: { children: React.ReactNode }) {
-  return <div className="h-[200px]">{children}</div>
+  return <div className="h-[240px] pb-10">{children}</div>
 }
 
 function FlowNode({

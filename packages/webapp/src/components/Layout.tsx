@@ -49,13 +49,13 @@ export default function Layout() {
       </header>
 
       <main className="flex-1">
-        <div className="mx-auto max-w-6xl px-6 py-14 animate-fade-in">
+        <div className="mx-auto max-w-6xl px-6 pt-14 pb-8 animate-fade-in">
           <Outlet />
         </div>
       </main>
 
       <footer className="border-t border-line">
-        <div className="mx-auto max-w-6xl px-6 py-6 flex items-center justify-between text-xs text-subtle">
+        <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between text-xs text-subtle">
           <span>Fee layer for the Intuition MultiVault.</span>
           <div className="flex items-center gap-5">
             <a
