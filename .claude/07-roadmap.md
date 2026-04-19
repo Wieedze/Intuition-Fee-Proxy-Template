@@ -101,17 +101,25 @@ Tout le reste ci-dessous est toujours V2.1+ / V3.
 
 **Ajouter si** : traffic croît, users worldwide, pics d'activité.
 
-### Pausable mechanism
-**Contexte** : V2 n'a pas de pause. En cas de bug critique, seule réponse = upgrade.
+### Pausable mechanism (audit finding I-02)
+**Contexte** : V2 n'a pas de pause. En cas de bug critique, seule réponse = upgrade via `registerVersion` + `setDefaultVersion`, ce qui peut prendre des minutes à quelques heures en multisig. L'audit (I-02, 2026-04-19) recommande un circuit-breaker pour fermer les entrées payables instantanément.
 
-**Implémentation** :
-- Hériter `PausableUpgradeable`
-- `pause()` / `unpause()` onlyAdmin
-- `whenNotPaused` sur les fonctions critiques
+**Implémentation technique** (straightforward, testée localement puis rollback le 2026-04-19 faute de consensus sur la gouvernance) :
+- Hériter `PausableUpgradeable` (ERC-7201 namespaced, pas de collision storage)
+- `pause()` / `unpause()` gated
+- `whenNotPaused` sur `deposit/createAtoms/createTriples/depositBatch` + `*For` du Sponsored
+- `withdraw`/`withdrawAll` restent dispo (admin rescue)
+- `__Pausable_init()` dans `_initializeV2`
 
-attendre le retour de la communauter pour pausable car cest peut etre interessant d'avoir des admin qui peuvent etre intuition.box ou multi-sig intuition pour quils ce reserve un droit damnistration sur les proxy 
+**Questions en attente retour équipe Intuition** :
+1. **Qui détient le droit de pause** ?
+   - Option A : les `whitelistedAdmins` existants du proxy (= déployeur + ses co-admins). Simple, aligné avec le modèle actuel, mais n'offre pas de filet de sécurité Intuition-level.
+   - Option B : un admin `intuition.box` / multi-sig Intuition *en plus* des admins du proxy. Intéressant si Intuition veut se réserver un droit d'administration d'urgence sur *tous* les proxys déployés via la Factory.
+   - Option C : un rôle `PAUSER_ROLE` dédié (via OZ `AccessControl`) — plus granulaire, permet EOA "guardian" pour pause rapide + multisig pour unpause.
+2. **Question liée — C-01 F2 (freeze one-way du versioning)** : même design question. Qui peut appeler `freezeVersioning()` ? Et est-ce qu'on ajoute un admin Intuition *dédié* à cette décision ?
+3. **Trade-off centralisation** : un pause-admin Intuition sur tous les proxys signifie qu'Intuition peut stopper n'importe quel proxy tiers. Pas évident que c'est désirable.
 
-**Trade-off** : centralisation. Peut-être pas désiré.
+**Communication attendue** : l'équipe Intuition doit trancher (A/B/C) avant qu'on implémente I-02 + C-01 F2. Les deux features reposent sur le même choix gouvernance.
 
 ### depositForWithSig (EIP-712 receiver consent)
 
