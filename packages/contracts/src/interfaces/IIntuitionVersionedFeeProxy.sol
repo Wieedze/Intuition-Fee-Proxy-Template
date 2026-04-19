@@ -15,6 +15,9 @@ interface IIntuitionVersionedFeeProxy {
     event DefaultVersionChanged(bytes32 indexed oldVersion, bytes32 indexed newVersion);
     event ProxyAdminTransferred(address indexed oldAdmin, address indexed newAdmin);
 
+    /// @notice Emitted when the proxy's human-readable name is set or changed.
+    event NameChanged(bytes32 indexed oldName, bytes32 indexed newName);
+
     // ============ Admin (proxy-admin gated) ============
 
     function registerVersion(bytes32 version, address implementation) external;
@@ -22,12 +25,16 @@ interface IIntuitionVersionedFeeProxy {
     function setDefaultVersion(bytes32 version) external;
     function transferProxyAdmin(address newAdmin) external;
 
+    /// @notice Set or rename the proxy's human-readable label. Pass bytes32(0) to clear.
+    function setName(bytes32 newName) external;
+
     // ============ Views ============
 
     function getImplementation(bytes32 version) external view returns (address);
     function getDefaultVersion() external view returns (bytes32);
     function getVersions() external view returns (bytes32[] memory);
     function proxyAdmin() external view returns (address);
+    function getName() external view returns (bytes32);
 
     // ============ ERC-7936 execute-at-version ============
 

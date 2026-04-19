@@ -31,6 +31,7 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
         mapping(bytes32 => address) implementations;
         mapping(bytes32 => bool) versionExists;
         address proxyAdmin;
+        bytes32 name;
     }
 
     function _layout() private pure returns (Layout storage s) {
@@ -55,11 +56,13 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
     /// @param initialVersion Identifier for the initial registered version (e.g. bytes32("v2.0.0"))
     /// @param initialImpl Address of the initial logic implementation
     /// @param initData Calldata forwarded via delegatecall to initialize the logic
+    /// @param initialName Optional human-readable name (bytes32 — empty for none, editable by proxyAdmin via setName)
     constructor(
         address admin,
         bytes32 initialVersion,
         address initialImpl,
-        bytes memory initData
+        bytes memory initData,
+        bytes32 initialName
     ) payable {
         if (admin == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
         if (initialVersion == bytes32(0)) revert Errors.VersionedFeeProxy_InvalidVersion();
@@ -73,10 +76,14 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
         s.versionExists[initialVersion] = true;
         s.versionList.push(initialVersion);
         s.defaultVersion = initialVersion;
+        s.name = initialName;
 
         emit ProxyAdminTransferred(address(0), admin);
         emit VersionRegistered(initialVersion, initialImpl);
         emit DefaultVersionChanged(bytes32(0), initialVersion);
+        if (initialName != bytes32(0)) {
+            emit NameChanged(bytes32(0), initialName);
+        }
 
         if (initData.length > 0) {
             (bool ok, bytes memory ret) = initialImpl.delegatecall(initData);
@@ -145,7 +152,21 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
         emit ProxyAdminTransferred(old, newAdmin);
     }
 
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function setName(bytes32 newName) external onlyProxyAdmin {
+        Layout storage s = _layout();
+        bytes32 old = s.name;
+        if (old == newName) return;
+        s.name = newName;
+        emit NameChanged(old, newName);
+    }
+
     // ============ Views ============
+
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function getName() external view returns (bytes32) {
+        return _layout().name;
+    }
 
     /// @inheritdoc IIntuitionVersionedFeeProxy
     function getImplementation(bytes32 version) external view returns (address) {

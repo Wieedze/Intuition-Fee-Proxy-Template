@@ -57,7 +57,8 @@ contract IntuitionFeeProxyFactory is
         bytes32 initialVersion,
         address ethMultiVault,
         uint256 depositFixedFee,
-        uint256 depositPercentageFee
+        uint256 depositPercentageFee,
+        bytes32 name
     );
 
     event ImplementationUpdated(
@@ -123,12 +124,14 @@ contract IntuitionFeeProxyFactory is
     /// @param depositFixedFee Initial fixed fee per deposit (wei)
     /// @param depositPercentageFee Initial percentage fee (base 10000)
     /// @param initialAdmins Whitelist admins (at least one non-zero)
+    /// @param name Optional human-readable label (bytes32(0) for none; editable later by proxy-admin)
     /// @return proxy Address of the freshly deployed versioned proxy
     function createProxy(
         address ethMultiVault,
         uint256 depositFixedFee,
         uint256 depositPercentageFee,
-        address[] calldata initialAdmins
+        address[] calldata initialAdmins,
+        bytes32 name
     ) external returns (address proxy) {
         address impl = currentImplementation;
         bytes32 version = currentVersion;
@@ -141,7 +144,7 @@ contract IntuitionFeeProxyFactory is
         address proxyAdmin_ = initialAdmins.length > 0 ? initialAdmins[0] : address(0);
 
         proxy = address(
-            new IntuitionVersionedFeeProxy(proxyAdmin_, version, impl, initData)
+            new IntuitionVersionedFeeProxy(proxyAdmin_, version, impl, initData, name)
         );
 
         proxiesByDeployer[msg.sender].push(proxy);
@@ -155,7 +158,8 @@ contract IntuitionFeeProxyFactory is
             version,
             ethMultiVault,
             depositFixedFee,
-            depositPercentageFee
+            depositPercentageFee,
+            name
         );
     }
 

@@ -39,6 +39,7 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
       V2,
       await implV2.getAddress(),
       initData,
+      ethers.ZeroHash,
     )) as unknown as IntuitionVersionedFeeProxy;
     await versioned.waitForDeployment();
 
@@ -92,7 +93,7 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
       const { implV2 } = await loadFixture(deployFixture);
       const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       await expect(
-        VersionedFactory.deploy(ethers.ZeroAddress, V2, await implV2.getAddress(), "0x"),
+        VersionedFactory.deploy(ethers.ZeroAddress, V2, await implV2.getAddress(), "0x", ethers.ZeroHash),
       ).to.be.revertedWithCustomError(VersionedFactory, "IntuitionFeeProxy_ZeroAddress");
     });
 
@@ -105,6 +106,7 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
           ethers.ZeroHash,
           await implV2.getAddress(),
           "0x",
+          ethers.ZeroHash,
         ),
       ).to.be.revertedWithCustomError(VersionedFactory, "VersionedFeeProxy_InvalidVersion");
     });
@@ -113,7 +115,7 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
       const [, , , , , , eoa] = await ethers.getSigners();
       const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       await expect(
-        VersionedFactory.deploy(eoa.address, V2, eoa.address, "0x"),
+        VersionedFactory.deploy(eoa.address, V2, eoa.address, "0x", ethers.ZeroHash),
       ).to.be.revertedWithCustomError(VersionedFactory, "VersionedFeeProxy_InvalidImplementation");
     });
 
@@ -129,7 +131,7 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
       ]);
       const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       await expect(
-        VersionedFactory.deploy(proxyAdmin.address, V2, await impl.getAddress(), badInit),
+        VersionedFactory.deploy(proxyAdmin.address, V2, await impl.getAddress(), badInit, ethers.ZeroHash),
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_FeePercentageTooHigh");
     });
   });
@@ -344,6 +346,78 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
       const { versioned, nonAdmin, newAdmin } = await loadFixture(deployFixture);
       await expect(
         versioned.connect(nonAdmin).transferProxyAdmin(newAdmin.address),
+      ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_NotProxyAdmin");
+    });
+  });
+
+  // ============ Name ============
+
+  describe("name", function () {
+    it("initializes to zero when no initialName is provided", async function () {
+      const { versioned } = await loadFixture(deployFixture);
+      expect(await versioned.getName()).to.equal(ethers.ZeroHash);
+    });
+
+    it("emits NameChanged on constructor when initialName is non-zero", async function () {
+      const { proxyAdmin, implV2, mv } = await loadFixture(deployFixture);
+      const initData = implV2.interface.encodeFunctionData("initialize", [
+        await mv.getAddress(),
+        0n,
+        0n,
+        [proxyAdmin.address],
+      ]);
+      const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
+      const NAME = ethers.encodeBytes32String("My DAO Fees");
+      const deployTx = VersionedFactory.deploy(
+        proxyAdmin.address,
+        V2,
+        await implV2.getAddress(),
+        initData,
+        NAME,
+      );
+      await expect(deployTx)
+        .to.emit(VersionedFactory, "NameChanged")
+        .withArgs(ethers.ZeroHash, NAME);
+      const deployed = await deployTx;
+      const typed = (await ethers.getContractAt(
+        "IntuitionVersionedFeeProxy",
+        await deployed.getAddress(),
+      )) as unknown as IntuitionVersionedFeeProxy;
+      expect(await typed.getName()).to.equal(NAME);
+    });
+
+    it("proxyAdmin can set a new name", async function () {
+      const { versioned, proxyAdmin } = await loadFixture(deployFixture);
+      const NAME = ethers.encodeBytes32String("Renamed Proxy");
+      await expect(versioned.connect(proxyAdmin).setName(NAME))
+        .to.emit(versioned, "NameChanged")
+        .withArgs(ethers.ZeroHash, NAME);
+      expect(await versioned.getName()).to.equal(NAME);
+    });
+
+    it("proxyAdmin can clear the name with bytes32(0)", async function () {
+      const { versioned, proxyAdmin } = await loadFixture(deployFixture);
+      const NAME = ethers.encodeBytes32String("x");
+      await versioned.connect(proxyAdmin).setName(NAME);
+      await expect(versioned.connect(proxyAdmin).setName(ethers.ZeroHash))
+        .to.emit(versioned, "NameChanged")
+        .withArgs(NAME, ethers.ZeroHash);
+      expect(await versioned.getName()).to.equal(ethers.ZeroHash);
+    });
+
+    it("setName is a no-op (no event) when the new name equals the old one", async function () {
+      const { versioned, proxyAdmin } = await loadFixture(deployFixture);
+      const NAME = ethers.encodeBytes32String("Same");
+      await versioned.connect(proxyAdmin).setName(NAME);
+      await expect(
+        versioned.connect(proxyAdmin).setName(NAME),
+      ).to.not.emit(versioned, "NameChanged");
+    });
+
+    it("non-admin cannot setName", async function () {
+      const { versioned, nonAdmin } = await loadFixture(deployFixture);
+      await expect(
+        versioned.connect(nonAdmin).setName(ethers.encodeBytes32String("pwn")),
       ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_NotProxyAdmin");
     });
   });

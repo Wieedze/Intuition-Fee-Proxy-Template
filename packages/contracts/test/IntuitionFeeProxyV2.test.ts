@@ -41,6 +41,7 @@ describe("IntuitionFeeProxyV2", function () {
       INITIAL_VERSION,
       await impl.getAddress(),
       initData,
+      ethers.ZeroHash,
     );
     await proxyDeployment.waitForDeployment();
 
@@ -118,7 +119,7 @@ describe("IntuitionFeeProxyV2", function () {
       ]);
       const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       await expect(
-        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData)
+        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData, ethers.ZeroHash)
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_InvalidMultiVaultAddress");
     });
 
@@ -134,7 +135,7 @@ describe("IntuitionFeeProxyV2", function () {
       ]);
       const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       await expect(
-        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData)
+        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData, ethers.ZeroHash)
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_FeePercentageTooHigh");
     });
 
@@ -150,7 +151,7 @@ describe("IntuitionFeeProxyV2", function () {
       ]);
       const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       await expect(
-        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData)
+        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData, ethers.ZeroHash)
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_NoAdminsProvided");
     });
 
@@ -166,7 +167,7 @@ describe("IntuitionFeeProxyV2", function () {
       ]);
       const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       await expect(
-        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData)
+        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData, ethers.ZeroHash)
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_NoAdminsProvided");
     });
 
@@ -186,7 +187,8 @@ describe("IntuitionFeeProxyV2", function () {
         alice.address,
         INITIAL_VERSION,
         await impl.getAddress(),
-        initData
+        initData,
+        ethers.ZeroHash,
       );
       const typed = (await ethers.getContractAt(
         "IntuitionFeeProxyV2",
