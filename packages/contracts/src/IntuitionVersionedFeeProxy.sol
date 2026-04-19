@@ -19,11 +19,14 @@ import {Errors} from "./libraries/Errors.sol";
 contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
     // ============ Namespaced storage ============
 
-    /// @dev Unique non-colliding slot (keccak256 of a reserved string literal).
-    /// Equivalent in spirit to ERC-7201 — the namespace ensures no overlap with
-    /// the logic impl's storage layout (which starts at slot 0).
-    bytes32 private constant _STORAGE_SLOT =
-        keccak256("intuition.VersionedFeeProxy.storage");
+    /// @dev ERC-7201 namespaced storage slot for the versioned-proxy registry.
+    /// Matches the canonical formula: tooling (Slither, OZ upgrades plugin)
+    /// recognises this exact shape and checks neighbouring slots are free.
+    /// The `- 1` + low-byte mask guarantees the slot can't collide with a
+    /// mapping/array base computed from any other keccak256 preimage.
+    bytes32 private constant _STORAGE_SLOT = keccak256(
+        abi.encode(uint256(keccak256("intuition.VersionedFeeProxy")) - 1)
+    ) & ~bytes32(uint256(0xff));
 
     struct Layout {
         bytes32 defaultVersion;

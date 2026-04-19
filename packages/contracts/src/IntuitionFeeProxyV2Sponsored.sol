@@ -33,9 +33,12 @@ import {Errors} from "./libraries/Errors.sol";
 contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     // ============ Namespaced storage ============
 
-    /// @dev Storage slot — keccak256("intuition.feeproxy.sponsored.v1").
-    bytes32 private constant SPONSORED_STORAGE_LOCATION =
-        keccak256("intuition.feeproxy.sponsored.v1");
+    /// @dev ERC-7201 namespaced storage slot for the sponsored-credit layout.
+    /// Matches the canonical formula — tooling (Slither, OZ upgrades plugin)
+    /// recognises this shape and verifies layout neighbourhood.
+    bytes32 private constant SPONSORED_STORAGE_LOCATION = keccak256(
+        abi.encode(uint256(keccak256("intuition.feeproxy.sponsored.v1")) - 1)
+    ) & ~bytes32(uint256(0xff));
 
     struct ClaimWindow {
         uint128 count;        // claims so far in the current window
