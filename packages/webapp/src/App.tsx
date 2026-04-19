@@ -15,6 +15,7 @@ export default function App() {
         <Route path="/my-proxies" element={<MyProxiesPage />} />
         <Route path="/proxy/:address" element={<ProxyDetailPage />} />
         <Route path="/docs" element={<DocsPage />} />
+        <Route path="/docs/:section" element={<DocsPage />} />
       </Route>
     </Routes>
   )
