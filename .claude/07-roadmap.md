@@ -109,7 +109,23 @@ Tout le reste ci-dessous est toujours V2.1+ / V3.
 - `pause()` / `unpause()` onlyAdmin
 - `whenNotPaused` sur les fonctions critiques
 
+attendre le retour de la communauter pour pausable car cest peut etre interessant d'avoir des admin qui peuvent etre intuition.box ou multi-sig intuition pour quils ce reserve un droit damnistration sur les proxy 
+
 **Trade-off** : centralisation. Peut-être pas désiré.
+
+### depositForWithSig (EIP-712 receiver consent)
+
+**Contexte** : V2Sponsored ships with `depositFor`/`createAtomsFor` where the sponsor acts on behalf of a receiver without any on-chain consent from that receiver. Safe for the target use case (dApp onboarding its own users, trust is implicit in the service sign-up) but unsafe for open sponsoring platforms where any sponsor could force-mint shares onto an unwilling address.
+
+**Implémentation** :
+- Add `depositForWithSig(receiver, sig, nonce, ...)` sister functions alongside each `*For` fn
+- EIP-712 domain + typed-data struct for `SponsoredDeposit { receiver, termId, curveId, minShares, nonce, deadline }`
+- On-chain verify via `ecrecover`, replay protection via `mapping(address => uint256) nonces`
+- Frontend: popup `wallet.signTypedData(...)` before the sponsor submits
+
+**Quand ajouter** : when a cross-org sponsoring use case emerges (open sponsoring platform, regulated context requiring explicit consent, or adversarial airdrop-spam concern). Non-breaking — ships as V2.1Sponsored via the version registry, existing proxies adopt on their own schedule.
+
+**Trade-off** : ~150 lines of code + ~30% test surface, more UX friction (user signs per deposit), ~3k extra gas per call, typical signature-bug audit risk. YAGNI until demand.
 
 ### Governance on-chain
 **Contexte** : V2 utilise multisig. Pour protocol vraiment permissionless, transition vers DAO.
