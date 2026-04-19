@@ -52,100 +52,53 @@ export function useSetClaimLimits(proxy: Address | undefined) {
   return { setClaimLimits, hash: data, isPending, error, reset }
 }
 
-// ============ Credit pool ============
+// ============ Sponsor pool ============
 
-export type SponsoredPool = {
-  totalSponsoredCredit: bigint
-}
-
-export function useSponsoredPool(proxy: Address | undefined) {
+export function useSponsorPool(proxy: Address | undefined) {
   const result = useReadContracts({
-    contracts: [
-      { abi, address: proxy, functionName: 'totalSponsoredCredit' },
-    ],
+    contracts: [{ abi, address: proxy, functionName: 'sponsorPool' }],
     allowFailure: true,
     query: { enabled: Boolean(proxy) },
   })
 
   const entry = result.data?.[0]
-  const pool: SponsoredPool | undefined =
-    entry?.status === 'success'
-      ? { totalSponsoredCredit: entry.result as bigint }
-      : undefined
-
-  return { ...result, pool }
-}
-
-export function useUserCredit(proxy: Address | undefined, user: Address | undefined) {
-  const result = useReadContracts({
-    contracts: [
-      {
-        abi,
-        address: proxy,
-        functionName: 'sponsoredCredit',
-        args: user ? [user] : undefined,
-      },
-    ],
-    allowFailure: true,
-    query: { enabled: Boolean(proxy && user) },
-  })
-
-  const entry = result.data?.[0]
-  const credit: bigint | undefined =
+  const balance: bigint | undefined =
     entry?.status === 'success' ? (entry.result as bigint) : undefined
 
-  return { ...result, credit }
+  return { ...result, balance }
 }
 
-export function useCreditUser(proxy: Address | undefined) {
+export function useFundPool(proxy: Address | undefined) {
   const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
 
-  function credit(user: Address, amount: bigint) {
+  function fund(amount: bigint) {
     if (!proxy) throw new Error('Proxy address missing')
     return writeContractAsync({
       abi,
       address: proxy,
-      functionName: 'creditUser',
-      args: [user],
+      functionName: 'fundPool',
+      args: [],
       value: amount,
     })
   }
 
-  return { credit, hash: data, isPending, error, reset }
+  return { fund, hash: data, isPending, error, reset }
 }
 
-export function useCreditUsers(proxy: Address | undefined) {
+export function useReclaimFromPool(proxy: Address | undefined) {
   const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
 
-  function creditMany(users: Address[], amounts: bigint[]) {
-    if (!proxy) throw new Error('Proxy address missing')
-    const total = amounts.reduce((s, a) => s + a, 0n)
-    return writeContractAsync({
-      abi,
-      address: proxy,
-      functionName: 'creditUsers',
-      args: [users, amounts],
-      value: total,
-    })
-  }
-
-  return { creditMany, hash: data, isPending, error, reset }
-}
-
-export function useUncreditUser(proxy: Address | undefined) {
-  const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
-
-  function uncredit(user: Address, amount: bigint, to: Address) {
+  function reclaim(amount: bigint, to: Address) {
     if (!proxy) throw new Error('Proxy address missing')
     return writeContractAsync({
       abi,
       address: proxy,
-      functionName: 'uncreditUser',
-      args: [user, amount, to],
+      functionName: 'reclaimFromPool',
+      args: [amount, to],
     })
   }
 
-  return { uncredit, hash: data, isPending, error, reset }
+  return { reclaim, hash: data, isPending, error, reset }
 }
 
 // ============ Claim status + sponsored metrics ============

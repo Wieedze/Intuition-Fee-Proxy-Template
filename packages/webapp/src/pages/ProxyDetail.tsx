@@ -33,12 +33,11 @@ import {
 import {
   useClaimLimits,
   useClaimStatus,
-  useCreditUser,
+  useFundPool,
+  useReclaimFromPool,
   useSetClaimLimits,
   useSponsoredMetrics,
-  useSponsoredPool,
-  useUncreditUser,
-  useUserCredit,
+  useSponsorPool,
 } from '../hooks/useSponsoredProxy'
 import Address from '../components/Address'
 
@@ -1024,7 +1023,7 @@ function SponsoringPanel({
   isAdmin: boolean
 }) {
   const { limits, refetch: refetchLimits } = useClaimLimits(proxy)
-  const { pool, refetch: refetchPool } = useSponsoredPool(proxy)
+  const { balance: poolBalance, refetch: refetchPool } = useSponsorPool(proxy)
   const { metrics: sMetrics, refetch: refetchMetrics } = useSponsoredMetrics(proxy)
 
   function onWriteDone() {
@@ -1040,21 +1039,19 @@ function SponsoringPanel({
           Sponsoring
         </h2>
         <p className="mt-1 text-sm text-muted max-w-2xl">
-          This proxy runs a sponsored-channel implementation. Whitelisted admins
-          fund per-user credit that regular users then draw from via{' '}
-          <code className="font-mono text-ink">deposit</code> /{' '}
-          <code className="font-mono text-ink">createAtoms</code> with reduced
+          This proxy runs the sponsored-channel implementation. Admins fund a
+          single pool once; any user interacting with the proxy draws from it
+          transparently via <code className="font-mono text-ink">deposit</code>{' '}
+          / <code className="font-mono text-ink">createAtoms</code> with reduced
           or zero <code className="font-mono text-ink">msg.value</code>. Rate
-          limits protect the pool.
+          limits bound drain per user.
         </p>
       </div>
 
       <section className="grid gap-4 sm:grid-cols-3">
         <Stat
-          label="Credit pool"
-          value={
-            pool ? `${formatEther(pool.totalSponsoredCredit)} TRUST` : '—'
-          }
+          label="Sponsor pool"
+          value={poolBalance !== undefined ? `${formatEther(poolBalance)} TRUST` : '—'}
           emphasize
         />
         <Stat
@@ -1076,20 +1073,24 @@ function SponsoringPanel({
           value={limits ? `${formatEther(limits.maxClaimPerTx)} TRUST` : '—'}
         />
         <Stat
-          label="Max claims / day"
+          label="Max claims / day per user"
           value={limits ? limits.maxClaimsPerDay.toString() : '—'}
         />
       </section>
 
       {isAdmin ? (
         <>
-          <CreditUserPanel proxy={proxy} onDone={onWriteDone} />
-          <UncreditUserPanel proxy={proxy} onDone={onWriteDone} />
+          <FundPoolPanel proxy={proxy} onDone={onWriteDone} />
+          <ReclaimFromPoolPanel
+            proxy={proxy}
+            poolBalance={poolBalance}
+            onDone={onWriteDone}
+          />
           <ClaimLimitsPanel proxy={proxy} current={limits} onDone={onWriteDone} />
         </>
       ) : (
         <p className="text-sm text-subtle border-l-2 border-line pl-3">
-          Connect as a whitelisted admin to fund credit, reclaim, or change
+          Connect as a whitelisted admin to fund the pool, reclaim, or change
           claim limits.
         </p>
       )}
@@ -1097,39 +1098,31 @@ function SponsoringPanel({
   )
 }
 
-function CreditUserPanel({
+function FundPoolPanel({
   proxy,
   onDone,
 }: {
   proxy: Address
   onDone: () => void
 }) {
-  const [user, setUser] = useState('')
   const [amount, setAmount] = useState('')
-  const { credit: creditUser, hash, isPending, error, reset } = useCreditUser(proxy)
+  const { fund, hash, isPending, error, reset } = useFundPool(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
-
-  const { credit: currentCredit } = useUserCredit(
-    proxy,
-    user && isAddress(user) ? (user as Address) : undefined,
-  )
 
   useEffect(() => {
     if (receipt.isSuccess) {
       onDone()
-      setUser('')
       setAmount('')
       reset()
     }
   }, [hash, receipt.isSuccess])
 
-  const userValid = isAddress(user)
   const amountValid = amount !== '' && Number(amount) > 0
 
   async function onSubmit() {
-    if (!userValid || !amountValid) return
+    if (!amountValid) return
     try {
-      await creditUser(user as Address, parseEther(amount))
+      await fund(parseEther(amount))
     } catch (e) {
       console.error(e)
     }
@@ -1138,27 +1131,98 @@ function CreditUserPanel({
   return (
     <section className="card space-y-4">
       <div>
-        <h3 className="font-semibold">Credit a user</h3>
+        <h3 className="font-semibold">Fund the pool</h3>
         <p className="text-xs text-subtle">
-          Fund a user&apos;s sponsored credit with TRUST from your wallet.
-          They&apos;ll be able to deposit / create with reduced msg.value until
-          the credit is spent or reclaimed.
+          Top up the shared sponsorship pool with TRUST from your wallet. Any
+          user interacting with this proxy will draw from the pool
+          transparently (bounded by the per-user rate limits).
         </p>
       </div>
 
       <label className="block space-y-1">
-        <div className="text-xs text-muted">User address</div>
+        <div className="text-xs text-muted">Amount (TRUST)</div>
         <input
-          value={user}
-          onChange={(e) => setUser(e.target.value)}
+          type="number"
+          step="any"
+          min="0"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="10.0"
+          className="input"
+        />
+      </label>
+
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={!amountValid || isPending || receipt.isLoading}
+        className="btn-primary"
+      >
+        {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Fund pool'}
+      </button>
+
+      {error && (
+        <p className="text-xs text-rose-400 font-mono">
+          {error.message.split('\n')[0]}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function ReclaimFromPoolPanel({
+  proxy,
+  poolBalance,
+  onDone,
+}: {
+  proxy: Address
+  poolBalance: bigint | undefined
+  onDone: () => void
+}) {
+  const [amount, setAmount] = useState('')
+  const [to, setTo] = useState('')
+  const { reclaim, hash, isPending, error, reset } = useReclaimFromPool(proxy)
+  const receipt = useWaitForTransactionReceipt({ hash })
+
+  useEffect(() => {
+    if (receipt.isSuccess) {
+      onDone()
+      setAmount('')
+      reset()
+    }
+  }, [hash, receipt.isSuccess])
+
+  const toValid = isAddress(to)
+  const amountValid = amount !== '' && Number(amount) > 0
+
+  async function onSubmit() {
+    if (!toValid || !amountValid) return
+    try {
+      await reclaim(parseEther(amount), to as Address)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  return (
+    <section className="card space-y-4">
+      <div>
+        <h3 className="font-semibold">Reclaim from pool</h3>
+        <p className="text-xs text-subtle">
+          Pull unspent TRUST out of the pool back to an address you choose
+          (your treasury, a Safe, etc.). Rejected if the amount exceeds the
+          current pool balance.
+        </p>
+      </div>
+
+      <label className="block space-y-1">
+        <div className="text-xs text-muted">Recipient</div>
+        <input
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
           placeholder="0x…"
           className="input font-mono text-xs"
         />
-        {user && userValid && currentCredit !== undefined && (
-          <div className="text-xs text-subtle mt-1">
-            Current credit: {formatEther(currentCredit)} TRUST
-          </div>
-        )}
       </label>
 
       <label className="block space-y-1">
@@ -1172,125 +1236,18 @@ function CreditUserPanel({
           placeholder="1.0"
           className="input"
         />
+        {poolBalance !== undefined && (
+          <div className="text-xs text-subtle mt-1">
+            Pool balance: {formatEther(poolBalance)} TRUST
+          </div>
+        )}
       </label>
 
       <button
         type="button"
         onClick={onSubmit}
         disabled={
-          !userValid || !amountValid || isPending || receipt.isLoading
-        }
-        className="btn-primary"
-      >
-        {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Credit user'}
-      </button>
-
-      {error && (
-        <p className="text-xs text-rose-400 font-mono">
-          {error.message.split('\n')[0]}
-        </p>
-      )}
-    </section>
-  )
-}
-
-function UncreditUserPanel({
-  proxy,
-  onDone,
-}: {
-  proxy: Address
-  onDone: () => void
-}) {
-  const [user, setUser] = useState('')
-  const [amount, setAmount] = useState('')
-  const [to, setTo] = useState('')
-  const { uncredit, hash, isPending, error, reset } = useUncreditUser(proxy)
-  const receipt = useWaitForTransactionReceipt({ hash })
-
-  const { credit: userCredit } = useUserCredit(
-    proxy,
-    user && isAddress(user) ? (user as Address) : undefined,
-  )
-
-  useEffect(() => {
-    if (receipt.isSuccess) {
-      onDone()
-      setAmount('')
-      reset()
-    }
-  }, [hash, receipt.isSuccess])
-
-  const userValid = isAddress(user)
-  const toValid = isAddress(to)
-  const amountValid = amount !== '' && Number(amount) > 0
-
-  async function onSubmit() {
-    if (!userValid || !toValid || !amountValid) return
-    try {
-      await uncredit(user as Address, parseEther(amount), to as Address)
-    } catch (e) {
-      console.error(e)
-    }
-  }
-
-  return (
-    <section className="card space-y-4">
-      <div>
-        <h3 className="font-semibold">Reclaim user credit</h3>
-        <p className="text-xs text-subtle">
-          Pull back a user&apos;s unspent credit. Funds are sent to the
-          recipient address you choose (your treasury, a Safe, etc).
-        </p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block space-y-1">
-          <div className="text-xs text-muted">User</div>
-          <input
-            value={user}
-            onChange={(e) => setUser(e.target.value)}
-            placeholder="0x…"
-            className="input font-mono text-xs"
-          />
-          {user && userValid && userCredit !== undefined && (
-            <div className="text-xs text-subtle mt-1">
-              Available: {formatEther(userCredit)} TRUST
-            </div>
-          )}
-        </label>
-        <label className="block space-y-1">
-          <div className="text-xs text-muted">Recipient</div>
-          <input
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            placeholder="0x…"
-            className="input font-mono text-xs"
-          />
-        </label>
-      </div>
-
-      <label className="block space-y-1">
-        <div className="text-xs text-muted">Amount (TRUST)</div>
-        <input
-          type="number"
-          step="any"
-          min="0"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="0.5"
-          className="input"
-        />
-      </label>
-
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={
-          !userValid ||
-          !toValid ||
-          !amountValid ||
-          isPending ||
-          receipt.isLoading
+          !toValid || !amountValid || isPending || receipt.isLoading
         }
         className="btn-primary"
       >
@@ -1298,7 +1255,7 @@ function UncreditUserPanel({
           ? 'Sign…'
           : receipt.isLoading
             ? 'Mining…'
-            : 'Reclaim credit'}
+            : 'Reclaim from pool'}
       </button>
 
       {error && (

@@ -679,45 +679,61 @@ function Sponsoring() {
       <P>
         A proxy deployed on the <b>sponsored channel</b> runs the{' '}
         <Code>IntuitionFeeProxyV2Sponsored</Code> implementation — a
-        superset of standard V2 that lets the proxy itself pay deposits
-        and creations on behalf of its users. Use case: a dApp that
+        superset of standard V2 that lets the proxy carry a shared TRUST
+        pool admins fund once. Any user interacting with the proxy then
+        draws from the same pool transparently. Use case: a dApp that
         charges its users in fiat (Stripe, App Store) but still needs
-        TRUST on-chain to interact with the MultiVault. The dApp funds
-        its own proxy once, then each user spends from that pool
-        without holding TRUST themselves.
+        TRUST on-chain to interact with the MultiVault.
       </P>
 
-      <H3>One sponsor per proxy — the proxy is the sponsor</H3>
+      <H3>One proxy, one sponsor, one pool</H3>
       <P>
-        There is no multi-sponsor tracking on a single proxy. Whitelisted
-        admins of the proxy fund user credit; the proxy is the sole
-        sponsoring entity. A dApp deploys its own sponsored proxy and
-        controls the pool. Any proxy-admin can reclaim unspent credit at
-        any time to an address of their choice.
+        The proxy is the sole sponsoring entity. There is no per-user
+        budget, no multi-sponsor tracking and no allowlist of who can
+        draw — the admin funds{' '}
+        <Code>sponsorPool</Code> once and every user who calls the proxy
+        consumes from it until it&apos;s empty. Admins manage fairness via
+        the rate-limit knobs (<Code>maxClaimPerTx</Code> cap per call,{' '}
+        <Code>maxClaimsPerDay</Code> per-user window).
+      </P>
+      <P>
+        When you need per-user allocations (tier differentiation, dedicated
+        budgets per subscriber plan, etc.), ship a V2.2Sponsored variant
+        via the version registry — append-only storage in the
+        sponsored namespace supports this without breaking existing
+        pool-only proxies.
       </P>
 
-      <H3>Two flows</H3>
+      <H3>Two flows — one pool</H3>
       <P>
-        <b className="text-ink">Credit balance (D1)</b> — the admin calls{' '}
-        <Code>creditUser(user)</Code> with <Code>msg.value</Code>. The
-        proxy tracks a per-user balance in{' '}
-        <Code>sponsoredCredit[user]</Code>. Later, the user calls the
-        normal entry points (<Code>deposit</Code>, <Code>createAtoms</Code>
-        , etc.) with reduced or zero <Code>msg.value</Code> — the proxy
-        tops up from their credit automatically and forwards the combined
-        amount to the MultiVault. User still signs their own tx, still
-        needs a tiny amount of TRUST for gas. Best when the dApp wants
-        the user to drive their own actions.
+        Both flows consume from the same <Code>sponsorPool</Code>. They
+        differ only in who initiates the tx — the user or the admin.
       </P>
       <P>
-        <b className="text-ink">Direct action (D3)</b> — the admin (or
-        any caller) calls <Code>depositFor(receiver, …)</Code>,{' '}
-        <Code>createAtomsFor</Code>, etc. with full <Code>msg.value</Code>.
-        The shares/atoms are credited to <Code>receiver</Code>, never to{' '}
-        <Code>msg.sender</Code>. The user does not sign a tx, does not
-        need any TRUST at all. Best when the dApp orchestrates everything
-        server-side and the user is not holding a wallet directly (email
-        onboarding, custodial flows).
+        <b className="text-ink">User-initiated (D1)</b> — the user calls
+        the normal entry points (<Code>deposit</Code>,{' '}
+        <Code>createAtoms</Code>, etc.) with reduced or zero{' '}
+        <Code>msg.value</Code>. The proxy tops up from the shared pool
+        (capped at <Code>maxClaimPerTx</Code>) and forwards the combined
+        amount to the MultiVault. User still signs their own tx and
+        pays gas. Best when the user already has a wallet and the dApp
+        just wants to cover the deposit cost.
+      </P>
+      <P>
+        <b className="text-ink">Admin-initiated (D3)</b> — the admin
+        calls <Code>depositFor(receiver, …)</Code>,{' '}
+        <Code>createAtomsFor</Code>, etc. The proxy drains the same{' '}
+        <Code>sponsorPool</Code> and mints the shares to{' '}
+        <Code>receiver</Code>. The user never signs a tx, doesn&apos;t need
+        any TRUST at all. <b>Admin-only</b> so no stranger can drain
+        the pool against an arbitrary target address.{' '}
+        <Code>msg.value</Code> is accepted as an optional top-up if the
+        pool is short. Best when the dApp orchestrates everything
+        server-side (custodial onboarding, email-based signup).
+      </P>
+      <P>
+        Reclaim any unspent TRUST via{' '}
+        <Code>reclaimFromPool(amount, to)</Code> at any time.
       </P>
 
       <Callout title="Meta-transactions aren't supported yet">
@@ -749,23 +765,27 @@ function Sponsoring() {
         </li>
       </ul>
 
-      <H3>Admin API</H3>
+      <H3>Admin API (all onlyWhitelistedAdmin)</H3>
       <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
         <Primitive
-          term="creditUser(user) payable"
-          desc="Fund a user's credit balance with msg.value. Admin-only."
+          term="fundPool() payable"
+          desc="Top up the shared sponsor pool with msg.value TRUST. Single-pool model — no recipient argument."
         />
         <Primitive
-          term="creditUsers(users[], amounts[]) payable"
-          desc="Batch top-up. sum(amounts) must equal msg.value."
-        />
-        <Primitive
-          term="uncreditUser(user, amount, to)"
-          desc="Reclaim a user's unspent credit to any recipient address."
+          term="reclaimFromPool(amount, to)"
+          desc="Pull unspent TRUST out of the pool to any recipient address (e.g. treasury, Safe)."
         />
         <Primitive
           term="setClaimLimits(maxPerTx, maxPerDay)"
-          desc="Update both limits. Both must stay > 0 (reverts otherwise)."
+          desc="Update both limits. Both must stay > 0 (reverts otherwise). maxPerDay is per user, per 24h rolling window."
+        />
+        <Primitive
+          term="depositFor(receiver, termId, curveId, minShares) payable"
+          desc="Trigger a deposit on behalf of receiver. Drains sponsorPool; msg.value is an optional top-up. Rate limits apply to receiver."
+        />
+        <Primitive
+          term="createAtomsFor / createTriplesFor / depositBatchFor"
+          desc="Same pattern as depositFor for atom/triple creation and batched deposits."
         />
       </dl>
 
@@ -778,19 +798,16 @@ function Sponsoring() {
         <Code>createTriples</Code> / <Code>depositBatch</Code> functions.
       </P>
 
-      <H3>Example: 50-user onboarding batch</H3>
-      <Block>{`// Ship 0.5 TRUST of credit to 50 users in a single tx
-const users = [/* 50 addresses */]
-const amounts = users.map(() => parseEther('0.5'))
-const total = amounts.reduce((s, a) => s + a, 0n)
-
-await walletClient.writeContract({
+      <H3>Example: fund 25 TRUST into the pool</H3>
+      <Block>{`await walletClient.writeContract({
   abi: IntuitionFeeProxyV2SponsoredABI,
   address: proxyAddress,
-  functionName: 'creditUsers',
-  args: [users, amounts],
-  value: total,
-})`}</Block>
+  functionName: 'fundPool',
+  args: [],
+  value: parseEther('25'),
+})
+// Any user interacting with the proxy now draws up to maxClaimPerTx
+// from the pool per call, bounded by maxClaimsPerDay per user.`}</Block>
 
       <H3>Invariant: withdraw never dips into the credit pool</H3>
       <P>

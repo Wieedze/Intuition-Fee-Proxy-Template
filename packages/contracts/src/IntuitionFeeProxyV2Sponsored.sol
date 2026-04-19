@@ -7,24 +7,29 @@ import {IntuitionFeeProxyV2} from "./IntuitionFeeProxyV2.sol";
 import {Errors} from "./libraries/Errors.sol";
 
 /// @title IntuitionFeeProxyV2Sponsored
-/// @notice V2 + sponsoring support. The proxy itself acts as the sponsor: only
-///         whitelisted admins can fund user credit balances, and any user with
-///         credit can later call `deposit` / `createAtoms` / `createTriples` /
-///         `depositBatch` with reduced (or zero) `msg.value` — the proxy pulls
-///         from their `sponsoredCredit[user]` automatically. Two rate-limit
-///         knobs (`maxClaimPerTx`, `maxClaimsPerDay`) protect the pool from
-///         drain / spam. Defaults: 1 TRUST / 10 claims per 24h window.
+/// @notice V2 + shared sponsorship pool. The proxy itself acts as the sponsor:
+///         a whitelisted admin funds a single `sponsorPool` slot once, and any
+///         user interacting with the proxy draws from it transparently on
+///         their regular `deposit` / `createAtoms` / `createTriples` /
+///         `depositBatch` calls (reduced or zero `msg.value`). Admin can also
+///         trigger actions on behalf of a user via `depositFor` / etc. Two
+///         rate-limit knobs (`maxClaimPerTx` cap per call, `maxClaimsPerDay`
+///         per-user tumbling 24h window) protect the pool from drain / spam.
+///         Defaults: 1 TRUST per call, 10 claims per 24h per user.
 /// @dev
 ///  - All sponsored state lives in an ERC-7201 namespaced slot
 ///    (`keccak256("intuition.feeproxy.sponsored.v1")`) so V2's and future V3's
 ///    inline storage layouts stay independent.
-///  - `creditUser` / `creditUsers` / `uncreditUser` / `setClaimLimits` are
-///    `onlyWhitelistedAdmin`. There is no "sponsor" role distinct from admin:
-///    the proxy itself is the sponsor entity. Anyone wanting to gift credit to
-///    a user can just wire TRUST to the user wallet directly.
+///  - `fundPool` / `reclaimFromPool` / `setClaimLimits` are
+///    `onlyWhitelistedAdmin`. The proxy is the sole sponsor entity — no
+///    multi-sponsor tracking. Per-user quotas are not enforced here (first
+///    come, first served within the daily-count cap); when tier differentiation
+///    is needed, ship a V2.2Sponsored variant via the version registry.
 ///  - `depositFor` / `createAtomsFor` / `createTriplesFor` / `depositBatchFor`
-///    are open — they are economically neutral (caller pays msg.value, receiver
-///    gets the shares), so no gating.
+///    are also `onlyWhitelistedAdmin`. They draw from the shared pool (same
+///    source as the D1 user-initiated path); `msg.value` is accepted as an
+///    optional top-up if the pool is short. Rate limits apply to the receiver,
+///    not the admin.
 ///  - No EIP-712 receiver consent. See roadmap `depositForWithSig` for the
 ///    evolution path.
 ///  - NEVER `registerVersion` a V2-standard impl on a sponsored proxy (or vice
@@ -46,9 +51,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     }
 
     struct SponsoredLayout {
-        // ── Credit pool ──
-        mapping(address user => uint256 credit) sponsoredCredit;
-        uint256 totalSponsoredCredit;
+        // ── Shared sponsorship pool ──
+        // A single pool funded once by the admin. Any user interacting with
+        // the proxy can draw from it transparently via the normal entry points
+        // (reduced msg.value). Rate limits below keep one user from draining
+        // the whole pool at once.
+        uint256 sponsorPool;
         // ── Rate limits (all must be > 0 after init; never "unlimited") ──
         uint256 maxClaimPerTx;     // default 1 ether
         uint256 maxClaimsPerDay;   // default 10
@@ -75,8 +83,8 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Events ============
 
-    event UserCredited(address indexed user, uint256 amount, address indexed by);
-    event CreditReclaimed(address indexed user, uint256 amount, address indexed to);
+    event PoolFunded(uint256 amount, address indexed by);
+    event PoolReclaimed(uint256 amount, address indexed to, address indexed by);
     event CreditConsumed(address indexed user, uint256 amount);
     event ClaimLimitsSet(uint256 maxClaimPerTx, uint256 maxClaimsPerDay);
     event SponsoredMetricsUpdated(
@@ -111,12 +119,9 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Views ============
 
-    function sponsoredCredit(address user) external view returns (uint256) {
-        return _s().sponsoredCredit[user];
-    }
-
-    function totalSponsoredCredit() external view returns (uint256) {
-        return _s().totalSponsoredCredit;
+    /// @notice Current balance of the shared sponsorship pool.
+    function sponsorPool() external view returns (uint256) {
+        return _s().sponsorPool;
     }
 
     function maxClaimPerTx() external view returns (uint256) {
@@ -181,67 +186,41 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         emit ClaimLimitsSet(maxPerTx, maxPerDay);
     }
 
-    // ============ Admin: credit-balance top-up / reclaim ============
+    // ============ Admin: pool top-up / reclaim ============
 
-    /// @notice Fund `user`'s sponsored-credit balance with `msg.value` TRUST.
-    function creditUser(address user) external payable onlyWhitelistedAdmin {
-        if (user == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
+    /// @notice Fund the shared sponsorship pool with `msg.value` TRUST.
+    /// @dev Single-pool model: all users of this proxy draw from the same
+    ///      bucket. Admins manage fairness via the per-user rate limits
+    ///      (`maxClaimPerTx`, `maxClaimsPerDay`), not per-user allocations.
+    function fundPool() external payable onlyWhitelistedAdmin {
         if (msg.value == 0) revert Errors.Sponsored_NothingToCredit();
 
         SponsoredLayout storage $ = _s();
-        $.sponsoredCredit[user] += msg.value;
-        $.totalSponsoredCredit += msg.value;
-        emit UserCredited(user, msg.value, msg.sender);
+        $.sponsorPool += msg.value;
+        emit PoolFunded(msg.value, msg.sender);
     }
 
-    /// @notice Batch top-up. `sum(amounts) == msg.value`.
-    function creditUsers(address[] calldata users, uint256[] calldata amounts)
-        external
-        payable
-        onlyWhitelistedAdmin
-    {
-        if (users.length != amounts.length) revert Errors.IntuitionFeeProxy_WrongArrayLengths();
-
-        SponsoredLayout storage $ = _s();
-        uint256 total;
-        uint256 len = users.length;
-        for (uint256 i = 0; i < len; i++) {
-            address u = users[i];
-            uint256 a = amounts[i];
-            if (u == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
-            if (a == 0) revert Errors.Sponsored_NothingToCredit();
-
-            $.sponsoredCredit[u] += a;
-            unchecked { total += a; }
-            emit UserCredited(u, a, msg.sender);
-        }
-
-        if (msg.value != total) revert Errors.IntuitionFeeProxy_InsufficientValue();
-        $.totalSponsoredCredit += total;
-    }
-
-    /// @notice Admin reclaims `amount` of a user's unspent credit, sending it to `to`.
-    function uncreditUser(address user, uint256 amount, address to)
+    /// @notice Admin reclaims `amount` from the pool, sending it to `to`.
+    function reclaimFromPool(uint256 amount, address to)
         external
         onlyWhitelistedAdmin
         nonReentrant
     {
-        if (user == address(0) || to == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
+        if (to == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
         if (amount == 0) revert Errors.Sponsored_NothingToCredit();
 
         SponsoredLayout storage $ = _s();
-        uint256 remaining = $.sponsoredCredit[user];
+        uint256 remaining = $.sponsorPool;
         if (amount > remaining) revert Errors.Sponsored_InsufficientClaim();
 
         // Effects
-        $.sponsoredCredit[user] = remaining - amount;
-        $.totalSponsoredCredit -= amount;
+        $.sponsorPool = remaining - amount;
 
         // Interaction
         (bool ok, ) = to.call{value: amount}("");
         if (!ok) revert Errors.Sponsored_RefundFailed();
 
-        emit CreditReclaimed(user, amount, to);
+        emit PoolReclaimed(amount, to, msg.sender);
     }
 
     // ============ User entry points (override V2) ============
@@ -251,7 +230,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 curveId,
         uint256 minShares
     ) external payable override nonReentrant returns (uint256 shares) {
-        uint256 consumed = _consumeCredit(msg.sender, 0);
+        uint256 consumed = _consumeCredit(0);
         uint256 effective = msg.value + consumed;
 
         if (effective <= depositFixedFee) revert Errors.IntuitionFeeProxy_InsufficientValue();
@@ -261,7 +240,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 fee = effective - multiVaultAmount;
 
         _accrueFee(fee, "deposit", multiVaultAmount);
-        _finaliseCredit(consumed);
+        _finaliseCredit(msg.sender, consumed);
 
         shares = _ethMultiVault.deposit{value: multiVaultAmount}(msg.sender, termId, curveId, minShares);
         _trackActivity(0, 0, 1, multiVaultAmount);
@@ -285,12 +264,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 multiVaultCost = (atomCost * count) + totalDeposit;
         uint256 totalRequired = fee + multiVaultCost;
 
-        uint256 consumed = _consumeCredit(msg.sender, totalRequired);
+        uint256 consumed = _consumeCredit(totalRequired);
         uint256 effective = msg.value + consumed;
         if (effective < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
 
         _accrueFee(fee, "createAtoms", multiVaultCost);
-        _finaliseCredit(consumed);
+        _finaliseCredit(msg.sender, consumed);
 
         uint256[] memory minAssets = new uint256[](count);
         for (uint256 i = 0; i < count; i++) minAssets[i] = atomCost;
@@ -331,12 +310,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 multiVaultCost = (tripleCost * count) + totalDeposit;
         uint256 totalRequired = fee + multiVaultCost;
 
-        uint256 consumed = _consumeCredit(msg.sender, totalRequired);
+        uint256 consumed = _consumeCredit(totalRequired);
         uint256 effective = msg.value + consumed;
         if (effective < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
 
         _accrueFee(fee, "createTriples", multiVaultCost);
-        _finaliseCredit(consumed);
+        _finaliseCredit(msg.sender, consumed);
 
         uint256[] memory minAssets = new uint256[](count);
         for (uint256 i = 0; i < count; i++) minAssets[i] = tripleCost;
@@ -371,12 +350,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 fee = calculateDepositFee(termIds.length, totalDeposit);
         uint256 totalRequired = totalDeposit + fee;
 
-        uint256 consumed = _consumeCredit(msg.sender, totalRequired);
+        uint256 consumed = _consumeCredit(totalRequired);
         uint256 effective = msg.value + consumed;
         if (effective < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
 
         _accrueFee(fee, "depositBatch", totalDeposit);
-        _finaliseCredit(consumed);
+        _finaliseCredit(msg.sender, consumed);
 
         shares = _ethMultiVault.depositBatch{value: totalDeposit}(
             msg.sender, termIds, curveIds, assets, minShares
@@ -388,24 +367,34 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Sponsor-acting entry points (D3) ============
     //
-    // `*For(receiver, …)` — caller pays msg.value, `receiver` gets shares.
-    // Open to anyone: economically equivalent to the caller depositing on
-    // their own and transferring shares (minus the transfer step).
+    // `*For(receiver, …)` — admin-initiated deposits on behalf of `receiver`.
+    // Funds are drawn from `receiver`'s sponsored credit bucket, not from the
+    // admin's wallet. `msg.value` is accepted as an optional top-up if the
+    // bucket is short. Rate limits (`maxClaimPerTx` cap + `maxClaimsPerDay`)
+    // apply to the receiver, not the admin.
+    //
+    // Gated `onlyWhitelistedAdmin` so a random caller cannot force a drain of
+    // a pre-credited user's bucket without their consent.
 
     function depositFor(
         address receiver,
         bytes32 termId,
         uint256 curveId,
         uint256 minShares
-    ) external payable nonReentrant returns (uint256 shares) {
+    ) external payable onlyWhitelistedAdmin nonReentrant returns (uint256 shares) {
         if (receiver == address(0)) revert Errors.Sponsored_ZeroReceiver();
-        if (msg.value <= depositFixedFee) revert Errors.IntuitionFeeProxy_InsufficientValue();
 
-        uint256 multiVaultAmount = (msg.value - depositFixedFee) * FEE_DENOMINATOR
+        uint256 consumed = _consumeCredit(0);
+        uint256 effective = msg.value + consumed;
+
+        if (effective <= depositFixedFee) revert Errors.IntuitionFeeProxy_InsufficientValue();
+
+        uint256 multiVaultAmount = (effective - depositFixedFee) * FEE_DENOMINATOR
                                    / (FEE_DENOMINATOR + depositPercentageFee);
-        uint256 fee = msg.value - multiVaultAmount;
+        uint256 fee = effective - multiVaultAmount;
 
         _accrueFee(fee, "depositFor", multiVaultAmount);
+        _finaliseCredit(receiver, consumed);
 
         shares = _ethMultiVault.deposit{value: multiVaultAmount}(receiver, termId, curveId, minShares);
 
@@ -418,7 +407,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         bytes[] calldata data,
         uint256[] calldata assets,
         uint256 curveId
-    ) external payable nonReentrant returns (bytes32[] memory atomIds) {
+    ) external payable onlyWhitelistedAdmin nonReentrant returns (bytes32[] memory atomIds) {
         if (receiver == address(0)) revert Errors.Sponsored_ZeroReceiver();
         if (data.length != assets.length) revert Errors.IntuitionFeeProxy_WrongArrayLengths();
 
@@ -430,9 +419,13 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
         uint256 multiVaultCost = (atomCost * count) + totalDeposit;
         uint256 totalRequired = fee + multiVaultCost;
-        if (msg.value < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
+
+        uint256 consumed = _consumeCredit(totalRequired);
+        uint256 effective = msg.value + consumed;
+        if (effective < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
 
         _accrueFee(fee, "createAtomsFor", multiVaultCost);
+        _finaliseCredit(receiver, consumed);
 
         uint256[] memory minAssets = new uint256[](count);
         for (uint256 i = 0; i < count; i++) minAssets[i] = atomCost;
@@ -456,7 +449,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         bytes32[] calldata objectIds,
         uint256[] calldata assets,
         uint256 curveId
-    ) external payable nonReentrant returns (bytes32[] memory tripleIds) {
+    ) external payable onlyWhitelistedAdmin nonReentrant returns (bytes32[] memory tripleIds) {
         if (receiver == address(0)) revert Errors.Sponsored_ZeroReceiver();
         if (
             subjectIds.length != predicateIds.length ||
@@ -472,9 +465,13 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
         uint256 multiVaultCost = (tripleCost * count) + totalDeposit;
         uint256 totalRequired = fee + multiVaultCost;
-        if (msg.value < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
+
+        uint256 consumed = _consumeCredit(totalRequired);
+        uint256 effective = msg.value + consumed;
+        if (effective < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
 
         _accrueFee(fee, "createTriplesFor", multiVaultCost);
+        _finaliseCredit(receiver, consumed);
 
         uint256[] memory minAssets = new uint256[](count);
         for (uint256 i = 0; i < count; i++) minAssets[i] = tripleCost;
@@ -499,7 +496,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256[] calldata curveIds,
         uint256[] calldata assets,
         uint256[] calldata minShares
-    ) external payable nonReentrant returns (uint256[] memory shares) {
+    ) external payable onlyWhitelistedAdmin nonReentrant returns (uint256[] memory shares) {
         if (receiver == address(0)) revert Errors.Sponsored_ZeroReceiver();
         if (
             termIds.length != curveIds.length ||
@@ -510,9 +507,13 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 totalDeposit = _sumArray(assets);
         uint256 fee = calculateDepositFee(termIds.length, totalDeposit);
         uint256 totalRequired = totalDeposit + fee;
-        if (msg.value < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
+
+        uint256 consumed = _consumeCredit(totalRequired);
+        uint256 effective = msg.value + consumed;
+        if (effective < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
 
         _accrueFee(fee, "depositBatchFor", totalDeposit);
+        _finaliseCredit(receiver, consumed);
 
         shares = _ethMultiVault.depositBatch{value: totalDeposit}(
             receiver, termIds, curveIds, assets, minShares
@@ -554,21 +555,22 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     function _assertCreditInvariant(uint256 amount) internal view {
         uint256 bal = address(this).balance;
-        uint256 locked = _s().totalSponsoredCredit;
+        uint256 locked = _s().sponsorPool;
         if (bal < amount || bal - amount < locked) {
             revert Errors.Sponsored_WithdrawBreachesCreditInvariant();
         }
     }
 
-    // ============ Internal: credit consumption + rate limiting ============
+    // ============ Internal: pool consumption + rate limiting ============
 
-    /// @dev Read-only: returns how much credit would be consumed for a given required amount.
-    /// @dev Capped at `maxClaimPerTx`: a user with more credit than the cap only draws `cap` wei
-    ///      per call. Remaining credit stays available for later txs (subject to the daily count
-    ///      limit). If `msg.value` already covers `required`, no credit is consumed at all.
-    function _consumeCredit(address user, uint256 required) internal view returns (uint256) {
+    /// @dev Read-only: returns how much would be drawn from the shared sponsor
+    ///      pool to cover the caller's `required` amount. The cap is
+    ///      `maxClaimPerTx` — a caller asking for more than the cap will still
+    ///      only get `cap` from the pool and must top up the rest via
+    ///      `msg.value`. If `msg.value >= required`, no pool draw.
+    function _consumeCredit(uint256 required) internal view returns (uint256) {
         SponsoredLayout storage $ = _s();
-        uint256 avail = $.sponsoredCredit[user];
+        uint256 avail = $.sponsorPool;
         if (avail == 0) return 0;
         uint256 cap = $.maxClaimPerTx;
         uint256 usable = avail > cap ? cap : avail;
@@ -578,17 +580,18 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         return missing >= usable ? usable : missing;
     }
 
-    /// @dev Commits a credit consumption + enforces the daily-count rate limit.
-    ///      No-op if `consumed == 0` (user paid fully from msg.value — no pool touched).
-    function _finaliseCredit(uint256 consumed) internal {
+    /// @dev Commits a pool draw + enforces the per-user daily-count rate limit.
+    ///      `forUser` is whoever's quota should be charged — msg.sender in D1
+    ///      (user-initiated), receiver in D3 (admin-initiated on behalf of).
+    ///      No-op if `consumed == 0` (no pool touched).
+    function _finaliseCredit(address forUser, uint256 consumed) internal {
         if (consumed == 0) return;
         SponsoredLayout storage $ = _s();
 
-        _applyRateLimit(msg.sender, $.maxClaimsPerDay);
+        _applyRateLimit(forUser, $.maxClaimsPerDay);
 
-        $.sponsoredCredit[msg.sender] -= consumed;
-        $.totalSponsoredCredit -= consumed;
-        emit CreditConsumed(msg.sender, consumed);
+        $.sponsorPool -= consumed;
+        emit CreditConsumed(forUser, consumed);
     }
 
     function _applyRateLimit(address user, uint256 capPerDay) internal {
