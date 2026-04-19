@@ -581,4 +581,139 @@ describe("IntuitionFeeProxyV2", function () {
       ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_WrongArrayLengths");
     });
   });
+
+  // ============ Metrics ============
+
+  describe("Metrics", function () {
+    it("initial state is all-zero", async function () {
+      const { proxy } = await loadFixture(deployFixture);
+      expect(await proxy.totalAtomsCreated()).to.equal(0n);
+      expect(await proxy.totalTriplesCreated()).to.equal(0n);
+      expect(await proxy.totalDeposits()).to.equal(0n);
+      expect(await proxy.totalVolume()).to.equal(0n);
+      expect(await proxy.totalUniqueUsers()).to.equal(0n);
+      expect(await proxy.lastActivityBlock()).to.equal(0n);
+    });
+
+    it("deposit increments totalDeposits / totalVolume / uniqueUsers and sets lastActivityBlock", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termId = ethers.encodeBytes32String("term1");
+      const total = ethers.parseEther("1");
+
+      const tx = await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      const rc = await tx.wait();
+
+      const multiVaultAmount = (total - DEPOSIT_FEE) * FEE_DENOMINATOR / (FEE_DENOMINATOR + DEPOSIT_PERCENTAGE);
+      expect(await proxy.totalDeposits()).to.equal(1n);
+      expect(await proxy.totalVolume()).to.equal(multiVaultAmount);
+      expect(await proxy.totalUniqueUsers()).to.equal(1n);
+      expect(await proxy.totalAtomsCreated()).to.equal(0n);
+      expect(await proxy.totalTriplesCreated()).to.equal(0n);
+      expect(await proxy.lastActivityBlock()).to.equal(BigInt(rc!.blockNumber));
+    });
+
+    it("createAtoms increments totalAtomsCreated + totalDeposits (non-zero assets only)", async function () {
+      const { proxy, mockMultiVault, user } = await loadFixture(deployFixture);
+      const atomCost = await mockMultiVault.getAtomCost();
+
+      // 3 atoms, 2 with non-zero deposit
+      const data = [
+        ethers.toUtf8Bytes("atom-a"),
+        ethers.toUtf8Bytes("atom-b"),
+        ethers.toUtf8Bytes("atom-c"),
+      ];
+      const assets = [ethers.parseEther("0.5"), 0n, ethers.parseEther("0.3")];
+      const totalAssets = assets[0] + assets[1] + assets[2];
+      const nonZeroCount = 2n;
+      const fee = DEPOSIT_FEE * nonZeroCount + (totalAssets * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const value = fee + atomCost * 3n + totalAssets;
+
+      await proxy.connect(user).createAtoms(data, assets, 1n, { value });
+
+      expect(await proxy.totalAtomsCreated()).to.equal(3n);
+      expect(await proxy.totalDeposits()).to.equal(nonZeroCount);
+      expect(await proxy.totalVolume()).to.equal(totalAssets);
+      expect(await proxy.totalUniqueUsers()).to.equal(1n);
+    });
+
+    it("createTriples increments totalTriplesCreated", async function () {
+      const { proxy, mockMultiVault, user } = await loadFixture(deployFixture);
+      const tripleCost = await mockMultiVault.getTripleCost();
+
+      const subjectIds = [ethers.encodeBytes32String("s1"), ethers.encodeBytes32String("s2")];
+      const predicateIds = [ethers.encodeBytes32String("p1"), ethers.encodeBytes32String("p2")];
+      const objectIds = [ethers.encodeBytes32String("o1"), ethers.encodeBytes32String("o2")];
+      const assets = [0n, 0n];
+      const value = tripleCost * 2n;
+
+      await proxy.connect(user).createTriples(subjectIds, predicateIds, objectIds, assets, 1n, { value });
+
+      expect(await proxy.totalTriplesCreated()).to.equal(2n);
+      expect(await proxy.totalDeposits()).to.equal(0n); // all assets zero
+      expect(await proxy.totalUniqueUsers()).to.equal(1n);
+    });
+
+    it("depositBatch counts each term as a deposit and sums the volume", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termIds = [ethers.encodeBytes32String("t1"), ethers.encodeBytes32String("t2")];
+      const curveIds = [1n, 1n];
+      const assets = [ethers.parseEther("0.5"), ethers.parseEther("0.5")];
+      const minShares = [0n, 0n];
+      const totalDeposit = assets[0] + assets[1];
+      const fee = DEPOSIT_FEE * 2n + (totalDeposit * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+
+      await proxy.connect(user).depositBatch(termIds, curveIds, assets, minShares, {
+        value: totalDeposit + fee,
+      });
+
+      expect(await proxy.totalDeposits()).to.equal(2n);
+      expect(await proxy.totalVolume()).to.equal(totalDeposit);
+    });
+
+    it("uniqueUsers counts each address only once across multiple calls", async function () {
+      const { proxy, user, admin1 } = await loadFixture(deployFixture);
+      const termId = ethers.encodeBytes32String("term1");
+      const total = ethers.parseEther("1");
+
+      await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      expect(await proxy.totalUniqueUsers()).to.equal(1n);
+
+      await proxy.connect(admin1).deposit(termId, 1n, 0n, { value: total });
+      expect(await proxy.totalUniqueUsers()).to.equal(2n);
+    });
+
+    it("hasInteracted reflects first-touch status", async function () {
+      const { proxy, user, admin1 } = await loadFixture(deployFixture);
+      expect(await proxy.hasInteracted(user.address)).to.be.false;
+
+      const termId = ethers.encodeBytes32String("term1");
+      await proxy.connect(user).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") });
+
+      expect(await proxy.hasInteracted(user.address)).to.be.true;
+      expect(await proxy.hasInteracted(admin1.address)).to.be.false;
+    });
+
+    it("getMetrics returns the full aggregate tuple", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termId = ethers.encodeBytes32String("term1");
+      await proxy.connect(user).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") });
+
+      const m = await proxy.getMetrics();
+      expect(m.totalAtomsCreated).to.equal(0n);
+      expect(m.totalTriplesCreated).to.equal(0n);
+      expect(m.totalDeposits).to.equal(1n);
+      expect(m.totalVolume).to.be.gt(0n);
+      expect(m.totalUniqueUsers).to.equal(1n);
+      expect(m.lastActivityBlock).to.be.gt(0n);
+    });
+
+    it("emits MetricsUpdated on every write-path call", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termId = ethers.encodeBytes32String("term1");
+      await expect(
+        proxy.connect(user).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") })
+      ).to.emit(proxy, "MetricsUpdated");
+    });
+  });
 });

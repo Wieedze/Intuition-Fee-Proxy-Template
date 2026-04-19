@@ -55,8 +55,33 @@ contract IntuitionFeeProxyV2 is
     /// @dev slot 6 — guards against revoking the last admin
     uint256 public adminCount;
 
-    /// @dev 7 slots used — 43 left to reserve for future upgrades (total 50)
-    uint256[43] private __gap;
+    // ============ Metrics storage (slots 7–13) ============
+    // Aggregate counters for dashboards / indexers. Cheap SSTOREs on every
+    // entry point. Append-only so existing upgradeable proxies stay safe.
+
+    /// @dev slot 7 — cumulative count of atoms ever created through this proxy
+    uint256 public totalAtomsCreated;
+
+    /// @dev slot 8 — cumulative count of triples ever created
+    uint256 public totalTriplesCreated;
+
+    /// @dev slot 9 — cumulative count of deposit operations (batch entries count individually)
+    uint256 public totalDeposits;
+
+    /// @dev slot 10 — cumulative TRUST/ETH forwarded to the MultiVault (fees excluded)
+    uint256 public totalVolume;
+
+    /// @dev slot 11 — unique addresses that have interacted with the proxy
+    uint256 public totalUniqueUsers;
+
+    /// @dev slot 12 — block of the last write-path call
+    uint256 public lastActivityBlock;
+
+    /// @dev slot 13 — tracks first-time interaction per user (for uniqueUsers)
+    mapping(address => bool) private _hasInteracted;
+
+    /// @dev 14 slots used — 36 left to reserve for future upgrades (total 50)
+    uint256[36] private __gap;
 
     // ============ Events ============
 
@@ -75,6 +100,16 @@ contract IntuitionFeeProxyV2 is
     event MultiVaultSuccess(string operation, uint256 resultCount);
 
     event FeesWithdrawn(address indexed to, uint256 amount, address indexed by);
+
+    /// @notice Emitted on every write-path call with a snapshot of the aggregate metrics.
+    event MetricsUpdated(
+        uint256 totalAtomsCreated,
+        uint256 totalTriplesCreated,
+        uint256 totalDeposits,
+        uint256 totalVolume,
+        uint256 totalUniqueUsers,
+        uint256 lastActivityBlock
+    );
 
     // ============ Modifiers ============
 
@@ -269,6 +304,7 @@ contract IntuitionFeeProxyV2 is
             }
         }
 
+        _trackActivity(count, 0, depositCount, totalDeposit);
         emit MultiVaultSuccess("createAtoms", count);
         return atomIds;
     }
@@ -317,6 +353,7 @@ contract IntuitionFeeProxyV2 is
             }
         }
 
+        _trackActivity(0, count, depositCount, totalDeposit);
         emit MultiVaultSuccess("createTriples", count);
         return tripleIds;
     }
@@ -338,6 +375,7 @@ contract IntuitionFeeProxyV2 is
         _accrueFee(fee, "deposit", multiVaultAmount);
 
         shares = _ethMultiVault.deposit{value: multiVaultAmount}(msg.sender, termId, curveId, minShares);
+        _trackActivity(0, 0, 1, multiVaultAmount);
         emit MultiVaultSuccess("deposit", 1);
     }
 
@@ -368,6 +406,7 @@ contract IntuitionFeeProxyV2 is
         shares = _ethMultiVault.depositBatch{value: totalDeposit}(
             msg.sender, termIds, curveIds, assets, minShares
         );
+        _trackActivity(0, 0, termIds.length, totalDeposit);
         emit MultiVaultSuccess("depositBatch", shares.length);
     }
 
@@ -421,6 +460,25 @@ contract IntuitionFeeProxyV2 is
         return _ethMultiVault.previewDeposit(termId, curveId, assets);
     }
 
+    // ============ Metrics views ============
+
+    /// @inheritdoc IIntuitionFeeProxyV2
+    function hasInteracted(address user) external view returns (bool) {
+        return _hasInteracted[user];
+    }
+
+    /// @inheritdoc IIntuitionFeeProxyV2
+    function getMetrics() external view returns (ProxyMetrics memory) {
+        return ProxyMetrics({
+            totalAtomsCreated: totalAtomsCreated,
+            totalTriplesCreated: totalTriplesCreated,
+            totalDeposits: totalDeposits,
+            totalVolume: totalVolume,
+            totalUniqueUsers: totalUniqueUsers,
+            lastActivityBlock: lastActivityBlock
+        });
+    }
+
     // ============ Internal ============
 
     function _accrueFee(uint256 fee, string memory operation, uint256 mvValue) internal {
@@ -430,6 +488,32 @@ contract IntuitionFeeProxyV2 is
         }
         emit FeesCollected(msg.sender, fee, operation);
         emit TransactionForwarded(operation, msg.sender, fee, mvValue, msg.value);
+    }
+
+    function _trackActivity(
+        uint256 atomsDelta,
+        uint256 triplesDelta,
+        uint256 depositsDelta,
+        uint256 volumeDelta
+    ) internal {
+        if (!_hasInteracted[msg.sender]) {
+            _hasInteracted[msg.sender] = true;
+            unchecked { ++totalUniqueUsers; }
+        }
+        if (atomsDelta > 0) totalAtomsCreated += atomsDelta;
+        if (triplesDelta > 0) totalTriplesCreated += triplesDelta;
+        if (depositsDelta > 0) totalDeposits += depositsDelta;
+        if (volumeDelta > 0) totalVolume += volumeDelta;
+        lastActivityBlock = block.number;
+
+        emit MetricsUpdated(
+            totalAtomsCreated,
+            totalTriplesCreated,
+            totalDeposits,
+            totalVolume,
+            totalUniqueUsers,
+            lastActivityBlock
+        );
     }
 
     function _sumArray(uint256[] calldata arr) internal pure returns (uint256 sum) {
