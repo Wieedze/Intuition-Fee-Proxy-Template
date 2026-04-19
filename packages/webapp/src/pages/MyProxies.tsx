@@ -10,7 +10,7 @@ export default function MyProxiesPage() {
 
   if (!isConnected) {
     return (
-      <div className="max-w-xl space-y-6">
+      <div className="max-w-xl mx-auto space-y-6">
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold tracking-tight text-ink">
             My proxies
@@ -33,7 +33,7 @@ export default function MyProxiesPage() {
 
   if (!factory) {
     return (
-      <div className="max-w-xl space-y-2">
+      <div className="max-w-xl mx-auto space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight text-ink">
           My proxies
         </h1>
@@ -45,7 +45,7 @@ export default function MyProxiesPage() {
   }
 
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-8 max-w-3xl mx-auto">
       <div className="flex items-end justify-between">
         <h1 className="text-3xl font-semibold tracking-tight text-ink">
           My proxies

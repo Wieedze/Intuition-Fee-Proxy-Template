@@ -9,9 +9,9 @@ export default function HomePage() {
           <span className="text-brand">Intuition MultiVault</span>.
         </h1>
         <p className="text-lg text-muted leading-relaxed max-w-2xl">
-          Deploy a thin, audited proxy in front of the MultiVault. Configure
-          fees, manage admins, and ship new logic versions without forcing
-          users off the one they trust.
+          Deploy a thin, upgradeable proxy in front of the MultiVault.
+          Configure fees, manage admins, and ship new logic versions without
+          forcing users off the one they depend on.
         </p>
         <div className="flex items-center gap-5 pt-2">
           <Link to="/deploy" className="btn-primary px-5 py-2.5">
@@ -32,7 +32,7 @@ export default function HomePage() {
             n: '01',
             title: 'Versioned',
             body:
-              'Your proxy is a registry of audited logic implementations. Ship new versions without displacing the old ones — users can pin to any past version via executeAtVersion.',
+              'Your proxy is a registry of logic implementations. Ship new versions without displacing the old ones — users can pin to any past version via executeAtVersion.',
           },
           {
             n: '02',

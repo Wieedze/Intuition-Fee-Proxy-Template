@@ -70,7 +70,7 @@ export default function DeployPage() {
   })()
 
   return (
-    <div className="space-y-8 max-w-2xl">
+    <div className="space-y-8 max-w-2xl mx-auto">
       <div className="space-y-2">
         <h1 className="text-3xl font-semibold tracking-tight text-ink">
           Deploy a fee proxy
@@ -81,12 +81,14 @@ export default function DeployPage() {
       </div>
 
       {!factory && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-          <b className="text-amber-100">No factory address for <code className="font-mono">{network}</code>.</b>{' '}
-          Set <code className="font-mono text-brand">VITE_FACTORY_ADDRESS</code> (and{' '}
-          <code className="font-mono text-brand">VITE_IMPLEMENTATION_ADDRESS</code>) in{' '}
-          <code className="font-mono">packages/webapp/.env.local</code>, or deploy the contracts and
-          update <code className="font-mono">V2_ADDRESSES</code> in the SDK.
+        <div className="rounded-lg border-l-4 border-l-brand border border-line bg-surface p-4 text-sm text-ink">
+          <b>No factory address for <code className="font-mono text-muted">{network}</code>.</b>{' '}
+          <span className="text-muted">
+            Set <code className="font-mono text-brand">VITE_FACTORY_ADDRESS</code> and{' '}
+            <code className="font-mono text-brand">VITE_IMPLEMENTATION_ADDRESS</code> in{' '}
+            <code className="font-mono">packages/webapp/.env.local</code>, or deploy the contracts and
+            update <code className="font-mono">V2_ADDRESSES</code> in the SDK.
+          </span>
         </div>
       )}
 
