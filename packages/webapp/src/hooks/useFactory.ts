@@ -75,3 +75,19 @@ export function useMyProxies() {
     factory,
   }
 }
+
+export function useAllProxies() {
+  const factory = useFactoryAddress()
+  const result = useReadContract({
+    abi: IntuitionFeeProxyFactoryABI as any,
+    address: factory,
+    functionName: 'getAllProxies',
+    query: { enabled: Boolean(factory) },
+  })
+
+  return {
+    ...result,
+    proxies: (result.data as Address[] | undefined) ?? [],
+    factory,
+  }
+}

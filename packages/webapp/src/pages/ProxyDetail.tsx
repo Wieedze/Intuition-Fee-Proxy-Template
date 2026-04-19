@@ -155,7 +155,10 @@ export default function ProxyDetailPage() {
       )}
 
       {tab === 'admins' && (
-        <AdminsPanel proxy={proxy} connectedAccount={account} />
+        <div className="space-y-8">
+          <UpgradeAuthorityPanel proxyAdmin={proxyAdmin} account={account} />
+          <AdminsPanel proxy={proxy} connectedAccount={account} />
+        </div>
       )}
 
       {tab === 'sponsoring' && channel === 'sponsored' && (
@@ -586,6 +589,48 @@ function decodeVersion(v: Hex): string {
   }
 }
 
+
+function UpgradeAuthorityPanel({
+  proxyAdmin,
+  account,
+}: {
+  proxyAdmin: Hex | undefined
+  account: Address | undefined
+}) {
+  const isYou =
+    account && proxyAdmin && account.toLowerCase() === proxyAdmin.toLowerCase()
+
+  return (
+    <section className="card space-y-3">
+      <h2 className="font-semibold">Upgrade authority</h2>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wide text-subtle mr-1">
+          proxyAdmin
+        </span>
+        {proxyAdmin ? (
+          <>
+            <Address value={proxyAdmin as Address} variant="short" />
+            {isYou && (
+              <span className="text-[10px] px-2 py-0.5 rounded bg-accent/10 text-accent uppercase tracking-wide">
+                you
+              </span>
+            )}
+          </>
+        ) : (
+          <span className="text-sm text-subtle">—</span>
+        )}
+      </div>
+
+      <p className="text-xs text-subtle leading-relaxed">
+        Can register new implementations and switch the default version at
+        any time. End users interacting with this proxy should keep their
+        MultiVault approval <code className="font-mono text-ink">DEPOSIT</code>-only.
+      </p>
+    </section>
+  )
+}
+
 function VersionsPanel({
   proxy,
   versions,
@@ -691,7 +736,7 @@ function VersionsPanel({
 
       {isProxyAdmin ? (
         <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2 h-full">
             <div className="text-xs font-medium">Register new version</div>
             <input
               value={newLabel}
@@ -714,7 +759,7 @@ function VersionsPanel({
                 registerPending ||
                 registerReceipt.isLoading
               }
-              className="btn-primary w-full"
+              className="btn-primary w-full mt-auto"
             >
               {registerPending
                 ? 'Confirm…'
@@ -729,7 +774,7 @@ function VersionsPanel({
             )}
           </div>
 
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2 h-full">
             <div className="text-xs font-medium">Set default version</div>
             <select
               value={selectedVersion}
@@ -749,7 +794,7 @@ function VersionsPanel({
               disabled={
                 !selectedVersion || defaultPending || defaultReceipt.isLoading
               }
-              className="btn-primary w-full"
+              className="btn-secondary w-full mt-auto"
             >
               {defaultPending
                 ? 'Confirm…'
@@ -871,31 +916,49 @@ function AdminsPanel({
   const { setAdmin, hash, isPending, error: writeError, reset } = useSetWhitelistedAdmin(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
   const [addDraft, setAddDraft] = useState('')
+  // Tracks which row (or 'ADD') owns the in-flight tx, so only that button
+  // shows "Signing…" / "Mining…" state. Other rows stay idle (but disabled).
+  const [pendingTarget, setPendingTarget] = useState<Address | 'ADD' | null>(null)
+
+  const busy = isPending || receipt.isLoading
 
   useEffect(() => {
     if (receipt.isSuccess) {
       refetch()
       reset()
       setAddDraft('')
+      setPendingTarget(null)
     }
   }, [hash, receipt.isSuccess])
+
+  // If the write errored or the user rejected the signature, release the
+  // per-row pending marker so the buttons become clickable again.
+  useEffect(() => {
+    if (!isPending && !receipt.isLoading && !receipt.isSuccess && pendingTarget) {
+      setPendingTarget(null)
+    }
+  }, [isPending, receipt.isLoading, receipt.isSuccess, writeError])
 
   const addValid = isAddress(addDraft) && !admins.some((a) => a.toLowerCase() === addDraft.toLowerCase())
 
   async function onAdd() {
     if (!addValid) return
+    setPendingTarget('ADD')
     try {
       await setAdmin(addDraft as Address, true)
     } catch (e) {
       console.error(e)
+      setPendingTarget(null)
     }
   }
 
   async function onRevoke(addr: Address) {
+    setPendingTarget(addr)
     try {
       await setAdmin(addr, false)
     } catch (e) {
       console.error(e)
+      setPendingTarget(null)
     }
   }
 
@@ -950,10 +1013,20 @@ function AdminsPanel({
                   <button
                     type="button"
                     onClick={() => onRevoke(addr)}
-                    disabled={isPending || receipt.isLoading}
-                    className="text-xs text-muted hover:text-rose-400 transition-colors"
+                    disabled={busy}
+                    className="text-xs text-muted hover:text-rose-400 transition-colors inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Revoke
+                    {pendingTarget === addr && (
+                      <span
+                        aria-hidden
+                        className="inline-block h-3 w-3 rounded-full border border-current border-r-transparent animate-spin"
+                      />
+                    )}
+                    {pendingTarget === addr
+                      ? isPending
+                        ? 'Sign…'
+                        : 'Revoking…'
+                      : 'Revoke'}
                   </button>
                 )}
                 {isSelf && isLastAdmin && (
@@ -986,10 +1059,20 @@ function AdminsPanel({
             <button
               type="button"
               onClick={onAdd}
-              disabled={!addValid || isPending || receipt.isLoading}
-              className="btn-primary text-xs px-4 py-2"
+              disabled={!addValid || busy}
+              className="btn-primary text-xs px-4 py-2 inline-flex items-center gap-1.5"
             >
-              {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Add admin'}
+              {pendingTarget === 'ADD' && (
+                <span
+                  aria-hidden
+                  className="inline-block h-3 w-3 rounded-full border border-current border-r-transparent animate-spin"
+                />
+              )}
+              {pendingTarget === 'ADD'
+                ? isPending
+                  ? 'Sign…'
+                  : 'Mining…'
+                : 'Add admin'}
             </button>
           </div>
           {addDraft && !isAddress(addDraft) && (
@@ -1207,11 +1290,16 @@ function ReclaimFromPoolPanel({
   return (
     <section className="card space-y-4">
       <div>
-        <h3 className="font-semibold">Reclaim from pool</h3>
-        <p className="text-xs text-subtle">
-          Pull unspent TRUST out of the pool back to an address you choose
-          (your treasury, a Safe, etc.). Rejected if the amount exceeds the
-          current pool balance.
+        <div className="text-[10px] font-mono uppercase tracking-wider text-subtle">
+          Counterpart to Fund pool
+        </div>
+        <h3 className="font-semibold mt-1">Reclaim from pool</h3>
+        <p className="text-xs text-subtle mt-1 leading-relaxed">
+          Withdraw TRUST you previously funded but that users haven&apos;t
+          spent yet. Use when scaling sponsorship down, rotating capital to
+          a different treasury, or shutting the program down entirely.
+          Can&apos;t touch accumulated fees or user shares — only the pool
+          balance, and never more than what&apos;s currently there.
         </p>
       </div>
 

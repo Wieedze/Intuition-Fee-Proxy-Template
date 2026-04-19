@@ -1,8 +1,9 @@
-import { type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, NavLink, useParams } from 'react-router-dom'
 
 type SectionId =
   | 'overview'
+  | 'architecture'
   | 'call-flow'
   | 'proxy-vs-impl'
   | 'pinning'
@@ -14,7 +15,10 @@ type SectionId =
 const GROUPS = [
   {
     label: 'Introduction',
-    items: [{ id: 'overview' as SectionId, label: 'Overview' }],
+    items: [
+      { id: 'overview' as SectionId, label: 'Overview' },
+      { id: 'architecture' as SectionId, label: 'Architecture' },
+    ],
   },
   {
     label: 'Concepts',
@@ -93,6 +97,8 @@ function SectionContent({ id }: { id: SectionId }) {
   switch (id) {
     case 'overview':
       return <Overview />
+    case 'architecture':
+      return <Architecture />
     case 'call-flow':
       return <CallFlow />
     case 'proxy-vs-impl':
@@ -264,6 +270,258 @@ function Overview() {
           </div>
         </Link>
       </div>
+    </div>
+  )
+}
+
+// ---- Architecture ----
+
+function Architecture() {
+  const [channel, setChannel] = useState<'fee' | 'sponsor'>('fee')
+  const isFee = channel === 'fee'
+  const accentBorder = isFee ? 'border-brand/50' : 'border-[#e8a04a]/60'
+  const accentBg = isFee ? 'bg-brand/[0.06]' : 'bg-[#e8a04a]/[0.07]'
+  const accentText = isFee ? 'text-brand' : 'text-[#e8a04a]'
+
+  return (
+    <div className="space-y-5">
+      <PageHeader kicker="Introduction" title="Architecture" />
+      <P>
+        A proxy never runs in isolation. It sits inside a four-actor system:
+        a <b className="text-ink">factory</b> that deploys it, two{' '}
+        <b className="text-ink">admin</b> roles that configure it, an{' '}
+        <b className="text-ink">implementation</b> that holds the logic, and
+        the <b className="text-ink">MultiVault</b> that ultimately executes
+        the deposit. The channel picked at deploy time decides who pays:
+        the user, or a pool the admin has pre-funded.
+      </P>
+
+      <div className="inline-flex rounded-lg border border-line bg-surface p-1 mt-2">
+        <ChannelToggle
+          active={isFee}
+          onClick={() => setChannel('fee')}
+          color="brand"
+        >
+          Fee proxy
+        </ChannelToggle>
+        <ChannelToggle
+          active={!isFee}
+          onClick={() => setChannel('sponsor')}
+          color="amber"
+        >
+          Sponsor proxy
+        </ChannelToggle>
+      </div>
+
+      <H3>Deploy time</H3>
+      <P>
+        Anyone can deploy a proxy; there is no gatekeeper. The factory is a
+        single permissionless contract — it clones the proxy bytecode,
+        points it at the channel-specific implementation, and assigns the
+        caller-supplied admins.
+      </P>
+      <div className="flex flex-col items-stretch space-y-2 my-4">
+        <ArchNode title="Admin wallet or Safe" subtitle="calls createProxy(...)" />
+        <ArrowDown />
+        <ArchNode
+          title="IntuitionFeeProxyFactory"
+          subtitle="clones the proxy · wires the channel impl · emits ProxyCreated"
+        />
+        <ArrowDown />
+        <ArchNode
+          title={isFee ? 'Fee proxy' : 'Sponsor proxy'}
+          subtitle={
+            isFee
+              ? 'ABI-clean standard V2 implementation'
+              : 'V2Sponsored implementation — adds a shared TRUST pool'
+          }
+          borderClass={accentBorder}
+          bgClass={accentBg}
+          titleClass={accentText}
+        />
+      </div>
+
+      <H3>Runtime — transaction flow</H3>
+      <P>
+        The proxy keeps two storage compartments: its own (version registry,
+        proxy admin) in an ERC-7201 namespaced slot, and the
+        implementation&apos;s (fees, metrics, admins — plus the sponsor pool
+        in the sponsored channel) in low slots. Every call arrives at the
+        proxy and is <Code>delegatecall</Code>ed to the selected version.
+      </P>
+      <div className="flex flex-col items-stretch space-y-2 my-4">
+        <ArchNode
+          title={isFee ? 'User' : 'Tx initiator — user (D1) or admin (D3)'}
+          subtitle={
+            isFee
+              ? 'sends deposit() with msg.value = amount + fee'
+              : 'D1: user signs deposit() with reduced msg.value · D3: admin signs depositFor(user,…) on the user’s behalf'
+          }
+        />
+        <ArrowDown />
+        <ArchNode
+          title={isFee ? 'Fee proxy' : 'Sponsor proxy'}
+          subtitle={
+            isFee
+              ? 'keeps fixed + % fee in accumulatedFees · delegatecall default version'
+              : 'tops up from sponsorPool (capped by maxClaimPerTx / maxClaimsPerDay) · delegatecall default version'
+          }
+          borderClass={accentBorder}
+          bgClass={accentBg}
+          titleClass={accentText}
+        />
+        <ArrowDown />
+        <ArchNode
+          title="MultiVault"
+          subtitle={
+            isFee
+              ? 'executes the deposit · mints shares to the user'
+              : 'executes the deposit · mints shares to the user (same end recipient in D1 and D3)'
+          }
+        />
+      </div>
+
+      <H3>Actors</H3>
+      <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
+        <Actor
+          term="Factory"
+          desc="Single contract per chain. Holds the canonical standard + sponsored implementation addresses the project owner can bump via setImplementation / setSponsoredImplementation. Never sees user funds."
+        />
+        <Actor
+          term="Proxy"
+          desc={
+            isFee
+              ? 'The contract every user interacts with. Routes deposits through the current default version, or through any pinned version via executeAtVersion. Accumulates fees in accumulatedFees.'
+              : 'Same router as the fee proxy, but also exposes a shared sponsorPool admins fund once. User-side entry points (deposit, createAtoms, …) transparently draw from the pool; admin-side mirrors (depositFor, createAtomsFor, …) let the admin submit on the user’s behalf.'
+          }
+        />
+        <Actor
+          term="Fee admins (whitelisted)"
+          desc={
+            isFee
+              ? 'Multiple addresses. Configure fixed + percentage fees, withdraw accumulated fees to any address, rotate the whitelist. Cannot touch the proxy-admin surface.'
+              : 'Same fee admin role, plus the sponsor surface: fundPool, reclaimFromPool, setClaimLimits, and the *For mirrors. withdraw is constrained — it can never dip into the sponsorPool balance.'
+          }
+        />
+        <Actor
+          term="Proxy admin (single / Safe)"
+          desc="Owns the version registry. Can registerVersion(label, impl) to add a new audited implementation, setDefaultVersion(label) to promote it for all non-pinned users, and transferProxyAdmin to rotate ownership. Intentionally disjoint from fee admins."
+        />
+        <Actor
+          term="Implementation"
+          desc={
+            isFee
+              ? 'Stateless logic contract (IntuitionFeeProxyV2, V2.1, …). Never runs standalone — only via delegatecall from a proxy. New versions inherit from the previous one and never reorder storage.'
+              : 'IntuitionFeeProxyV2Sponsored — same pattern, but adds the sponsor pool, pool accounting and *For entry points on top of V2. Upgrades stay append-only within the sponsored family.'
+          }
+        />
+        <Actor
+          term="MultiVault"
+          desc="Intuition core. The proxy is a pure front; every deposit is ultimately executed here, and the resulting shares are minted to the original user (or, for the admin-initiated sponsor flow, to receiver)."
+        />
+      </dl>
+
+      <H3>{isFee ? 'Fee economics' : 'Pool economics'}</H3>
+      {isFee ? (
+        <>
+          <P>
+            Every deposit carries two fees: a fixed amount in wei
+            (<Code>depositFixedFee</Code>) and a percentage of the
+            post-fixed-fee amount (<Code>depositPercentageFee</Code>, basis
+            points, hard-capped at 10%). Both accumulate inside the proxy.
+            Admins pull them out on demand via{' '}
+            <Code>withdraw(to, amount)</Code> or{' '}
+            <Code>withdrawAll(to)</Code>. No streaming, no escrow, no
+            external dependency.
+          </P>
+        </>
+      ) : (
+        <>
+          <P>
+            One shared <Code>sponsorPool</Code> funded once by the admin
+            (<Code>fundPool</Code> payable). Every sponsored call consumes
+            from the same pool, bounded by two always-on rate limits:{' '}
+            <Code>maxClaimPerTx</Code> (cap per call) and{' '}
+            <Code>maxClaimsPerDay</Code> (per-user rolling 24h window). The
+            admin can <Code>reclaimFromPool</Code> any unspent balance.
+            Standard fees (fixed + percentage) still apply on top — they
+            accumulate in <Code>accumulatedFees</Code> separately, and{' '}
+            <Code>withdraw</Code> is invariant-checked so it can never dip
+            into the pool.
+          </P>
+        </>
+      )}
+
+      <Callout title={isFee ? 'Need sponsorship later?' : 'Need a pure fee proxy?'}>
+        The channel is fixed at deploy time. Switching from fee to sponsored
+        (or the other way) requires deploying a fresh proxy. Pick the one
+        that matches your dApp&apos;s monetisation model before hitting{' '}
+        <Code>createProxy</Code>.
+      </Callout>
+    </div>
+  )
+}
+
+function ChannelToggle({
+  active,
+  onClick,
+  color,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  color: 'brand' | 'amber'
+  children: ReactNode
+}) {
+  const activeCls =
+    color === 'brand'
+      ? 'bg-brand/10 text-brand'
+      : 'bg-[#e8a04a]/10 text-[#e8a04a]'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+        active ? activeCls : 'text-muted hover:text-ink'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function ArchNode({
+  title,
+  subtitle,
+  borderClass,
+  bgClass,
+  titleClass,
+}: {
+  title: string
+  subtitle: string
+  borderClass?: string
+  bgClass?: string
+  titleClass?: string
+}) {
+  return (
+    <div
+      className={`rounded-lg border p-4 transition-colors ${
+        borderClass ?? 'border-line'
+      } ${bgClass ?? 'bg-surface'}`}
+    >
+      <div className={`font-medium text-sm ${titleClass ?? 'text-ink'}`}>
+        {title}
+      </div>
+      <div className="mt-1 text-xs text-muted">{subtitle}</div>
+    </div>
+  )
+}
+
+function Actor({ term, desc }: { term: string; desc: string }) {
+  return (
+    <div className="px-5 py-4">
+      <dt className="text-sm font-medium text-ink">{term}</dt>
+      <dd className="mt-1 text-sm text-muted leading-relaxed">{desc}</dd>
     </div>
   )
 }

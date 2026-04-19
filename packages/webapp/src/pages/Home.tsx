@@ -29,7 +29,7 @@ export default function HomePage() {
       <section className="space-y-8">
         <CallFlow />
         <Link
-          to="/docs"
+          to="/docs/architecture"
           className="inline-block text-sm text-muted hover:text-ink transition-colors"
         >
           See the full architecture →
