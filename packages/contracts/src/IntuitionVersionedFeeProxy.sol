@@ -1,0 +1,215 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.21;
+
+import {IIntuitionVersionedFeeProxy} from "./interfaces/IIntuitionVersionedFeeProxy.sol";
+import {Errors} from "./libraries/Errors.sol";
+
+/// @title IntuitionVersionedFeeProxy
+/// @notice ERC-7936 versioned proxy for Intuition fee-proxy implementations.
+/// @dev
+///  - Maintains a registry `version → implementation` and a current `defaultVersion`.
+///  - Standard fallback routes calls to the default version (normal UX).
+///  - `executeAtVersion` lets advanced users pin to a specific (audited, immutable)
+///    version of the logic.
+///  - Proxy-level state is stored in a custom namespace slot so it never collides
+///    with the logic implementation's regular storage.
+///  - No `receive()`: direct ETH transfers revert (intentional foot-gun removal).
+///  - Admin gating is a single `proxyAdmin` address; users should point it at a
+///    multisig. Transferable via `transferProxyAdmin`.
+contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
+    // ============ Namespaced storage ============
+
+    /// @dev Unique non-colliding slot (keccak256 of a reserved string literal).
+    /// Equivalent in spirit to ERC-7201 — the namespace ensures no overlap with
+    /// the logic impl's storage layout (which starts at slot 0).
+    bytes32 private constant _STORAGE_SLOT =
+        keccak256("intuition.VersionedFeeProxy.storage");
+
+    struct Layout {
+        bytes32 defaultVersion;
+        bytes32[] versionList;
+        mapping(bytes32 => address) implementations;
+        mapping(bytes32 => bool) versionExists;
+        address proxyAdmin;
+    }
+
+    function _layout() private pure returns (Layout storage s) {
+        bytes32 slot = _STORAGE_SLOT;
+        assembly {
+            s.slot := slot
+        }
+    }
+
+    // ============ Modifiers ============
+
+    modifier onlyProxyAdmin() {
+        if (msg.sender != _layout().proxyAdmin) {
+            revert Errors.VersionedFeeProxy_NotProxyAdmin();
+        }
+        _;
+    }
+
+    // ============ Constructor ============
+
+    /// @param admin Proxy-admin authorized for version management (recommend: Safe)
+    /// @param initialVersion Identifier for the initial registered version (e.g. bytes32("v2.0.0"))
+    /// @param initialImpl Address of the initial logic implementation
+    /// @param initData Calldata forwarded via delegatecall to initialize the logic
+    constructor(
+        address admin,
+        bytes32 initialVersion,
+        address initialImpl,
+        bytes memory initData
+    ) payable {
+        if (admin == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
+        if (initialVersion == bytes32(0)) revert Errors.VersionedFeeProxy_InvalidVersion();
+        if (initialImpl == address(0) || initialImpl.code.length == 0) {
+            revert Errors.VersionedFeeProxy_InvalidImplementation();
+        }
+
+        Layout storage s = _layout();
+        s.proxyAdmin = admin;
+        s.implementations[initialVersion] = initialImpl;
+        s.versionExists[initialVersion] = true;
+        s.versionList.push(initialVersion);
+        s.defaultVersion = initialVersion;
+
+        emit ProxyAdminTransferred(address(0), admin);
+        emit VersionRegistered(initialVersion, initialImpl);
+        emit DefaultVersionChanged(bytes32(0), initialVersion);
+
+        if (initData.length > 0) {
+            (bool ok, bytes memory ret) = initialImpl.delegatecall(initData);
+            if (!ok) _revertFromReturndata(ret);
+        }
+    }
+
+    // ============ Admin: version management ============
+
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function registerVersion(bytes32 version, address implementation)
+        external
+        onlyProxyAdmin
+    {
+        if (version == bytes32(0)) revert Errors.VersionedFeeProxy_InvalidVersion();
+        if (implementation == address(0) || implementation.code.length == 0) {
+            revert Errors.VersionedFeeProxy_InvalidImplementation();
+        }
+
+        Layout storage s = _layout();
+        if (s.versionExists[version]) revert Errors.VersionedFeeProxy_VersionExists();
+
+        s.implementations[version] = implementation;
+        s.versionExists[version] = true;
+        s.versionList.push(version);
+        emit VersionRegistered(version, implementation);
+    }
+
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function removeVersion(bytes32 version) external onlyProxyAdmin {
+        Layout storage s = _layout();
+        if (!s.versionExists[version]) revert Errors.VersionedFeeProxy_VersionNotFound();
+        if (version == s.defaultVersion) revert Errors.VersionedFeeProxy_CannotRemoveDefault();
+
+        s.versionExists[version] = false;
+        delete s.implementations[version];
+
+        // Swap-and-pop removal from the list (order-preserving not required).
+        uint256 len = s.versionList.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (s.versionList[i] == version) {
+                s.versionList[i] = s.versionList[len - 1];
+                s.versionList.pop();
+                break;
+            }
+        }
+        emit VersionRemoved(version);
+    }
+
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function setDefaultVersion(bytes32 version) external onlyProxyAdmin {
+        Layout storage s = _layout();
+        if (!s.versionExists[version]) revert Errors.VersionedFeeProxy_VersionNotFound();
+        bytes32 old = s.defaultVersion;
+        if (version == old) return;
+        s.defaultVersion = version;
+        emit DefaultVersionChanged(old, version);
+    }
+
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function transferProxyAdmin(address newAdmin) external onlyProxyAdmin {
+        if (newAdmin == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
+        Layout storage s = _layout();
+        address old = s.proxyAdmin;
+        s.proxyAdmin = newAdmin;
+        emit ProxyAdminTransferred(old, newAdmin);
+    }
+
+    // ============ Views ============
+
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function getImplementation(bytes32 version) external view returns (address) {
+        return _layout().implementations[version];
+    }
+
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function getDefaultVersion() external view returns (bytes32) {
+        return _layout().defaultVersion;
+    }
+
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function getVersions() external view returns (bytes32[] memory) {
+        return _layout().versionList;
+    }
+
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function proxyAdmin() external view returns (address) {
+        return _layout().proxyAdmin;
+    }
+
+    // ============ Execute at version ============
+
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function executeAtVersion(bytes32 version, bytes calldata data)
+        external
+        payable
+        returns (bytes memory)
+    {
+        Layout storage s = _layout();
+        if (!s.versionExists[version]) revert Errors.VersionedFeeProxy_VersionNotFound();
+        address impl = s.implementations[version];
+        (bool ok, bytes memory ret) = impl.delegatecall(data);
+        if (!ok) _revertFromReturndata(ret);
+        return ret;
+    }
+
+    // ============ Fallback (ERC-7936 default routing) ============
+
+    fallback() external payable {
+        address impl = _layout().implementations[_layout().defaultVersion];
+        assembly {
+            calldatacopy(0, 0, calldatasize())
+            let result := delegatecall(gas(), impl, 0, calldatasize(), 0, 0)
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 { revert(0, returndatasize()) }
+            default { return(0, returndatasize()) }
+        }
+    }
+
+    // NOTE: no `receive()` — ETH transfers without calldata revert. Fee flows
+    // all come with calldata (createAtoms / deposit / …), so this is fine.
+    // Rejecting bare ETH transfers keeps the V1 foot-gun removed.
+
+    // ============ Internal ============
+
+    function _revertFromReturndata(bytes memory ret) private pure {
+        if (ret.length > 0) {
+            assembly {
+                let size := mload(ret)
+                revert(add(ret, 0x20), size)
+            }
+        }
+        revert Errors.VersionedFeeProxy_DelegateCallFailed();
+    }
+}

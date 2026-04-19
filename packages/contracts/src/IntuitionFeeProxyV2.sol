@@ -2,7 +2,6 @@
 pragma solidity ^0.8.21;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 // OZ v5.5+ removed `ReentrancyGuardUpgradeable` because `ReentrancyGuard` now uses
 // ERC-7201 namespaced storage and is proxy-safe out of the box.
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -12,17 +11,20 @@ import {IIntuitionFeeProxyV2} from "./interfaces/IIntuitionFeeProxyV2.sol";
 import {Errors} from "./libraries/Errors.sol";
 
 /// @title IntuitionFeeProxyV2
-/// @notice Upgradeable fee layer on top of the Intuition MultiVault.
+/// @notice Fee-layer logic contract on top of the Intuition MultiVault.
 /// @dev
-///  - UUPS (ERC-1967). Upgrade authorization: `onlyWhitelistedAdmin`.
-///  - Fees accumulate in the contract (`accumulatedFees`) and are pulled by admins via `withdraw`/`withdrawAll`.
-///    No recipient forwarding, no `receive()` — direct ETH transfers revert.
-///  - `receiver` is implicit: always `msg.sender`. The proxy is a pure fee layer, not a sponsor.
-///  - MultiVault target is fixed at `initialize()` (no setter). Upgrade UUPS if MultiVault ever migrates.
+///  - Pure logic: no self-upgrade mechanism. The contract is deployed as an
+///    implementation behind an ERC-7936 `IntuitionVersionedFeeProxy` which
+///    manages version routing and upgrades.
+///  - Fees accumulate in the proxy's storage (`accumulatedFees`) and are pulled
+///    by admins via `withdraw`/`withdrawAll`. No recipient forwarding.
+///  - `receiver` is implicit: always `msg.sender`. The contract is a pure fee
+///    layer, not a sponsor.
+///  - MultiVault target is fixed at `initialize()` (no setter). Ship a new
+///    logic version and register it on the versioned proxy if MultiVault migrates.
 contract IntuitionFeeProxyV2 is
     IIntuitionFeeProxyV2,
     Initializable,
-    UUPSUpgradeable,
     ReentrancyGuard
 {
     // ============ Constants ============
@@ -107,8 +109,7 @@ contract IntuitionFeeProxyV2 is
             revert Errors.IntuitionFeeProxy_NoAdminsProvided();
         }
 
-        // OZ v5: UUPSUpgradeable is stateless (uses immutable __self) and
-        // ReentrancyGuard uses ERC-7201 namespaced storage — no initializers needed.
+        // ReentrancyGuard uses ERC-7201 namespaced storage — no initializer needed.
 
         _ethMultiVault = IEthMultiVault(ethMultiVault_);
         depositFixedFee = depositFixedFee_;
@@ -129,11 +130,6 @@ contract IntuitionFeeProxyV2 is
         }
         adminCount = added;
     }
-
-    // ============ UUPS ============
-
-    /// @inheritdoc UUPSUpgradeable
-    function _authorizeUpgrade(address) internal override onlyWhitelistedAdmin {}
 
     // ============ Fee calculation ============
 

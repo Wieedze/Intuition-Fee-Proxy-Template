@@ -57,4 +57,30 @@ library Errors {
 
     /// @notice Factory received an invalid implementation (zero address or not a contract)
     error IntuitionFeeProxyFactory_InvalidImplementation();
+
+    /// @notice Factory received an invalid version identifier (bytes32(0))
+    error IntuitionFeeProxyFactory_InvalidVersion();
+
+    // ============ VersionedFeeProxy (ERC-7936) errors ============
+
+    /// @notice Caller is not the proxy-admin (the address gated for registerVersion / setDefaultVersion / removeVersion)
+    error VersionedFeeProxy_NotProxyAdmin();
+
+    /// @notice Implementation address is zero or not a contract
+    error VersionedFeeProxy_InvalidImplementation();
+
+    /// @notice Version identifier is zero (reserved as "none")
+    error VersionedFeeProxy_InvalidVersion();
+
+    /// @notice Version already registered — use a new identifier
+    error VersionedFeeProxy_VersionExists();
+
+    /// @notice No implementation registered for this version
+    error VersionedFeeProxy_VersionNotFound();
+
+    /// @notice Cannot remove the current default version — switch default first
+    error VersionedFeeProxy_CannotRemoveDefault();
+
+    /// @notice Delegatecall into the versioned implementation failed without returndata
+    error VersionedFeeProxy_DelegateCallFailed();
 }

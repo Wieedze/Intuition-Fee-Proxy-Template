@@ -11,6 +11,7 @@
     "coverage": "hardhat coverage",
     "clean": "hardhat clean",
     "node": "hardhat node",
+    "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
     "deploy:testnet": "hardhat run scripts/deploy.ts --network intuitionTestnet",
     "deploy:mainnet": "hardhat run scripts/deploy.ts --network intuition",
     "verify": "hardhat verify"
