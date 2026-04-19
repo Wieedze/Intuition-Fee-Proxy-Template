@@ -13,8 +13,9 @@ contract IntuitionFeeProxy {
     /// @notice Fee denominator for percentage calculations (10000 = 100%)
     uint256 public constant FEE_DENOMINATOR = 10000;
 
-    /// @notice Maximum allowed fee percentage (100%)
-    uint256 public constant MAX_FEE_PERCENTAGE = 10000;
+    /// @notice Hard upper bound on `depositPercentageFee` — 10% (1000 bps).
+    /// @dev Caps admin-controlled rug potential. See V2 for the full rationale.
+    uint256 public constant MAX_FEE_PERCENTAGE = 1000;
 
     // ============ Immutables ============
 

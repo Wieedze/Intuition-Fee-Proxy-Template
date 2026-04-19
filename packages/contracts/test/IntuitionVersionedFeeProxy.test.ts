@@ -126,7 +126,7 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
       const badInit = impl.interface.encodeFunctionData("initialize", [
         await mv.getAddress(),
         DEPOSIT_FEE,
-        10001n, // > MAX
+        1001n, // > MAX (1000 = 10%)
         [proxyAdmin.address],
       ]);
       const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");

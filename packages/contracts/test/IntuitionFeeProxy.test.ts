@@ -205,7 +205,11 @@ describe("IntuitionFeeProxy", function () {
     it("Should revert when percentage fee is too high", async function () {
       const { proxy, admin1 } = await loadFixture(deployFixture);
 
-      await expect(proxy.connect(admin1).setDepositPercentageFee(10001n))
+      // At the boundary (1000 = 10%) — allowed.
+      await proxy.connect(admin1).setDepositPercentageFee(1000n);
+      expect(await proxy.depositPercentageFee()).to.equal(1000n);
+      // One above the boundary — rejected.
+      await expect(proxy.connect(admin1).setDepositPercentageFee(1001n))
         .to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_FeePercentageTooHigh");
     });
   });

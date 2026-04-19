@@ -130,7 +130,7 @@ describe("IntuitionFeeProxyV2", function () {
       const initData = impl.interface.encodeFunctionData("initialize", [
         await mockMultiVault.getAddress(),
         DEPOSIT_FEE,
-        10001n,
+        1001n, // just above MAX_FEE_PERCENTAGE (1000 = 10%)
         [admin1.address],
       ]);
       const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
@@ -493,12 +493,14 @@ describe("IntuitionFeeProxyV2", function () {
       expect(await proxy.depositFixedFee()).to.equal(newFee);
     });
 
-    it("admin can set percentage fee, capped at MAX", async function () {
+    it("admin can set percentage fee, capped at MAX (10%)", async function () {
       const { proxy, admin1 } = await loadFixture(deployFixture);
+      // At the boundary (1000 = 10%) — allowed.
       await proxy.connect(admin1).setDepositPercentageFee(1000n);
       expect(await proxy.depositPercentageFee()).to.equal(1000n);
+      // One above the boundary — rejected.
       await expect(
-        proxy.connect(admin1).setDepositPercentageFee(10001n)
+        proxy.connect(admin1).setDepositPercentageFee(1001n)
       ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_FeePercentageTooHigh");
     });
 
