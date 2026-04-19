@@ -15,6 +15,7 @@ const CONTRACTS_TO_EXPORT = [
   'IntuitionFeeProxy',
   'IntuitionFeeProxyV2',
   'IntuitionFeeProxyFactory',
+  'IntuitionVersionedFeeProxy',
 ]
 
 async function main() {
