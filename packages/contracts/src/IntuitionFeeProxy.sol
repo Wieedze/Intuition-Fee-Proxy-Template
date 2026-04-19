@@ -38,6 +38,9 @@ contract IntuitionFeeProxy {
     /// @notice Mapping of whitelisted admin addresses
     mapping(address => bool) public whitelistedAdmins;
 
+    /// @notice Live count of whitelisted admins — guards against revoking the last one.
+    uint256 public adminCount;
+
     // ============ Events ============
 
     /// @notice Emitted when fee recipient is updated
@@ -114,13 +117,18 @@ contract IntuitionFeeProxy {
         depositFixedFee = _depositFixedFee;
         depositPercentageFee = _depositPercentageFee;
 
-        // Whitelist initial admins
+        // Whitelist initial admins. Dedupe inline and track adminCount so the
+        // self-revoke guard below has a reliable live count.
+        uint256 added;
         for (uint256 i = 0; i < _initialAdmins.length; i++) {
-            if (_initialAdmins[i] != address(0)) {
-                whitelistedAdmins[_initialAdmins[i]] = true;
-                emit AdminWhitelistUpdated(_initialAdmins[i], true);
+            address a = _initialAdmins[i];
+            if (a != address(0) && !whitelistedAdmins[a]) {
+                whitelistedAdmins[a] = true;
+                unchecked { ++added; }
+                emit AdminWhitelistUpdated(a, true);
             }
         }
+        adminCount = added;
     }
 
     // ============ Fee Calculation Functions ============
@@ -186,11 +194,27 @@ contract IntuitionFeeProxy {
     /// @notice Update admin whitelist status
     /// @param admin Address to update
     /// @param status New whitelist status
+    /// @dev Forbids the last remaining admin from revoking themselves — that
+    ///      would brick the contract's configuration (no one left to set fees
+    ///      or rotate the fee recipient). Another admin can still remove them.
     function setWhitelistedAdmin(address admin, bool status) external onlyWhitelistedAdmin {
         if (admin == address(0)) {
             revert Errors.IntuitionFeeProxy_ZeroAddress();
         }
-        whitelistedAdmins[admin] = status;
+        bool current = whitelistedAdmins[admin];
+        if (current == status) {
+            return; // no-op, silent
+        }
+        if (!status) {
+            if (admin == msg.sender && adminCount == 1) {
+                revert Errors.IntuitionFeeProxy_LastAdminCannotRevoke();
+            }
+            whitelistedAdmins[admin] = false;
+            unchecked { --adminCount; }
+        } else {
+            whitelistedAdmins[admin] = true;
+            unchecked { ++adminCount; }
+        }
         emit AdminWhitelistUpdated(admin, status);
     }
 

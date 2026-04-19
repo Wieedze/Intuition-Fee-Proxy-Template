@@ -188,6 +188,35 @@ describe("IntuitionFeeProxy", function () {
       expect(await proxy.whitelistedAdmins(admin2.address)).to.be.false;
     });
 
+    it("forbids the last admin from self-revoking (L-01)", async function () {
+      const { proxy, admin1, admin2, admin3 } = await loadFixture(deployFixture);
+
+      // Fixture ships with 3 admins — drain down to admin1 alone.
+      await proxy.connect(admin1).setWhitelistedAdmin(admin2.address, false);
+      await proxy.connect(admin1).setWhitelistedAdmin(admin3.address, false);
+      expect(await proxy.adminCount()).to.equal(1n);
+      await expect(
+        proxy.connect(admin1).setWhitelistedAdmin(admin1.address, false),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_LastAdminCannotRevoke");
+      // Sanity: admin1 still whitelisted, count unchanged.
+      expect(await proxy.whitelistedAdmins(admin1.address)).to.be.true;
+      expect(await proxy.adminCount()).to.equal(1n);
+    });
+
+    it("the last admin can still be revoked by another admin (L-01)", async function () {
+      const { proxy, admin1, admin2, admin3 } = await loadFixture(deployFixture);
+
+      // Leave two admins so the last-admin guard doesn't apply, then admin2
+      // kicks admin1 even though admin1 is "one of the last two".
+      await proxy.connect(admin1).setWhitelistedAdmin(admin3.address, false);
+      expect(await proxy.adminCount()).to.equal(2n);
+      await expect(proxy.connect(admin2).setWhitelistedAdmin(admin1.address, false))
+        .to.emit(proxy, "AdminWhitelistUpdated")
+        .withArgs(admin1.address, false);
+      expect(await proxy.whitelistedAdmins(admin1.address)).to.be.false;
+      expect(await proxy.adminCount()).to.equal(1n);
+    });
+
     it("Should revert when non-admin tries to set fees", async function () {
       const { proxy, nonAdmin } = await loadFixture(deployFixture);
 
