@@ -6,6 +6,7 @@ type SectionId =
   | 'call-flow'
   | 'proxy-vs-impl'
   | 'pinning'
+  | 'sponsoring'
   | 'primitives'
   | 'workflow'
   | 'golden-rules'
@@ -21,6 +22,7 @@ const GROUPS = [
       { id: 'call-flow' as SectionId, label: 'Call flow' },
       { id: 'proxy-vs-impl' as SectionId, label: 'Proxy vs. implementation' },
       { id: 'pinning' as SectionId, label: 'Pinning to a version' },
+      { id: 'sponsoring' as SectionId, label: 'Sponsoring' },
     ],
   },
   {
@@ -97,6 +99,8 @@ function SectionContent({ id }: { id: SectionId }) {
       return <ProxyVsImpl />
     case 'pinning':
       return <Pinning />
+    case 'sponsoring':
+      return <Sponsoring />
     case 'primitives':
       return <Primitives />
     case 'workflow':
@@ -662,6 +666,151 @@ function GoldenRules() {
           same bytecode, same address, everywhere.
         </Rule>
       </ul>
+    </div>
+  )
+}
+
+// ---- Sponsoring ----
+
+function Sponsoring() {
+  return (
+    <div className="space-y-5">
+      <PageHeader kicker="Concepts" title="Sponsoring" />
+      <P>
+        A proxy deployed on the <b>sponsored channel</b> runs the{' '}
+        <Code>IntuitionFeeProxyV2Sponsored</Code> implementation — a
+        superset of standard V2 that lets the proxy itself pay deposits
+        and creations on behalf of its users. Use case: a dApp that
+        charges its users in fiat (Stripe, App Store) but still needs
+        TRUST on-chain to interact with the MultiVault. The dApp funds
+        its own proxy once, then each user spends from that pool
+        without holding TRUST themselves.
+      </P>
+
+      <H3>One sponsor per proxy — the proxy is the sponsor</H3>
+      <P>
+        There is no multi-sponsor tracking on a single proxy. Whitelisted
+        admins of the proxy fund user credit; the proxy is the sole
+        sponsoring entity. A dApp deploys its own sponsored proxy and
+        controls the pool. Any proxy-admin can reclaim unspent credit at
+        any time to an address of their choice.
+      </P>
+
+      <H3>Two flows</H3>
+      <P>
+        <b className="text-ink">Credit balance (D1)</b> — the admin calls{' '}
+        <Code>creditUser(user)</Code> with <Code>msg.value</Code>. The
+        proxy tracks a per-user balance in{' '}
+        <Code>sponsoredCredit[user]</Code>. Later, the user calls the
+        normal entry points (<Code>deposit</Code>, <Code>createAtoms</Code>
+        , etc.) with reduced or zero <Code>msg.value</Code> — the proxy
+        tops up from their credit automatically and forwards the combined
+        amount to the MultiVault. User still signs their own tx, still
+        needs a tiny amount of TRUST for gas. Best when the dApp wants
+        the user to drive their own actions.
+      </P>
+      <P>
+        <b className="text-ink">Direct action (D3)</b> — the admin (or
+        any caller) calls <Code>depositFor(receiver, …)</Code>,{' '}
+        <Code>createAtomsFor</Code>, etc. with full <Code>msg.value</Code>.
+        The shares/atoms are credited to <Code>receiver</Code>, never to{' '}
+        <Code>msg.sender</Code>. The user does not sign a tx, does not
+        need any TRUST at all. Best when the dApp orchestrates everything
+        server-side and the user is not holding a wallet directly (email
+        onboarding, custodial flows).
+      </P>
+
+      <Callout title="Meta-transactions aren't supported yet">
+        A third flow — user signs off-chain, a relayer submits on-chain
+        paying gas — is not currently implemented. That path requires a
+        trusted forwarder (ERC-2771) plus an off-chain relayer service
+        and an EIP-712 signature scheme. It lives on the roadmap as
+        &quot;depositForWithSig (V2.1Sponsored)&quot; and will ship when a
+        cross-org use case emerges.
+      </Callout>
+
+      <H3>Claim limits — mandatory, never unlimited</H3>
+      <P>
+        Sponsored proxies always enforce two rate-limits on credit
+        consumption, configurable by the admin but never zero:
+      </P>
+      <ul className="space-y-2 pl-4 list-disc marker:text-subtle text-sm text-muted">
+        <li>
+          <Code>maxClaimPerTx</Code> — max TRUST drawable from credit in a
+          single call. Default 1 TRUST. Acts as a <em>cap</em>: a user
+          with more credit than the cap only consumes up to the cap per
+          tx, the rest stays available for later.
+        </li>
+        <li>
+          <Code>maxClaimsPerDay</Code> — max number of credit-consuming
+          calls per user per rolling 24-hour window. Default 10. Calls
+          that don&apos;t touch the credit pool (user pays 100% from{' '}
+          <Code>msg.value</Code>) do not count toward this quota.
+        </li>
+      </ul>
+
+      <H3>Admin API</H3>
+      <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
+        <Primitive
+          term="creditUser(user) payable"
+          desc="Fund a user's credit balance with msg.value. Admin-only."
+        />
+        <Primitive
+          term="creditUsers(users[], amounts[]) payable"
+          desc="Batch top-up. sum(amounts) must equal msg.value."
+        />
+        <Primitive
+          term="uncreditUser(user, amount, to)"
+          desc="Reclaim a user's unspent credit to any recipient address."
+        />
+        <Primitive
+          term="setClaimLimits(maxPerTx, maxPerDay)"
+          desc="Update both limits. Both must stay > 0 (reverts otherwise)."
+        />
+      </dl>
+
+      <H3>User-facing API (same selectors as standard V2)</H3>
+      <P>
+        A sponsored proxy is ABI-compatible with V2 for users: the dApp
+        does not need a different SDK path for users with credit. Credit
+        consumption happens transparently inside the existing{' '}
+        <Code>deposit</Code> / <Code>createAtoms</Code> /{' '}
+        <Code>createTriples</Code> / <Code>depositBatch</Code> functions.
+      </P>
+
+      <H3>Example: 50-user onboarding batch</H3>
+      <Block>{`// Ship 0.5 TRUST of credit to 50 users in a single tx
+const users = [/* 50 addresses */]
+const amounts = users.map(() => parseEther('0.5'))
+const total = amounts.reduce((s, a) => s + a, 0n)
+
+await walletClient.writeContract({
+  abi: IntuitionFeeProxyV2SponsoredABI,
+  address: proxyAddress,
+  functionName: 'creditUsers',
+  args: [users, amounts],
+  value: total,
+})`}</Block>
+
+      <H3>Invariant: withdraw never dips into the credit pool</H3>
+      <P>
+        <Code>withdraw</Code> / <Code>withdrawAll</Code> on a sponsored
+        proxy assert that{' '}
+        <Code>balance - amount &ge; totalSponsoredCredit</Code> after the
+        transfer — an admin can&apos;t accidentally drain user credit by
+        withdrawing fees. Only <Code>accumulatedFees</Code> is reachable
+        through the withdraw path.
+      </P>
+
+      <H3>Choose the channel at deploy time</H3>
+      <P>
+        The channel is fixed at proxy creation (<Code>Standard</Code> or{' '}
+        <Code>Sponsored</Code>) and can&apos;t be switched later without
+        deploying a new proxy. The Factory exposes{' '}
+        <Code>setSponsoredImplementation</Code> for the project owner so
+        V2.1Sponsored etc. can ship as canonical upgrades — but each
+        individual proxy chooses its family once and stays within it.
+      </P>
     </div>
   )
 }

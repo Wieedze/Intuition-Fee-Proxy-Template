@@ -18,6 +18,7 @@ export default function DeployPage() {
   const defaultMV = MULTIVAULT_ADDRESSES[network]
 
   const [name, setName] = useState<string>('')
+  const [channel, setChannel] = useState<0 | 1>(0) // 0 = Standard, 1 = Sponsored
   const [ethMultiVault, setEthMultiVault] = useState<string>(defaultMV)
   const [fixedFeeEth, setFixedFeeEth] = useState<string>('0.1')
   const [percentageBps, setPercentageBps] = useState<string>('500')
@@ -53,6 +54,7 @@ export default function DeployPage() {
         depositPercentageFee: BigInt(percentageBps),
         admins: admins as Address[],
         name: name.trim(),
+        channel,
       })
     } catch (err) {
       console.error(err)
@@ -97,6 +99,13 @@ export default function DeployPage() {
       )}
 
       <form onSubmit={onSubmit} className="space-y-5">
+        <Field
+          label="Proxy type"
+          hint="Locked at deploy. Switching families later requires redeploying a new proxy."
+        >
+          <ChannelRadio value={channel} onChange={setChannel} />
+        </Field>
+
         <Field
           label="Name (optional)"
           hint="Human-readable label — max 32 bytes. Editable later by the proxy admin. Leave empty for an unnamed proxy."
@@ -250,5 +259,75 @@ function Field({
       {hint && <div className="text-xs text-subtle">{hint}</div>}
       {children}
     </label>
+  )
+}
+
+function ChannelRadio({
+  value,
+  onChange,
+}: {
+  value: 0 | 1
+  onChange: (v: 0 | 1) => void
+}) {
+  const options: {
+    value: 0 | 1
+    title: string
+    body: string
+    doc: string
+  }[] = [
+    {
+      value: 0,
+      title: 'Standard',
+      body:
+        'Users pay deposits + fees from their own wallet. Simplest path, zero trust on a sponsor. Pick this if your users already hold TRUST.',
+      doc: '/docs/call-flow',
+    },
+    {
+      value: 1,
+      title: 'Sponsored',
+      body:
+        'You (the proxy admin) fund a TRUST pool in the proxy. Users consume from that pool via regular deposits with reduced msg.value, or you act on their behalf via depositFor. Ideal for dApps that charge in fiat and need to cover user gas/deposit costs.',
+      doc: '/docs/sponsoring',
+    },
+  ]
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {options.map((opt) => {
+        const active = value === opt.value
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={`text-left rounded-xl border p-4 transition-colors ${
+              active
+                ? 'border-brand bg-brand/10 text-ink'
+                : 'border-line bg-surface text-ink hover:border-line-strong'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
+                  active ? 'border-brand' : 'border-line-strong'
+                }`}
+                aria-hidden
+              >
+                {active && <span className="h-1.5 w-1.5 rounded-full bg-brand" />}
+              </span>
+              <span className="text-sm font-medium">{opt.title}</span>
+            </div>
+            <p className="mt-2 text-xs text-muted leading-relaxed">{opt.body}</p>
+            <Link
+              to={opt.doc}
+              onClick={(e) => e.stopPropagation()}
+              className="mt-3 inline-block text-[11px] text-muted hover:text-ink transition-colors"
+            >
+              Learn more →
+            </Link>
+          </button>
+        )
+      })}
+    </div>
   )
 }

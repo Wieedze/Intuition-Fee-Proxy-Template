@@ -67,6 +67,63 @@ export default function HomePage() {
           See the full architecture →
         </Link>
       </section>
+
+      <section className="space-y-4 max-w-3xl">
+        <h2 className="text-sm font-medium uppercase tracking-wider text-subtle">
+          Sponsored variant
+        </h2>
+        <div className="rounded-2xl border border-line bg-surface/50 p-6 md:p-8 space-y-5">
+          <p className="text-sm text-muted leading-relaxed">
+            Pick the <b className="text-ink">sponsored channel</b> at deploy
+            time and the proxy becomes a TRUST pool your admins fund for your
+            users. Two flows, depending on whether the user is holding a wallet
+            or not:
+          </p>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl border border-line bg-surface p-4">
+              <div className="text-xs font-mono text-subtle">FLOW A — credit balance</div>
+              <div className="mt-2 text-sm font-medium text-ink">
+                Admin → <code className="font-mono">creditUser</code> → user deposits with reduced <code className="font-mono">msg.value</code>
+              </div>
+              <p className="mt-2 text-xs text-muted leading-relaxed">
+                The user still signs their own deposit tx (and pays gas), but
+                the deposit amount + fees come from the pool the admin
+                pre-funded for them. Good for users who already have a wallet
+                but whose deposit cost you want to cover.
+              </p>
+            </div>
+            <div className="rounded-xl border border-line bg-surface p-4">
+              <div className="text-xs font-mono text-subtle">FLOW B — direct action</div>
+              <div className="mt-2 text-sm font-medium text-ink">
+                Admin → <code className="font-mono">depositFor(user, …)</code> → shares minted to user
+              </div>
+              <p className="mt-2 text-xs text-muted leading-relaxed">
+                The admin calls directly with full <code className="font-mono">msg.value</code>; the user doesn&apos;t
+                sign anything on-chain and doesn&apos;t need any TRUST at all. Good
+                for email-onboarding / custodial flows where the dApp
+                orchestrates everything server-side.
+              </p>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted leading-relaxed">
+            Rate limits (<code className="font-mono">maxClaimPerTx</code> +{' '}
+            <code className="font-mono">maxClaimsPerDay</code>) protect the pool
+            from drain. A dedicated{' '}
+            <b className="text-ink">Sponsoring</b> tab on each sponsored proxy
+            exposes the admin surface: credit / reclaim, set limits, watch the
+            pool draining in real time.
+          </p>
+
+          <Link
+            to="/docs/sponsoring"
+            className="inline-block text-sm text-muted hover:text-ink transition-colors"
+          >
+            Full sponsoring docs →
+          </Link>
+        </div>
+      </section>
     </div>
   )
 }

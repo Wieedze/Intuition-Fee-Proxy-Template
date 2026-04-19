@@ -24,6 +24,8 @@ export function useDeployProxy() {
     depositPercentageFee: bigint
     admins: Address[]
     name?: string
+    /** 0 = Standard, 1 = Sponsored. Defaults to Standard. */
+    channel?: 0 | 1
   }) {
     if (!factory) throw new Error('Factory address not configured for this network')
     const nameBytes: Hex = params.name
@@ -39,6 +41,7 @@ export function useDeployProxy() {
         params.depositPercentageFee,
         params.admins,
         nameBytes,
+        params.channel ?? 0,
       ],
     })
   }
