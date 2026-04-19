@@ -279,14 +279,14 @@ function ChannelRadio({
       value: 0,
       title: 'Standard',
       body:
-        'Users pay deposits + fees from their own wallet. Simplest path, zero trust on a sponsor. Pick this if your users already hold TRUST.',
+        'Users pay deposits and fees from their own wallet. Simplest path, no sponsor trust. Pick this when your users already hold TRUST.',
       doc: '/docs/call-flow',
     },
     {
       value: 1,
       title: 'Sponsored',
       body:
-        'You (the proxy admin) fund a TRUST pool in the proxy. Users consume from that pool via regular deposits with reduced msg.value, or you act on their behalf via depositFor. Ideal for dApps that charge in fiat and need to cover user gas/deposit costs.',
+        'Admins fund a TRUST pool in the proxy. Users draw from it with reduced msg.value, or admins deposit on their behalf. Pick this when your dApp covers onboarding costs.',
       doc: '/docs/sponsoring',
     },
   ]

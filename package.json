@@ -13,6 +13,7 @@
     "contracts:node": "bun --filter @intuition-fee-proxy/contracts node",
     "contracts:deploy:local": "bun --filter @intuition-fee-proxy/contracts deploy:local",
     "contracts:e2e:local": "bun --filter @intuition-fee-proxy/contracts e2e:local",
+    "contracts:e2e:sponsored:local": "bun --filter @intuition-fee-proxy/contracts e2e:sponsored:local",
     "contracts:deploy:v3mock:local": "bun --filter @intuition-fee-proxy/contracts deploy:v3mock:local",
     "contracts:deploy:testnet": "bun --filter @intuition-fee-proxy/contracts deploy:testnet",
     "contracts:deploy:mainnet": "bun --filter @intuition-fee-proxy/contracts deploy:mainnet",
