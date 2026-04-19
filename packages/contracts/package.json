@@ -14,6 +14,8 @@
     "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
     "deploy:testnet": "hardhat run scripts/deploy.ts --network intuitionTestnet",
     "deploy:mainnet": "hardhat run scripts/deploy.ts --network intuition",
+    "e2e:local": "hardhat run scripts/e2e-validate.ts --network localhost",
+    "deploy:v3mock:local": "hardhat run scripts/deploy-v3mock.ts --network localhost",
     "verify": "hardhat verify"
   },
   "keywords": [
