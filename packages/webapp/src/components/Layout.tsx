@@ -54,7 +54,7 @@ export default function Layout() {
         </div>
       </main>
 
-      <footer className="border-t border-line">
+      <footer className="sticky bottom-0 z-20 bg-canvas/70 backdrop-blur-md border-t border-line">
         <div className="px-6 py-4 flex items-center justify-between text-xs text-subtle">
           <FactoryStamp />
           <div className="flex items-center gap-5">
