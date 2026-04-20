@@ -1,6 +1,13 @@
 import { useState, type ReactNode } from 'react'
 import { Link, NavLink, useParams } from 'react-router-dom'
 
+import {
+  CANONICAL_VERSIONS,
+  listVersionsByFamily,
+  type NetworkName,
+  type ProxyFamily,
+} from '@intuition-fee-proxy/sdk'
+
 type SectionId =
   | 'overview'
   | 'architecture'
@@ -9,6 +16,7 @@ type SectionId =
   | 'pinning'
   | 'sponsoring'
   | 'primitives'
+  | 'integration'
   | 'workflow'
   | 'golden-rules'
 
@@ -31,7 +39,10 @@ const GROUPS = [
   },
   {
     label: 'Reference',
-    items: [{ id: 'primitives' as SectionId, label: 'Primitives' }],
+    items: [
+      { id: 'primitives' as SectionId, label: 'Primitives' },
+      { id: 'integration' as SectionId, label: 'SDK integration' },
+    ],
   },
   {
     label: 'Ship a new version',
@@ -109,6 +120,8 @@ function SectionContent({ id }: { id: SectionId }) {
       return <Sponsoring />
     case 'primitives':
       return <Primitives />
+    case 'integration':
+      return <Integration />
     case 'workflow':
       return <Workflow />
     case 'golden-rules':
@@ -219,11 +232,22 @@ function Overview() {
         escape hatch to stay on an audited version they trust.
       </P>
       <P>
-        Every proxy is permissionless to deploy. Admins are whitelisted
-        addresses — one per proxy, many possible — that can withdraw
-        accumulated fees and reconfigure the fee schedule. A separate
-        proxy-admin (ideally a Safe) owns the version registry and can
-        register new implementations or swap the default.
+        Every proxy is permissionless to deploy. Fee admins are
+        whitelisted addresses — one per proxy, many possible — that
+        withdraw accumulated fees and reconfigure the fee schedule.
+        A separate proxy-admin (ideally a Safe) owns the version registry
+        and can register new audited implementations or swap the active
+        default.
+      </P>
+      <P>
+        Two channels are available at deploy time:{' '}
+        <b className="text-ink">Standard</b> (users pay deposit + fees
+        from their own wallet) and{' '}
+        <b className="text-ink">Sponsored</b> (admins fund a shared pool
+        the proxy taps into transparently on every user deposit, bounded
+        by per-user rate limits). In both channels the user signs their
+        own tx and the shares go to them. The channel is locked at
+        deploy time — pick before calling <Code>createProxy</Code>.
       </P>
 
       <H3>How this documentation is organised</H3>
@@ -388,7 +412,7 @@ function Architecture() {
           desc={
             isFee
               ? 'The contract every user interacts with. Routes deposits through the current default version, or through any pinned version via executeAtVersion. Accumulates fees in accumulatedFees.'
-              : 'Same router as the fee proxy, but also exposes a shared sponsorPool admins fund once. User entry points (deposit, createAtoms, …) transparently draw from the pool — the admin never submits on a user’s behalf.'
+              : 'Same router as the fee proxy, but also exposes a shared sponsorPool admins fund once. User entry points (deposit, createAtoms, …) transparently draw from the pool when the user calls them with reduced msg.value.'
           }
         />
         <Actor
@@ -396,7 +420,7 @@ function Architecture() {
           desc={
             isFee
               ? 'Multiple addresses. Configure fixed + percentage fees, withdraw accumulated fees to any address, rotate the whitelist. Cannot touch the proxy-admin surface.'
-              : 'Same fee admin role, plus the sponsor surface: fundPool, reclaimFromPool, setClaimLimits, and the *For mirrors. withdraw is constrained — it can never dip into the sponsorPool balance.'
+              : 'Same fee admin role, plus the sponsor surface: fundPool, reclaimFromPool, setClaimLimits. withdraw is invariant-checked so it stays limited to accumulatedFees and leaves the sponsorPool untouched.'
           }
         />
         <Actor
@@ -408,12 +432,12 @@ function Architecture() {
           desc={
             isFee
               ? 'Stateless logic contract (IntuitionFeeProxyV2, V2.1, …). Never runs standalone — only via delegatecall from a proxy. New versions inherit from the previous one and never reorder storage.'
-              : 'IntuitionFeeProxyV2Sponsored — same pattern, but adds the sponsor pool, pool accounting and *For entry points on top of V2. Upgrades stay append-only within the sponsored family.'
+              : 'IntuitionFeeProxyV2Sponsored — same pattern as V2, but adds a shared sponsor pool, pool accounting and per-user rate limits. User entry points override the V2 ones to draw from the pool transparently. Upgrades stay append-only within the sponsored family.'
           }
         />
         <Actor
           term="MultiVault"
-          desc="Intuition core. The proxy is a pure front; every deposit is ultimately executed here, and the resulting shares are minted to the original user (or, for the admin-initiated sponsor flow, to receiver)."
+          desc="Intuition core. The proxy is a pure front; every deposit is ultimately executed here, and the resulting shares are minted to the user who signed the tx — the proxy never reassigns ownership."
         />
       </dl>
 
@@ -762,9 +786,46 @@ function Primitives() {
           term="transferProxyAdmin(newAdmin)"
           desc="Hand proxy-admin rights to another address (ideally a rotation-aware multisig)."
         />
+        <Primitive
+          term="setName(newName) / getName()"
+          desc="Optional human-readable label on the proxy. setName is proxy-admin only; getName is public. 32 bytes max."
+        />
       </dl>
 
-      <H3>Metrics (read-only)</H3>
+      <H3>Sponsored channel only (V2Sponsored)</H3>
+      <P>
+        These functions exist only on proxies deployed through the
+        Sponsored channel. Calling them on a Standard proxy reverts with
+        &quot;function not found&quot;.
+      </P>
+      <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
+        <Primitive
+          term="fundPool() payable"
+          desc="Fee-admin only. Adds msg.value to the shared sponsorPool. Any user of the proxy can then draw from it on their next deposit."
+        />
+        <Primitive
+          term="reclaimFromPool(amount, to)"
+          desc="Fee-admin only. Pulls unspent TRUST out of the pool to the recipient of your choice."
+        />
+        <Primitive
+          term="setClaimLimits(maxPerTx, maxPerDay)"
+          desc="Fee-admin only. Both values must stay > 0 — no 'unlimited' escape. Defaults: 1 TRUST per call, 10 calls / 24h window / user."
+        />
+        <Primitive
+          term="sponsorPool() → uint256"
+          desc="Current pool balance."
+        />
+        <Primitive
+          term="getClaimStatus(user) → (claimsUsed, windowResetsAt)"
+          desc="How many pool-funded draws the user has done in the current 24h window, and when the window resets."
+        />
+        <Primitive
+          term="getSponsoredMetrics() → (deposits, volume, uniqueReceivers)"
+          desc="Aggregate counters bumped on every pool-funded draw."
+        />
+      </dl>
+
+      <H3>Metrics (read-only, both channels)</H3>
       <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
         <Primitive
           term="getMetrics() → ProxyMetrics"
@@ -775,6 +836,246 @@ function Primitives() {
           desc="Whether an address has ever hit the proxy. Feeds totalUniqueUsers."
         />
       </dl>
+    </div>
+  )
+}
+
+// ---- Integration ----
+
+function Integration() {
+  const [network, setNetwork] = useState<NetworkName>('testnet')
+
+  return (
+    <div className="space-y-5">
+      <PageHeader kicker="Reference" title="SDK integration" />
+      <P>
+        <Code>@intuition-fee-proxy/sdk</Code> is the one dependency you
+        need to talk to the fee-proxy ecosystem from any TypeScript
+        codebase — webapps, Node scripts, Cloudflare Workers. It ships
+        ABIs, chain configs, the canonical version registry, and typed
+        readers that take a viem <Code>PublicClient</Code>.
+      </P>
+
+      <H3>Install</H3>
+      <Block>{`bun add @intuition-fee-proxy/sdk viem
+# or
+npm i @intuition-fee-proxy/sdk viem`}</Block>
+      <P>
+        <Code>viem</Code> is a peer dependency — bring your own version.
+      </P>
+
+      <H3>Setup a client</H3>
+      <Block>{`import { createPublicClient, http } from 'viem'
+import { INTUITION_TESTNET } from '@intuition-fee-proxy/sdk'
+
+const client = createPublicClient({
+  chain: INTUITION_TESTNET,
+  transport: http(),
+})`}</Block>
+
+      <H3>Recipe — list every deployed proxy</H3>
+      <P>
+        Reads <Code>factory.getAllProxies()</Code>. Same data the Explore
+        tab renders.
+      </P>
+      <Block>{`import {
+  V2_ADDRESSES,
+  fetchAllProxies,
+} from '@intuition-fee-proxy/sdk'
+
+const proxies = await fetchAllProxies(
+  client,
+  V2_ADDRESSES.testnet.factory,
+)`}</Block>
+
+      <H3>Recipe — read a proxy&apos;s headline stats</H3>
+      <Block>{`import { readProxyStats } from '@intuition-fee-proxy/sdk'
+
+const stats = await readProxyStats(client, proxies[0])
+// { ethMultiVault, depositFixedFee, depositPercentageFee,
+//   accumulatedFees, totalFeesCollectedAllTime, adminCount }`}</Block>
+
+      <H3>Recipe — register a canonical version on your proxy</H3>
+      <P>
+        As the proxy admin, adopt a new audited implementation without
+        pasting its address by hand — pull it straight from the SDK.
+      </P>
+      <Block>{`import { stringToHex } from 'viem'
+import {
+  IntuitionVersionedFeeProxyABI,
+  getLatestVersion,
+} from '@intuition-fee-proxy/sdk'
+
+const latest = getLatestVersion('testnet', 'standard')
+if (!latest) throw new Error('No canonical version published yet')
+
+await walletClient.writeContract({
+  abi: IntuitionVersionedFeeProxyABI,
+  address: yourProxyAddress,
+  functionName: 'registerVersion',
+  args: [stringToHex(latest.label, { size: 32 }), latest.impl],
+})`}</Block>
+
+      <H3>Recipe — fund a sponsor pool</H3>
+      <Block>{`import { parseEther } from 'viem'
+import { IntuitionFeeProxyV2SponsoredABI } from '@intuition-fee-proxy/sdk'
+
+await walletClient.writeContract({
+  abi: IntuitionFeeProxyV2SponsoredABI,
+  address: yourSponsoredProxyAddress,
+  functionName: 'fundPool',
+  args: [],
+  value: parseEther('25'),
+})`}</Block>
+
+      <H3>Canonical versions</H3>
+      <P>
+        This table is sourced directly from the SDK&apos;s{' '}
+        <Code>CANONICAL_VERSIONS</Code> export — bumping the SDK package
+        is how maintainers publish a new recommended impl to every
+        consumer.
+      </P>
+      <div className="mt-3 flex gap-2">
+        <NetworkToggle
+          value={network}
+          onChange={setNetwork}
+          label="testnet"
+          target="testnet"
+        />
+        <NetworkToggle
+          value={network}
+          onChange={setNetwork}
+          label="mainnet"
+          target="mainnet"
+        />
+      </div>
+
+      <CanonicalVersionsTable network={network} family="standard" />
+      <CanonicalVersionsTable network={network} family="sponsored" />
+
+      <Callout title="Using an impl that isn't in this table?">
+        The <Code>registerVersion</Code> call is permissionless at the
+        contract level — any address with deployed bytecode can be
+        registered. The canonical list is a <em>recommendation</em> (audit
+        + freshness signal), not a gatekeeper. Unaudited impls put your
+        users at risk unless you are the author and have reviewed them
+        end-to-end.
+      </Callout>
+
+      <H3>Framework-agnostic readers</H3>
+      <P>
+        The SDK exports the same on-chain reads the webapp uses as plain
+        async functions — no React, no wagmi, just{' '}
+        <Code>(client, …args) → data</Code>. Drop them into a Node
+        script, a backend indexer, another frontend, anywhere you have a
+        viem <Code>PublicClient</Code>:
+      </P>
+      <ul className="space-y-1 text-sm text-muted pl-4 list-disc marker:text-subtle mt-2">
+        <li>
+          <Code>fetchAllProxies(client, factory)</Code> /{' '}
+          <Code>fetchProxiesByDeployer(client, factory, deployer)</Code>
+        </li>
+        <li>
+          <Code>readProxyStats</Code> / <Code>readProxyMetrics</Code> /{' '}
+          <Code>readProxyVersions</Code> /{' '}
+          <Code>readProxyVersionLabel</Code>
+        </li>
+        <li>
+          <Code>readSponsorPool</Code> / <Code>readSponsoredMetrics</Code>{' '}
+          — sponsored-only, return <Code>undefined</Code> on standard
+          proxies without throwing.
+        </li>
+      </ul>
+    </div>
+  )
+}
+
+function NetworkToggle({
+  value,
+  onChange,
+  label,
+  target,
+}: {
+  value: NetworkName
+  onChange: (n: NetworkName) => void
+  label: string
+  target: NetworkName
+}) {
+  const active = value === target
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(target)}
+      className={`px-3 py-1 text-xs rounded-md border transition-colors ${
+        active
+          ? 'border-brand/60 bg-brand/[0.08] text-brand'
+          : 'border-line bg-surface text-muted hover:text-ink'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
+function CanonicalVersionsTable({
+  network,
+  family,
+}: {
+  network: NetworkName
+  family: ProxyFamily
+}) {
+  const versions = listVersionsByFamily(network, family)
+  const isLatest = (label: string) =>
+    CANONICAL_VERSIONS[network].latest[family] === label
+
+  return (
+    <div className="mt-4">
+      <div className="text-[10px] font-mono uppercase tracking-wider text-subtle mb-2">
+        {family}
+      </div>
+      {versions.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-line bg-surface p-4 text-xs text-subtle">
+          No canonical {family} version published for {network} yet. The
+          Factory is permissionless — deploy anyway and register a custom
+          impl via the <Code>Advanced</Code> path on the ProxyDetail page.
+        </div>
+      ) : (
+        <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
+          {versions.map((v) => (
+            <div key={v.label} className="px-5 py-4">
+              <dt className="flex items-center gap-2 text-sm">
+                <span className="font-medium text-ink">{v.label}</span>
+                {isLatest(v.label) && (
+                  <span className="rounded-full border border-brand/40 bg-brand/10 text-brand text-[10px] font-mono uppercase tracking-wider px-2 py-0.5">
+                    latest
+                  </span>
+                )}
+              </dt>
+              <dd className="mt-1 font-mono text-[11px] text-subtle break-all">
+                {v.impl}
+              </dd>
+              {(v.audit || v.summary) && (
+                <dd className="mt-2 text-xs text-muted leading-relaxed">
+                  {v.summary && <span>{v.summary}</span>}
+                  {v.audit && (
+                    <>
+                      {v.summary && <span> · </span>}
+                      <a
+                        href={v.audit.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-brand hover:opacity-80 transition-opacity"
+                      >
+                        Audit — {v.audit.firm} ({v.audit.date})
+                      </a>
+                    </>
+                  )}
+                </dd>
+              )}
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   )
 }
@@ -965,24 +1266,17 @@ function Sponsoring() {
         <Code>depositBatch</Code>) from their own wallet with reduced or
         zero <Code>msg.value</Code>. The proxy tops up from the shared
         pool (capped at <Code>maxClaimPerTx</Code>) and forwards the
-        combined amount to the MultiVault. User signs their own tx, owns
-        the shares, and still pays their own gas. The admin only
-        configures the pool — never triggers actions on users&apos; behalf.
+        combined amount to the MultiVault. The user signs their own tx
+        and owns the shares; the admin&apos;s surface is limited to
+        configuring and funding the pool.
       </P>
-
-      <Callout title="Why no admin depositFor?">
-        An earlier draft exposed <Code>depositFor(receiver, …)</Code>{' '}
-        admin-only functions that could mint shares to any address from
-        the pool. We removed them: an admin god-function that can force
-        atoms / deposits onto an arbitrary target address is a trust
-        concentration the protocol shouldn&apos;t need. If a dApp needs
-        custodial onboarding (user without a wallet), that&apos;s a frontend
-        concern — use an embedded-AA kit (Privy, Thirdweb, Turnkey) that
-        signs on the user&apos;s behalf. The wallet still belongs to the
-        user conceptually, and the on-chain call still originates from
-        them.
-      </Callout>
-
+      <P>
+        For custodial onboarding flows where the user has no wallet of
+        their own, the app handles that at the frontend layer via an
+        embedded-AA kit (Privy, Thirdweb, Turnkey). The wallet still
+        belongs to the user conceptually, and the on-chain call still
+        originates from them.
+      </P>
       <P>
         Reclaim any unspent TRUST via{' '}
         <Code>reclaimFromPool(amount, to)</Code> at any time.
