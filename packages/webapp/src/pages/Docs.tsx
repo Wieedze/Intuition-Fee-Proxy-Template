@@ -351,11 +351,11 @@ function Architecture() {
       </P>
       <div className="flex flex-col items-stretch space-y-2 my-4">
         <ArchNode
-          title={isFee ? 'User' : 'Tx initiator — user (D1) or admin (D3)'}
+          title="User"
           subtitle={
             isFee
               ? 'sends deposit() with msg.value = amount + fee'
-              : 'D1: user signs deposit() with reduced msg.value · D3: admin signs depositFor(user,…) on the user’s behalf'
+              : 'sends deposit() with reduced or zero msg.value — the proxy tops up from the pool'
           }
         />
         <ArrowDown />
@@ -373,11 +373,7 @@ function Architecture() {
         <ArrowDown />
         <ArchNode
           title="MultiVault"
-          subtitle={
-            isFee
-              ? 'executes the deposit · mints shares to the user'
-              : 'executes the deposit · mints shares to the user (same end recipient in D1 and D3)'
-          }
+          subtitle="executes the deposit · mints shares to the user"
         />
       </div>
 
@@ -392,7 +388,7 @@ function Architecture() {
           desc={
             isFee
               ? 'The contract every user interacts with. Routes deposits through the current default version, or through any pinned version via executeAtVersion. Accumulates fees in accumulatedFees.'
-              : 'Same router as the fee proxy, but also exposes a shared sponsorPool admins fund once. User-side entry points (deposit, createAtoms, …) transparently draw from the pool; admin-side mirrors (depositFor, createAtomsFor, …) let the admin submit on the user’s behalf.'
+              : 'Same router as the fee proxy, but also exposes a shared sponsorPool admins fund once. User entry points (deposit, createAtoms, …) transparently draw from the pool — the admin never submits on a user’s behalf.'
           }
         />
         <Actor
@@ -962,46 +958,35 @@ function Sponsoring() {
         pool-only proxies.
       </P>
 
-      <H3>Two flows — one pool</H3>
+      <H3>The sponsored flow</H3>
       <P>
-        Both flows consume from the same <Code>sponsorPool</Code>. They
-        differ only in who initiates the tx — the user or the admin.
+        The user calls the normal entry points (<Code>deposit</Code>,{' '}
+        <Code>createAtoms</Code>, <Code>createTriples</Code>,{' '}
+        <Code>depositBatch</Code>) from their own wallet with reduced or
+        zero <Code>msg.value</Code>. The proxy tops up from the shared
+        pool (capped at <Code>maxClaimPerTx</Code>) and forwards the
+        combined amount to the MultiVault. User signs their own tx, owns
+        the shares, and still pays their own gas. The admin only
+        configures the pool — never triggers actions on users&apos; behalf.
       </P>
-      <P>
-        <b className="text-ink">User-initiated (D1)</b> — the user calls
-        the normal entry points (<Code>deposit</Code>,{' '}
-        <Code>createAtoms</Code>, etc.) with reduced or zero{' '}
-        <Code>msg.value</Code>. The proxy tops up from the shared pool
-        (capped at <Code>maxClaimPerTx</Code>) and forwards the combined
-        amount to the MultiVault. User still signs their own tx and
-        pays gas. Best when the user already has a wallet and the dApp
-        just wants to cover the deposit cost.
-      </P>
-      <P>
-        <b className="text-ink">Admin-initiated (D3)</b> — the admin
-        calls <Code>depositFor(receiver, …)</Code>,{' '}
-        <Code>createAtomsFor</Code>, etc. The proxy drains the same{' '}
-        <Code>sponsorPool</Code> and mints the shares to{' '}
-        <Code>receiver</Code>. The user never signs a tx, doesn&apos;t need
-        any TRUST at all. <b>Admin-only</b> so no stranger can drain
-        the pool against an arbitrary target address.{' '}
-        <Code>msg.value</Code> is accepted as an optional top-up if the
-        pool is short. Best when the dApp orchestrates everything
-        server-side (custodial onboarding, email-based signup).
-      </P>
+
+      <Callout title="Why no admin depositFor?">
+        An earlier draft exposed <Code>depositFor(receiver, …)</Code>{' '}
+        admin-only functions that could mint shares to any address from
+        the pool. We removed them: an admin god-function that can force
+        atoms / deposits onto an arbitrary target address is a trust
+        concentration the protocol shouldn&apos;t need. If a dApp needs
+        custodial onboarding (user without a wallet), that&apos;s a frontend
+        concern — use an embedded-AA kit (Privy, Thirdweb, Turnkey) that
+        signs on the user&apos;s behalf. The wallet still belongs to the
+        user conceptually, and the on-chain call still originates from
+        them.
+      </Callout>
+
       <P>
         Reclaim any unspent TRUST via{' '}
         <Code>reclaimFromPool(amount, to)</Code> at any time.
       </P>
-
-      <Callout title="Meta-transactions aren't supported yet">
-        A third flow — user signs off-chain, a relayer submits on-chain
-        paying gas — is not currently implemented. That path requires a
-        trusted forwarder (ERC-2771) plus an off-chain relayer service
-        and an EIP-712 signature scheme. It lives on the roadmap as
-        &quot;depositForWithSig (V2.1Sponsored)&quot; and will ship when a
-        cross-org use case emerges.
-      </Callout>
 
       <H3>Claim limits — mandatory, never unlimited</H3>
       <P>
@@ -1036,14 +1021,6 @@ function Sponsoring() {
         <Primitive
           term="setClaimLimits(maxPerTx, maxPerDay)"
           desc="Update both limits. Both must stay > 0 (reverts otherwise). maxPerDay is per user, per 24h rolling window."
-        />
-        <Primitive
-          term="depositFor(receiver, termId, curveId, minShares) payable"
-          desc="Trigger a deposit on behalf of receiver. Drains sponsorPool; msg.value is an optional top-up. Rate limits apply to receiver."
-        />
-        <Primitive
-          term="createAtomsFor / createTriplesFor / depositBatchFor"
-          desc="Same pattern as depositFor for atom/triple creation and batched deposits."
         />
       </dl>
 

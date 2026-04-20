@@ -286,7 +286,7 @@ function ChannelRadio({
       value: 1,
       title: 'Sponsored',
       body:
-        'Admins fund a TRUST pool in the proxy. Users draw from it with reduced msg.value, or admins deposit on their behalf. Pick this when your dApp covers onboarding costs.',
+        'Admins fund a shared TRUST pool. Users call deposit from their own wallet as usual — the proxy transparently tops up from the pool (bounded by per-user rate limits). Pick this when your dApp covers its users’ on-chain cost.',
       doc: '/docs/sponsoring',
     },
   ]

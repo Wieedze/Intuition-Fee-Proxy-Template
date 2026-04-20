@@ -282,61 +282,53 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
     });
   });
 
-  // ============ depositFor (D3) ============
+  // ============ Sponsored metrics bumping on D1 pool draws ============
 
-  describe("depositFor (D3, admin-only, pool-funded)", function () {
-    it("admin depositFor drains pool and mints shares to the receiver", async function () {
-      const { proxy, mv, admin1, user1 } = await loadFixture(deployFixture);
-      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
-
-      const termId = ethers.encodeBytes32String("t");
-      await proxy.connect(admin1).depositFor(user1.address, termId, 1n, 0n);
-
-      expect(await mv.lastDepositReceiver()).to.equal(user1.address);
-      expect(await proxy.sponsorPool()).to.equal(0n);
-      expect(await proxy.totalSponsoredDeposits()).to.equal(1n);
-      expect(await proxy.hasReceivedSponsored(user1.address)).to.be.true;
-      expect(await proxy.totalSponsoredUniqueReceivers()).to.equal(1n);
-    });
-
-    it("non-admin cannot call depositFor", async function () {
-      const { proxy, admin1, nonAdmin, user1 } = await loadFixture(deployFixture);
-      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
-      const termId = ethers.encodeBytes32String("t");
-      await expect(
-        proxy.connect(nonAdmin).depositFor(user1.address, termId, 1n, 0n),
-      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_NotWhitelistedAdmin");
-    });
-
-    it("depositFor reverts on zero receiver", async function () {
-      const { proxy, admin1 } = await loadFixture(deployFixture);
-      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
-      const termId = ethers.encodeBytes32String("t");
-      await expect(
-        proxy.connect(admin1).depositFor(ethers.ZeroAddress, termId, 1n, 0n),
-      ).to.be.revertedWithCustomError(proxy, "Sponsored_ZeroReceiver");
-    });
-
-    it("admin can top up from msg.value when the pool is short", async function () {
-      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("0.3") });
-      const termId = ethers.encodeBytes32String("t");
-      await proxy.connect(admin1).depositFor(user1.address, termId, 1n, 0n, {
-        value: ethers.parseEther("0.7"),
-      });
-      expect(await proxy.sponsorPool()).to.equal(0n);
-    });
-
-    it("depositFor trips the rate limit on the receiver", async function () {
-      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      await proxy.connect(admin1).setClaimLimits(ethers.parseEther("1"), 1n);
+  describe("sponsored metrics track pool-funded draws", function () {
+    it("bumps totalSponsoredDeposits / Volume / UniqueReceivers when the user consumes credit", async function () {
+      const { proxy, admin1, user1, user2 } = await loadFixture(deployFixture);
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("3") });
       const termId = ethers.encodeBytes32String("t");
 
-      await proxy.connect(admin1).depositFor(user1.address, termId, 1n, 0n);
-      await expect(
-        proxy.connect(admin1).depositFor(user1.address, termId, 1n, 0n),
-      ).to.be.revertedWithCustomError(proxy, "Sponsored_RateLimited");
+      // user1 first draw
+      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+      const m1 = await proxy.getSponsoredMetrics();
+      expect(m1.sponsoredDeposits).to.equal(1n);
+      expect(m1.uniqueSponsoredReceivers).to.equal(1n);
+      expect(m1.sponsoredVolume).to.equal(ethers.parseEther("1")); // drained exactly the cap
+
+      // user2 first draw — receivers +1, deposits +1
+      await proxy.connect(user2).deposit(termId, 1n, 0n, { value: 0 });
+      const m2 = await proxy.getSponsoredMetrics();
+      expect(m2.sponsoredDeposits).to.equal(2n);
+      expect(m2.uniqueSponsoredReceivers).to.equal(2n);
+
+      // user1 second draw — deposits +1, receivers unchanged
+      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+      const m3 = await proxy.getSponsoredMetrics();
+      expect(m3.sponsoredDeposits).to.equal(3n);
+      expect(m3.uniqueSponsoredReceivers).to.equal(2n);
+    });
+
+    it("does NOT bump sponsored metrics when the user pays fully from msg.value", async function () {
+      const { proxy, user1 } = await loadFixture(deployFixture);
+      const termId = ethers.encodeBytes32String("t");
+      // no pool funded; user pays out of their own wallet
+      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") });
+      const m = await proxy.getSponsoredMetrics();
+      expect(m.sponsoredDeposits).to.equal(0n);
+      expect(m.sponsoredVolume).to.equal(0n);
+      expect(m.uniqueSponsoredReceivers).to.equal(0n);
+      expect(await proxy.hasReceivedSponsored(user1.address)).to.be.false;
+    });
+
+    it("emits SponsoredMetricsUpdated on each pool-funded draw", async function () {
+      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
+      const termId = ethers.encodeBytes32String("t");
+      await expect(proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }))
+        .to.emit(proxy, "SponsoredMetricsUpdated")
+        .withArgs(1n, ethers.parseEther("1"), 1n);
     });
   });
 

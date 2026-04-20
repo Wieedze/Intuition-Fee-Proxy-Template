@@ -140,19 +140,14 @@ async function main() {
   console.log(`   sponsorPool  → ${fmt(pool)} TRUST`);
   assertEq(pool, 0n, "pool after user3 claim (drained)");
 
-  // ── 6. Admin depositFor (D3) ────────────────────────────────────
-  console.log("\n⑦ admin fundPool(1 TRUST) + depositFor(user2) …");
-  await (await proxy.connect(deployer).fundPool({ value: ethers.parseEther("1") })).wait();
-  // Set limits back to generous so the sponsored depositFor doesn't trip rate-limit
-  await (await proxy.connect(deployer).setClaimLimits(ethers.parseEther("1"), 10n)).wait();
-  // user2 already claimed once; depositFor(user2) is admin-initiated but rate-limits on the receiver
-  await (await proxy.connect(deployer).depositFor(user2.address, termId, 1n, 0n)).wait();
-  pool = await proxy.sponsorPool();
+  // ── 6. Sponsored metrics check (bumped on every pool-funded draw) ──
   const sMetrics = await proxy.getSponsoredMetrics();
-  console.log(`   sponsorPool  → ${fmt(pool)} TRUST (expect 0)`);
+  console.log(`\n⑦ sponsored metrics snapshot …`);
   console.log(`   sponsored deposits=${sMetrics[0]}  volume=${fmt(sMetrics[1])}  uniqueReceivers=${sMetrics[2]}`);
-  assertEq(pool, 0n, "pool after admin depositFor");
-  assertEq(sMetrics[0], 1n, "sponsored deposits count = 1");
+  // We drained: user1×1 (cap) + user2×1 (cap) + user3×1 (cap) = 3 deposits, 3 TRUST volume, 3 unique receivers
+  assertEq(sMetrics[0], 3n, "sponsored deposits count = 3");
+  assertEq(sMetrics[1], ethers.parseEther("3"), "sponsored volume = 3 TRUST");
+  assertEq(sMetrics[2], 3n, "unique sponsored receivers = 3");
 
   // ── 7. Admin reclaims leftover ──────────────────────────────────
   console.log("\n⑧ admin fundPool(0.5 TRUST) + reclaimFromPool(0.3 to treasury) …");

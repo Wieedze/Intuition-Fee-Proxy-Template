@@ -101,9 +101,6 @@ library Errors {
     /// @notice Withdraw would breach the totalSponsoredCredit invariant (balance - amount < totalSponsoredCredit)
     error Sponsored_WithdrawBreachesCreditInvariant();
 
-    /// @notice `receiver` for a *For function is zero
-    error Sponsored_ZeroReceiver();
-
     /// @notice User has hit `maxClaimsPerDay` in the current 24h window
     error Sponsored_RateLimited();
 
