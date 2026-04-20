@@ -121,6 +121,24 @@ Tout le reste ci-dessous est toujours V2.1+ / V3.
 
 **Communication attendue** : l'équipe Intuition doit trancher (A/B/C) avant qu'on implémente I-02 + C-01 F2. Les deux features reposent sur le même choix gouvernance.
 
+### Publish deployed proxies as atoms on Intuition
+
+**Contexte** : chaque proxy déployé via la Factory est aujourd'hui découvrable uniquement via nos events (`ProxyCreated` indexé côté frontend). L'idée : après un deploy réussi, publier le proxy comme un **atom dans le MultiVault lui-même**, ce qui rend tout l'écosystème de proxies indexable nativement par le graphe sémantique Intuition. N'importe quel frontend Intuition peut alors requêter "tous les fee proxies existants" sans passer par notre Factory.
+
+**Implémentation — approche choisie (B / découplée côté webapp)** :
+- Après `createProxy` success sur la page Deploy, afficher un **step 2: "Publish on Intuition →"** avec un bouton distinct qui sign une 2e tx `createAtom` via le proxy fraîchement déployé (le proxy paye ses propres fees à lui-même — élégant).
+- Checkbox "skip for now" pour les déployeurs qui veulent rester privés.
+- Atom payload : URI pointant vers `https://intuition.box/proxy/{address}` + metadata JSON-LD (channel, fees, admin count, name).
+- 2 signatures au total (deploy + publish), contrats Factory/Proxy intouchés.
+
+**Alternatives non retenues** :
+- **A. Factory enchaîne tout** (`createProxy(..., publishAsAtom: bool)`) : plus propre UX (1 sig) mais couple le Factory au MultiVault et demande au Factory de forwarder la TRUST nécessaire — le Factory devient un routeur de deposit, surface d'attaque élargie.
+- **C. SDK helper `deployAndPublish()`** : compose A+B, laisse le choix au consumer. À garder en tête quand on aura un SDK mature, pas prioritaire MVP.
+
+**Ajouter si** : on veut que le Factory soit vraiment "first-class citizen" dans l'écosystème Intuition, ou qu'un indexer tiers (graph node, subsquid) puisse découvrir les proxies sans connaître l'address de notre Factory.
+
+**Trade-off** : légère friction UX (2 signatures), coût supplémentaire d'un `createAtom` (fee fixe + percentage sur le proxy lui-même). Gain : discoverability et composabilité maximales.
+
 ### depositForWithSig (EIP-712 receiver consent)
 
 **Contexte** : V2Sponsored ships with `depositFor`/`createAtomsFor` where the sponsor acts on behalf of a receiver without any on-chain consent from that receiver. Safe for the target use case (dApp onboarding its own users, trust is implicit in the service sign-up) but unsafe for open sponsoring platforms where any sponsor could force-mint shares onto an unwilling address.
