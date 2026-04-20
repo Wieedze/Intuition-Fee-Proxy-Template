@@ -24,6 +24,36 @@ export function useProxyVersions(proxy: Address | undefined) {
   }
 }
 
+/**
+ * Cheap 1-read hook for pages that only need the currently-active version
+ * label (Explore card, etc.). Avoids the 3-read overhead of
+ * `useProxyVersions` when the versions list / proxyAdmin aren't needed.
+ *
+ * Decodes the bytes32 to a human-readable label ("v2.0.0"). Empty string
+ * if the proxy has no default set yet (shouldn't happen — Factory always
+ * registers the initial version).
+ */
+export function useProxyDefaultVersion(proxy: Address | undefined) {
+  const result = useReadContract({
+    abi,
+    address: proxy,
+    functionName: 'getDefaultVersion',
+    query: { enabled: Boolean(proxy) },
+  })
+
+  const raw = result.data as Hex | undefined
+  let label: string | undefined
+  if (raw) {
+    try {
+      label = hexToString(raw, { size: 32 }).replace(/\0+$/, '') || undefined
+    } catch {
+      label = undefined
+    }
+  }
+
+  return { ...result, defaultVersion: raw, label }
+}
+
 export function useProxyImplementation(
   proxy: Address | undefined,
   version: Hex | undefined,

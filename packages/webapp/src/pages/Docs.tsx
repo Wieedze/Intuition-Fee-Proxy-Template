@@ -244,7 +244,7 @@ function Overview() {
         <div className="grid gap-3 sm:grid-cols-2">
           <Principle
             title="Versioned"
-            body="Append-only registry of audited implementations. Ship upgrades without breaking users pinned to a previous one."
+            body="Each new version is added to the registry — it never replaces the previous one. Users who pinned an older version keep running it. The default version is chosen by the admin."
           />
           <Principle
             title="Permissionless"
@@ -252,7 +252,7 @@ function Overview() {
           />
           <Principle
             title="Sponsorable"
-            body="Optional shared pool admins fund once. Users consume transparently, or admins act on their behalf."
+            body="Admins top up a shared TRUST pool (as many times as needed). Users draw from it on normal calls, bounded by a per-call cap and a per-user daily claim limit."
           />
           <Principle
             title="User-pinned"
@@ -269,12 +269,12 @@ function Overview() {
           <ChannelPreview
             variant="fee"
             name="Standard"
-            body="Users pay deposits and fees from their own wallet. Zero trust in a sponsor. Simplest path, ideal when your users already hold TRUST."
+            body="Users pay deposits and fees directly from their own wallet. Simplest path, ideal when your users already hold TRUST."
           />
           <ChannelPreview
             variant="sponsor"
             name="Sponsored"
-            body="Admins pre-fund a TRUST pool. Users draw from it with reduced msg.value, or admins deposit on their behalf. Ideal for fiat-onboarded dApps."
+            body="Admins fund a shared TRUST pool (top-up any time). Users draw from it on normal calls with reduced or zero msg.value. Ideal for fiat-onboarded dApps."
           />
         </div>
         <p className="text-xs text-subtle pt-1">
@@ -310,7 +310,7 @@ function Overview() {
             to="/docs/workflow"
             kicker="Ship a new version"
             title="Author workflow"
-            body="Writing, auditing, deploying and publishing a new implementation as canonical."
+            body="Writing, reviewing, deploying and publishing a new implementation as canonical."
           />
         </div>
       </section>
@@ -399,7 +399,7 @@ function Architecture() {
           subtitle={
             isFee
               ? 'sends deposit() with msg.value = amount + fee'
-              : 'sends deposit() with reduced or zero msg.value — the proxy tops up from the pool'
+              : 'sends deposit() with reduced or zero msg.value — the pool adds up to maxClaimPerTx to cover the gap'
           }
         />
         <ArrowDown />
@@ -408,7 +408,7 @@ function Architecture() {
           subtitle={
             isFee
               ? 'keeps fixed + % fee in accumulatedFees · delegatecall default version'
-              : 'tops up from sponsorPool (capped by maxClaimPerTx / maxClaimsPerDay) · delegatecall default version'
+              : 'draws at most maxClaimPerTx from sponsorPool per call · per-user caps maxClaimsPerWindow + maxClaimVolumePerWindow over claimWindowSeconds · delegatecall default version'
           }
           borderClass={accentBorder}
           bgClass={accentBg}
@@ -432,7 +432,7 @@ function Architecture() {
           desc={
             isFee
               ? 'The contract every user interacts with. Routes deposits through the current default version, or through any pinned version via executeAtVersion. Accumulates fees in accumulatedFees.'
-              : 'Same router as the fee proxy, but also exposes a shared sponsorPool admins fund once. User entry points (deposit, createAtoms, …) transparently draw from the pool when the user calls them with reduced msg.value.'
+              : 'Same router as the fee proxy, plus a shared sponsorPool admins top up through fundPool (callable as many times as needed). User entry points (deposit, createAtoms, …) draw from the pool transparently when the user calls them with reduced or zero msg.value.'
           }
         />
         <Actor
@@ -445,7 +445,7 @@ function Architecture() {
         />
         <Actor
           term="Proxy admin (single / Safe)"
-          desc="Owns the version registry. Can registerVersion(label, impl) to add a new audited implementation, setDefaultVersion(label) to promote it for all non-pinned users, and transferProxyAdmin to rotate ownership. Intentionally disjoint from fee admins."
+          desc="Owns the version registry. Can registerVersion(label, impl) to add a new canonical implementation, setDefaultVersion(label) to promote it for all non-pinned users, and transferProxyAdmin to rotate ownership. Intentionally disjoint from fee admins."
         />
         <Actor
           term="Implementation"
@@ -478,14 +478,18 @@ function Architecture() {
       ) : (
         <>
           <P>
-            One shared <Code>sponsorPool</Code> funded once by the admin
-            (<Code>fundPool</Code> payable). Every sponsored call consumes
-            from the same pool, bounded by two always-on rate limits:{' '}
-            <Code>maxClaimPerTx</Code> (cap per call) and{' '}
-            <Code>maxClaimsPerDay</Code> (per-user rolling 24h window). The
-            admin can <Code>reclaimFromPool</Code> any unspent balance.
-            Standard fees (fixed + percentage) still apply on top — they
-            accumulate in <Code>accumulatedFees</Code> separately, and{' '}
+            One shared <Code>sponsorPool</Code> funded by the admin via{' '}
+            <Code>fundPool</Code> (payable, re-callable anytime). Every
+            sponsored call consumes from the same pool, bounded by four
+            always-on per-user rate limits: <Code>maxClaimPerTx</Code>{' '}
+            (cap per call), <Code>maxClaimsPerWindow</Code> (pool-drawing
+            calls per user), <Code>maxClaimVolumePerWindow</Code>{' '}
+            (cumulative TRUST per user), all applied over a{' '}
+            <Code>claimWindowSeconds</Code> sliding window that the admin
+            sets (1h, 1 day, 1 week, …). The admin can{' '}
+            <Code>reclaimFromPool</Code> any unspent balance. Standard
+            fees (fixed + percentage) still apply on top — they accumulate
+            in <Code>accumulatedFees</Code> separately, and{' '}
             <Code>withdraw</Code> is invariant-checked so it can never dip
             into the pool.
           </P>
@@ -661,8 +665,8 @@ function ProxyVsImpl() {
 
       <H3>Why not just redeploy the logic in place?</H3>
       <P>
-        Because users relying on an audited version would silently start
-        running new, unaudited code. The version registry is the
+        Because users relying on a reviewed version would silently start
+        running new, un-reviewed code. The version registry is the
         cryptographic commitment that says: &ldquo;v2.0.0 points to this
         exact bytecode, forever.&rdquo; A user who pinned it can trust it
         across any admin action.
@@ -684,7 +688,7 @@ function Pinning() {
       </P>
       <P>
         Pinning is the escape hatch for users who want something stronger:
-        &ldquo;I audited v2.0.0, I don&apos;t care what defaults ship
+        &ldquo;I reviewed v2.0.0, I don&apos;t care what defaults ship
         next.&rdquo; Once a version label is registered, the
         implementation it points to is immutable. Calling into it will
         route through the exact bytecode you reviewed, for as long as the
@@ -698,12 +702,14 @@ function Pinning() {
           downstream contracts to depend on.
         </li>
         <li>
-          You&apos;re a user who audited an implementation yourself and
-          doesn&apos;t want to re-audit on every upgrade.
+          You&apos;re a user who reviewed an implementation yourself and
+          doesn&apos;t want to re-review on every upgrade.
         </li>
         <li>
-          You want insulation against an admin (or compromised multisig)
-          shipping a hostile new default.
+          You want insulation against an admin-key compromise. If the
+          proxy admin&apos;s keys are stolen and the attacker registers a
+          malicious impl as the new default, pinned users keep routing
+          through the exact bytecode they chose and are never touched.
         </li>
       </ul>
 
@@ -828,16 +834,16 @@ function Primitives() {
           desc="Fee-admin only. Pulls unspent TRUST out of the pool to the recipient of your choice."
         />
         <Primitive
-          term="setClaimLimits(maxPerTx, maxPerDay)"
-          desc="Fee-admin only. Both values must stay > 0 — no 'unlimited' escape. Defaults: 1 TRUST per call, 10 calls / 24h window / user."
+          term="setClaimLimits(maxPerTx, maxPerWindow, maxVolumePerWindow, windowSec)"
+          desc="Fee-admin only. All four values must stay > 0 — no 'unlimited' escape. Defaults: 1 TRUST per call, 10 calls / 10 TRUST per 24h window per user."
         />
         <Primitive
           term="sponsorPool() → uint256"
           desc="Current pool balance."
         />
         <Primitive
-          term="getClaimStatus(user) → (claimsUsed, windowResetsAt)"
-          desc="How many pool-funded draws the user has done in the current 24h window, and when the window resets."
+          term="getClaimStatus(user) → (claimsUsed, volumeUsed, windowResetsAt)"
+          desc="How many pool-funded draws and how much cumulative TRUST the user has consumed in the current window, and when the window resets."
         />
         <Primitive
           term="getSponsoredMetrics() → (deposits, volume, uniqueReceivers)"
@@ -917,7 +923,7 @@ const stats = await readProxyStats(client, proxies[0])
 
       <H3>Recipe — register a canonical version on your proxy</H3>
       <P>
-        As the proxy admin, adopt a new audited implementation without
+        As the proxy admin, adopt a new canonical implementation without
         pasting its address by hand — pull it straight from the SDK.
       </P>
       <Block>{`import { stringToHex } from 'viem'
@@ -976,10 +982,13 @@ await walletClient.writeContract({
       <Callout title="Using an impl that isn't in this table?">
         The <Code>registerVersion</Code> call is permissionless at the
         contract level — any address with deployed bytecode can be
-        registered. The canonical list is a <em>recommendation</em> (audit
-        + freshness signal), not a gatekeeper. Unaudited impls put your
-        users at risk unless you are the author and have reviewed them
-        end-to-end.
+        registered. The canonical list is a <em>recommendation</em>
+        (reviewed + freshness signal), not a gatekeeper. We review each
+        implementation version before publishing it to the canonical
+        registry. Users remain free to stay on any previous version, or
+        pin to a specific one, indefinitely. Third-party impls fall
+        outside that review — use them only when you are the author and
+        have reviewed them end-to-end.
       </Callout>
 
       <H3>Framework-agnostic readers</H3>
@@ -1074,19 +1083,19 @@ function CanonicalVersionsTable({
               <dd className="mt-1 font-mono text-[11px] text-subtle break-all">
                 {v.impl}
               </dd>
-              {(v.audit || v.summary) && (
+              {(v.review || v.summary) && (
                 <dd className="mt-2 text-xs text-muted leading-relaxed">
                   {v.summary && <span>{v.summary}</span>}
-                  {v.audit && (
+                  {v.review && (
                     <>
                       {v.summary && <span> · </span>}
                       <a
-                        href={v.audit.url}
+                        href={v.review.url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-brand hover:opacity-80 transition-opacity"
                       >
-                        Audit — {v.audit.firm} ({v.audit.date})
+                        Reviewed — {v.review.date}
                       </a>
                     </>
                   )}
@@ -1108,9 +1117,13 @@ function Workflow() {
       <PageHeader kicker="Ship a new version" title="Workflow" />
       <P>
         A new version is a Solidity file that inherits from the previous
-        implementation. It gets audited, deployed once on-chain, and each
-        proxy admin decides when — and whether — to register it. Below is
-        the full seven-step path from idea to production.
+        implementation. It gets reviewed by the Intuition team, deployed
+        once on-chain, and each proxy admin decides when — and whether —
+        to register it. Below is the full seven-step path from idea to
+        production. We review each implementation version before
+        publishing it to the canonical registry. Users remain free to
+        stay on any previous version, or pin to a specific one,
+        indefinitely.
       </P>
 
       <ol className="space-y-3 mt-6">
@@ -1146,18 +1159,18 @@ function Workflow() {
         />
         <Step
           n="04"
-          title="Audit"
-          body="External firm — Spearbit, Trail of Bits, Code4rena, OpenZeppelin. Publish the report alongside the implementation address once you&apos;re ready to ship."
+          title="Internal review"
+          body="The Intuition team reviews the implementation end-to-end before publication: diff against the previous canonical version, storage-layout check, test coverage, and threat-model notes. The review write-up is published alongside the implementation address."
         />
         <Step
           n="05"
           title="Deploy to mainnet, verify source"
-          body="One-shot deployment of the audited bytecode. Verify source on Intuition Explorer so every consumer can read the exact code that matches the deployed bytecode. No verification = no trust."
+          body="One-shot deployment of the reviewed bytecode. Verify source on Intuition Explorer so every consumer can read the exact code that matches the deployed bytecode. No verification = no trust."
         />
         <Step
           n="06"
           title="Publish the canonical address"
-          body="Add it to the SDK's canonical-versions table and announce in the changelog with a link to the audit. This is the single address every proxy admin will register."
+          body="Add it to the SDK's canonical-versions table and announce in the changelog with a link to the review write-up. This is the single address every proxy admin will register."
         />
         <Step
           n="07"
@@ -1178,7 +1191,7 @@ function Workflow() {
         Storage layout diff = append-only. Constructor has{' '}
         <Code>_disableInitializers()</Code>. Every existing test passes
         against the new impl. <Code>version()</Code> exposes the new
-        label. Source is verified on the explorer. Audit report is
+        label. Source is verified on the explorer. Review write-up is
         public. Canonical address is in the SDK.
       </Callout>
     </div>
@@ -1237,7 +1250,7 @@ function GoldenRules() {
         </Rule>
         <Rule title="Tag and verify">
           Tag the commit matching the deployed bytecode, publish the
-          source on the explorer, link the audit report. Same commit,
+          source on the explorer, link the review write-up. Same commit,
           same bytecode, same address, everywhere.
         </Rule>
       </ul>
@@ -1255,40 +1268,53 @@ function Sponsoring() {
         A proxy deployed on the <b>sponsored channel</b> runs the{' '}
         <Code>IntuitionFeeProxyV2Sponsored</Code> implementation — a
         superset of standard V2 that lets the proxy carry a shared TRUST
-        pool admins fund once. Any user interacting with the proxy then
-        draws from the same pool transparently. Use case: a dApp that
-        charges its users in fiat (Stripe, App Store) but still needs
-        TRUST on-chain to interact with the MultiVault.
+        pool. Admins top the pool up whenever they need to; any user
+        interacting with the proxy then draws from it transparently. Use
+        case: a dApp that charges its users in fiat (Stripe, App Store)
+        but still needs TRUST on-chain to interact with the MultiVault.
       </P>
 
-      <H3>One proxy, one sponsor, one pool</H3>
+      <H3>One proxy, one pool, top up at will</H3>
       <P>
         The proxy is the sole sponsoring entity. There is no per-user
         budget, no multi-sponsor tracking and no allowlist of who can
-        draw — the admin funds{' '}
-        <Code>sponsorPool</Code> once and every user who calls the proxy
-        consumes from it until it&apos;s empty. Admins manage fairness via
-        the rate-limit knobs (<Code>maxClaimPerTx</Code> cap per call,{' '}
-        <Code>maxClaimsPerDay</Code> per-user window).
+        draw — admins call <Code>fundPool()</Code> as many times as they
+        like (each call adds <Code>msg.value</Code> to{' '}
+        <Code>sponsorPool</Code>), and every user who calls the proxy
+        consumes from the same bucket until it&apos;s empty. Fairness is
+        enforced by four rate-limit knobs applied over a configurable
+        rolling window: <Code>maxClaimPerTx</Code> (cap per single call),{' '}
+        <Code>maxClaimsPerWindow</Code> (max pool-drawing calls per user
+        per window), <Code>maxClaimVolumePerWindow</Code> (max cumulative
+        TRUST per user per window) and <Code>claimWindowSeconds</Code>{' '}
+        (window length — 1h, 1 day, 1 week, …).
       </P>
       <P>
-        When you need per-user allocations (tier differentiation, dedicated
-        budgets per subscriber plan, etc.), ship a V2.2Sponsored variant
-        via the version registry — append-only storage in the
-        sponsored namespace supports this without breaking existing
-        pool-only proxies.
+        For tiered subscriptions (free / pro / premium), deploy one
+        sponsored proxy per tier rather than encoding tiers on-chain.
+        Each proxy has its own pool, limits and admins — isolation is
+        cleaner and keeps the contract simple.
+      </P>
+      <P>
+        Funding is a plain on-chain call — you can expose it directly in
+        your dashboard and let multiple trusted admins top up from their
+        own wallets. Unspent TRUST is reclaimable any time via{' '}
+        <Code>reclaimFromPool(amount, to)</Code>.
       </P>
 
       <H3>The sponsored flow</H3>
       <P>
         The user calls the normal entry points (<Code>deposit</Code>,{' '}
         <Code>createAtoms</Code>, <Code>createTriples</Code>,{' '}
-        <Code>depositBatch</Code>) from their own wallet with reduced or
-        zero <Code>msg.value</Code>. The proxy tops up from the shared
-        pool (capped at <Code>maxClaimPerTx</Code>) and forwards the
-        combined amount to the MultiVault. The user signs their own tx
-        and owns the shares; the admin&apos;s surface is limited to
-        configuring and funding the pool.
+        <Code>depositBatch</Code>) from their own wallet. On{' '}
+        <Code>deposit</Code>, the proxy automatically draws up to{' '}
+        <Code>maxClaimPerTx</Code> from the pool and adds it to whatever{' '}
+        <Code>msg.value</Code> the user sent (which can be zero). On the
+        batched entry points, the user passes the asset amounts they want
+        to deposit, and the pool only fills the gap between{' '}
+        <Code>msg.value</Code> and the required total. In both cases the
+        user signs their own tx and owns the shares; the admin&apos;s
+        surface is limited to configuring and funding the pool.
       </P>
       <P>
         For custodial onboarding flows where the user has no wallet of
@@ -1304,7 +1330,7 @@ function Sponsoring() {
 
       <H3>Claim limits — mandatory, never unlimited</H3>
       <P>
-        Sponsored proxies always enforce two rate-limits on credit
+        Sponsored proxies always enforce four rate-limits on credit
         consumption, configurable by the admin but never zero:
       </P>
       <ul className="space-y-2 pl-4 list-disc marker:text-subtle text-sm text-muted">
@@ -1315,10 +1341,29 @@ function Sponsoring() {
           tx, the rest stays available for later.
         </li>
         <li>
-          <Code>maxClaimsPerDay</Code> — max number of credit-consuming
-          calls per user per rolling 24-hour window. Default 10. Calls
-          that don&apos;t touch the credit pool (user pays 100% from{' '}
-          <Code>msg.value</Code>) do not count toward this quota.
+          <Code>maxClaimsPerWindow</Code> — max number of pool-drawing
+          calls per user per rolling window. Default 10. Only calls that
+          actually consume from the pool bump the counter — on the
+          batched entry points (<Code>createAtoms</Code>,{' '}
+          <Code>createTriples</Code>, <Code>depositBatch</Code>) a user
+          can send full <Code>msg.value</Code> to opt out of the pool
+          and leave their daily quota untouched. On <Code>deposit</Code>{' '}
+          the pool always contributes while it has balance, so that
+          entry point always bumps the counter until the pool is empty.
+        </li>
+        <li>
+          <Code>maxClaimVolumePerWindow</Code> — max cumulative TRUST (in
+          wei) a user can draw from the pool across all their calls in a
+          window. Default 10 TRUST. Hits <em>before</em> the count cap
+          when the user makes large individual claims — lets you enforce
+          a budget per user (e.g. 5 TRUST/week/student) independent of
+          how many transactions they spread it across.
+        </li>
+        <li>
+          <Code>claimWindowSeconds</Code> — length of the rolling window
+          in seconds. Default 86400 (1 day). Set it to 3600 for hourly,
+          604800 for weekly, 2592000 for monthly. All three caps above
+          roll over together when the window elapses.
         </li>
       </ul>
 
@@ -1326,15 +1371,15 @@ function Sponsoring() {
       <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
         <Primitive
           term="fundPool() payable"
-          desc="Top up the shared sponsor pool with msg.value TRUST. Single-pool model — no recipient argument."
+          desc="Top up the shared sponsor pool with msg.value TRUST. Callable as many times as you like — safe to expose directly in your dashboard so multiple admin wallets can contribute."
         />
         <Primitive
           term="reclaimFromPool(amount, to)"
           desc="Pull unspent TRUST out of the pool to any recipient address (e.g. treasury, Safe)."
         />
         <Primitive
-          term="setClaimLimits(maxPerTx, maxPerDay)"
-          desc="Update both limits. Both must stay > 0 (reverts otherwise). maxPerDay is per user, per 24h rolling window."
+          term="setClaimLimits(maxPerTx, maxPerWindow, maxVolumePerWindow, windowSec)"
+          desc="Update all four rate-limit knobs atomically. Every value must stay > 0 (reverts otherwise). Window is the rolling duration in seconds (1h=3600, 1 day=86400, 1 week=604800)."
         />
       </dl>
 
@@ -1356,7 +1401,8 @@ function Sponsoring() {
   value: parseEther('25'),
 })
 // Any user interacting with the proxy now draws up to maxClaimPerTx
-// from the pool per call, bounded by maxClaimsPerDay per user.`}</Block>
+// from the pool per call, bounded by maxClaimsPerWindow (count) and
+// maxClaimVolumePerWindow (TRUST) per user over claimWindowSeconds.`}</Block>
 
       <H3>Invariant: withdraw never dips into the credit pool</H3>
       <P>

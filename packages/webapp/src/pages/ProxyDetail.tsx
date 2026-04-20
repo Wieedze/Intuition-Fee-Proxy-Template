@@ -41,14 +41,16 @@ import {
   useClaimLimits,
   useClaimStatus,
   useFundPool,
+  usePoolBurnRate,
   useReclaimFromPool,
   useSetClaimLimits,
   useSponsoredMetrics,
   useSponsorPool,
+  type PoolBurnStats,
 } from '../hooks/useSponsoredProxy'
 import Address from '../components/Address'
 
-type TabId = 'overview' | 'metrics' | 'admins' | 'sponsoring'
+type TabId = 'overview' | 'fee' | 'sponsoring' | 'metrics' | 'admins'
 
 export default function ProxyDetailPage() {
   const { address: proxyParam } = useParams()
@@ -132,11 +134,11 @@ export default function ProxyDetailPage() {
       {tab === 'overview' && stats && (
         <div className="space-y-10">
           <section className="grid gap-4 sm:grid-cols-3">
-            <Stat label="Accumulated fees" value={`${formatEther(stats.accumulatedFees)} TRUST`} emphasize />
-            <Stat label="All-time collected" value={`${formatEther(stats.totalFeesCollectedAllTime)} TRUST`} />
+            <Stat
+              label="Channel"
+              value={channel === 'sponsored' ? 'Sponsored' : 'Standard'}
+            />
             <Stat label="Admins" value={stats.adminCount.toString()} />
-            <Stat label="Fixed fee / deposit" value={`${formatEther(stats.depositFixedFee)} TRUST`} />
-            <Stat label="Percentage fee" value={`${(Number(stats.depositPercentageFee) / 100).toFixed(2)} %`} />
             <Stat label="MultiVault" value={stats.ethMultiVault} mono />
           </section>
 
@@ -149,10 +151,38 @@ export default function ProxyDetailPage() {
             isProxyAdmin={Boolean(isProxyAdmin)}
             onDone={refetchVersions}
           />
+        </div>
+      )}
+
+      {tab === 'fee' && stats && (
+        <div className="space-y-10">
+          <section className="grid gap-4 sm:grid-cols-2">
+            <Stat
+              label="Accumulated fees"
+              value={`${formatEther(stats.accumulatedFees)} TRUST`}
+              emphasize
+            />
+            <Stat
+              label="All-time collected"
+              value={`${formatEther(stats.totalFeesCollectedAllTime)} TRUST`}
+            />
+            <Stat
+              label="Fixed fee / deposit"
+              value={`${formatEther(stats.depositFixedFee)} TRUST`}
+            />
+            <Stat
+              label="Percentage fee"
+              value={`${(Number(stats.depositPercentageFee) / 100).toFixed(2)} %`}
+            />
+          </section>
 
           {isAdmin ? (
             <div className="space-y-8">
-              <WithdrawPanel proxy={proxy} accumulated={stats.accumulatedFees} onDone={refetch} />
+              <WithdrawPanel
+                proxy={proxy}
+                accumulated={stats.accumulatedFees}
+                onDone={refetch}
+              />
               <SetFeesPanel
                 proxy={proxy}
                 currentFixed={stats.depositFixedFee}
@@ -201,9 +231,10 @@ function Tabs({
 }) {
   const items: { id: TabId; label: string }[] = [
     { id: 'overview', label: 'Overview' },
+    { id: 'fee', label: 'Fee' },
+    ...(isSponsored ? [{ id: 'sponsoring' as TabId, label: 'Sponsoring' }] : []),
     { id: 'metrics', label: 'Metrics' },
     { id: 'admins', label: 'Admins' },
-    ...(isSponsored ? [{ id: 'sponsoring' as TabId, label: 'Sponsoring' }] : []),
   ]
   return (
     <div className="flex items-center gap-6 border-b border-line">
@@ -807,14 +838,14 @@ function NewVersionBanner({
       <div className="flex-1 min-w-[240px] space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold text-ink">{headline}</span>
-          {latest.audit && (
+          {latest.review && (
             <a
-              href={latest.audit.url}
+              href={latest.review.url}
               target="_blank"
               rel="noopener noreferrer"
               className="text-[10px] font-mono uppercase tracking-wider rounded border border-brand/40 bg-brand/10 text-brand px-1.5 py-0.5 hover:opacity-80 transition-opacity"
             >
-              audit · {latest.audit.firm}
+              reviewed · {latest.review.date}
             </a>
           )}
         </div>
@@ -1000,12 +1031,12 @@ function VersionsPanel({
                       ? canonical.length === 0
                         ? 'No canonical versions published yet'
                         : 'All canonical versions already registered'
-                      : `Select an audited ${family} version…`}
+                      : `Select a canonical ${family} version…`}
                   </option>
                   {availableCanonical.map((v) => (
                     <option key={v.label} value={v.label}>
                       {v.label}
-                      {v.audit ? ` — audited by ${v.audit.firm}` : ''}
+                      {v.review ? ` — reviewed ${v.review.date}` : ''}
                     </option>
                   ))}
                 </select>
@@ -1037,9 +1068,9 @@ function VersionsPanel({
                   className="input font-mono text-xs"
                 />
                 <div className="rounded-md border border-rose-500/30 bg-rose-500/5 px-2.5 py-1.5 text-[11px] text-rose-300 leading-snug">
-                  ⚠ Unaudited implementations put your users at risk. Use this
-                  path only when you&apos;ve deployed and reviewed the impl
-                  yourself.
+                  ⚠ Third-party implementations fall outside the canonical
+                  registry. Use this path only when you&apos;ve deployed and
+                  reviewed the impl yourself.
                 </div>
                 {canonical.length > 0 && (
                   <button
@@ -1047,7 +1078,7 @@ function VersionsPanel({
                     onClick={() => setMode('canonical')}
                     className="text-left text-[11px] text-subtle hover:text-ink transition-colors"
                   >
-                    ← Back to audited versions
+                    ← Back to canonical versions
                   </button>
                 )}
               </>
@@ -1408,11 +1439,13 @@ function SponsoringPanel({
   const { limits, refetch: refetchLimits } = useClaimLimits(proxy)
   const { balance: poolBalance, refetch: refetchPool } = useSponsorPool(proxy)
   const { metrics: sMetrics, refetch: refetchMetrics } = useSponsoredMetrics(proxy)
+  const { stats: burnStats, refetch: refetchBurn } = usePoolBurnRate(proxy)
 
   function onWriteDone() {
     refetchLimits()
     refetchPool()
     refetchMetrics()
+    refetchBurn()
   }
 
   return (
@@ -1422,21 +1455,19 @@ function SponsoringPanel({
           Sponsoring
         </h2>
         <p className="mt-1 text-sm text-muted max-w-2xl">
-          This proxy runs the sponsored-channel implementation. Admins fund a
-          single pool once; any user interacting with the proxy draws from it
-          transparently via <code className="font-mono text-ink">deposit</code>{' '}
-          / <code className="font-mono text-ink">createAtoms</code> with reduced
+          This proxy runs the sponsored-channel implementation. Admins top
+          the pool up whenever they need to; any user interacting with the
+          proxy draws from it transparently via{' '}
+          <code className="font-mono text-ink">deposit</code> /{' '}
+          <code className="font-mono text-ink">createAtoms</code> with reduced
           or zero <code className="font-mono text-ink">msg.value</code>. Rate
           limits bound drain per user.
         </p>
       </div>
 
+      <PoolHealthBadge balance={poolBalance} burn={burnStats} />
+
       <section className="grid gap-4 sm:grid-cols-3">
-        <Stat
-          label="Sponsor pool"
-          value={poolBalance !== undefined ? `${formatEther(poolBalance)} TRUST` : '—'}
-          emphasize
-        />
         <Stat
           label="Sponsored deposits"
           value={sMetrics ? sMetrics.sponsoredDeposits.toString() : '—'}
@@ -1456,8 +1487,20 @@ function SponsoringPanel({
           value={limits ? `${formatEther(limits.maxClaimPerTx)} TRUST` : '—'}
         />
         <Stat
-          label="Max claims / day per user"
-          value={limits ? limits.maxClaimsPerDay.toString() : '—'}
+          label="Max calls / user / window"
+          value={limits ? limits.maxClaimsPerWindow.toString() : '—'}
+        />
+        <Stat
+          label="Max TRUST / user / window"
+          value={
+            limits
+              ? `${formatEther(limits.maxClaimVolumePerWindow)} TRUST`
+              : '—'
+          }
+        />
+        <Stat
+          label="Window length"
+          value={limits ? formatWindow(limits.claimWindowSeconds) : '—'}
         />
       </section>
 
@@ -1477,6 +1520,122 @@ function SponsoringPanel({
           claim limits.
         </p>
       )}
+    </section>
+  )
+}
+
+type PoolHealthState = 'healthy' | 'low' | 'critical' | 'empty' | 'idle'
+
+function PoolHealthBadge({
+  balance,
+  burn,
+}: {
+  balance: bigint | undefined
+  burn: PoolBurnStats | undefined
+}) {
+  const hasBalance = balance !== undefined
+  const hasRate = burn !== undefined && burn.ratePerDay > 0n
+
+  const runwayDays =
+    hasBalance && hasRate ? Number(balance! / burn!.ratePerDay) : undefined
+
+  const state: PoolHealthState = !hasBalance
+    ? 'idle'
+    : balance === 0n
+      ? 'empty'
+      : !hasRate
+        ? 'idle'
+        : runwayDays! >= 7
+          ? 'healthy'
+          : runwayDays! >= 2
+            ? 'low'
+            : 'critical'
+
+  const meta = {
+    healthy: {
+      dot: 'bg-emerald-500',
+      label: 'Pool healthy',
+      tone: 'text-emerald-400',
+      border: 'border-emerald-500/30',
+      bg: 'bg-emerald-500/[0.05]',
+    },
+    low: {
+      dot: 'bg-amber-500',
+      label: 'Pool low — refill soon',
+      tone: 'text-amber-400',
+      border: 'border-amber-500/40',
+      bg: 'bg-amber-500/[0.06]',
+    },
+    critical: {
+      dot: 'bg-rose-500',
+      label: 'Pool critical — refill now',
+      tone: 'text-rose-400',
+      border: 'border-rose-500/40',
+      bg: 'bg-rose-500/[0.06]',
+    },
+    empty: {
+      dot: 'bg-rose-500',
+      label: 'Pool empty — sponsored calls blocked',
+      tone: 'text-rose-400',
+      border: 'border-rose-500/40',
+      bg: 'bg-rose-500/[0.06]',
+    },
+    idle: {
+      dot: 'bg-subtle',
+      label: 'Pool — not enough activity to estimate runway',
+      tone: 'text-subtle',
+      border: 'border-line',
+      bg: 'bg-surface',
+    },
+  }[state]
+
+  const rateDisplay = hasRate
+    ? `${formatEther(burn!.ratePerDay)} TRUST/day`
+    : burn && burn.daysCovered === 0
+      ? 'No activity yet'
+      : '—'
+
+  const runwayDisplay =
+    runwayDays !== undefined
+      ? `~${runwayDays} ${runwayDays === 1 ? 'day' : 'days'}`
+      : '—'
+
+  return (
+    <section className={`rounded-xl border ${meta.border} ${meta.bg} p-5`}>
+      <div className="flex items-center gap-2 mb-4">
+        <span className={`inline-block h-2 w-2 rounded-full ${meta.dot}`} />
+        <span
+          className={`text-[11px] font-mono uppercase tracking-wider ${meta.tone}`}
+        >
+          {meta.label}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-subtle">
+            Balance
+          </div>
+          <div className="mt-1 text-lg font-semibold text-ink">
+            {hasBalance ? `${formatEther(balance!)} TRUST` : '—'}
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-subtle">
+            Burn rate (7d)
+          </div>
+          <div className="mt-1 text-lg font-semibold text-ink">
+            {rateDisplay}
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-subtle">
+            Runway
+          </div>
+          <div className="mt-1 text-lg font-semibold text-ink">
+            {runwayDisplay}
+          </div>
+        </div>
+      </div>
     </section>
   )
 }
@@ -1655,17 +1814,43 @@ function ReclaimFromPoolPanel({
   )
 }
 
+const WINDOW_PRESETS: ReadonlyArray<{ label: string; seconds: bigint }> = [
+  { label: '1 hour', seconds: 3600n },
+  { label: '1 day', seconds: 86400n },
+  { label: '1 week', seconds: 604800n },
+  { label: '30 days', seconds: 2592000n },
+]
+
+function formatWindow(seconds: bigint): string {
+  const match = WINDOW_PRESETS.find((p) => p.seconds === seconds)
+  if (match) return match.label
+  const n = Number(seconds)
+  if (n % 86400 === 0) return `${n / 86400} days`
+  if (n % 3600 === 0) return `${n / 3600} hours`
+  if (n % 60 === 0) return `${n / 60} min`
+  return `${n}s`
+}
+
 function ClaimLimitsPanel({
   proxy,
   current,
   onDone,
 }: {
   proxy: Address
-  current: { maxClaimPerTx: bigint; maxClaimsPerDay: bigint } | undefined
+  current:
+    | {
+        maxClaimPerTx: bigint
+        maxClaimsPerWindow: bigint
+        maxClaimVolumePerWindow: bigint
+        claimWindowSeconds: bigint
+      }
+    | undefined
   onDone: () => void
 }) {
   const [maxPerTx, setMaxPerTx] = useState('')
-  const [maxPerDay, setMaxPerDay] = useState('')
+  const [maxPerWindow, setMaxPerWindow] = useState('')
+  const [maxVolume, setMaxVolume] = useState('')
+  const [windowSec, setWindowSec] = useState('')
   const { setClaimLimits, hash, isPending, error, reset } =
     useSetClaimLimits(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
@@ -1673,9 +1858,16 @@ function ClaimLimitsPanel({
   useEffect(() => {
     if (current) {
       setMaxPerTx(formatEther(current.maxClaimPerTx))
-      setMaxPerDay(current.maxClaimsPerDay.toString())
+      setMaxPerWindow(current.maxClaimsPerWindow.toString())
+      setMaxVolume(formatEther(current.maxClaimVolumePerWindow))
+      setWindowSec(current.claimWindowSeconds.toString())
     }
-  }, [current?.maxClaimPerTx, current?.maxClaimsPerDay])
+  }, [
+    current?.maxClaimPerTx,
+    current?.maxClaimsPerWindow,
+    current?.maxClaimVolumePerWindow,
+    current?.claimWindowSeconds,
+  ])
 
   useEffect(() => {
     if (receipt.isSuccess) {
@@ -1685,12 +1877,23 @@ function ClaimLimitsPanel({
   }, [hash, receipt.isSuccess])
 
   const txValid = Number(maxPerTx) > 0
-  const dayValid = Number.isInteger(Number(maxPerDay)) && Number(maxPerDay) > 0
+  const windowCountValid =
+    Number.isInteger(Number(maxPerWindow)) && Number(maxPerWindow) > 0
+  const volumeValid = Number(maxVolume) > 0
+  const windowSecNum = Number(windowSec)
+  const windowSecValid =
+    Number.isInteger(windowSecNum) && windowSecNum > 0 && windowSecNum <= 4_294_967_295
+  const allValid = txValid && windowCountValid && volumeValid && windowSecValid
 
   async function onSubmit() {
-    if (!txValid || !dayValid) return
+    if (!allValid) return
     try {
-      await setClaimLimits(parseEther(maxPerTx), BigInt(maxPerDay))
+      await setClaimLimits(
+        parseEther(maxPerTx),
+        BigInt(maxPerWindow),
+        parseEther(maxVolume),
+        BigInt(windowSec),
+      )
     } catch (e) {
       console.error(e)
     }
@@ -1701,8 +1904,9 @@ function ClaimLimitsPanel({
       <div>
         <h3 className="font-semibold">Claim limits</h3>
         <p className="text-xs text-subtle">
-          Safeguards against drain / spam. Both must stay &gt; 0 — there is no
-          &ldquo;unlimited&rdquo; mode.
+          Per-user caps applied over a configurable rolling window. All four
+          values must stay &gt; 0 — there is no &ldquo;unlimited&rdquo; mode
+          (set a cap high if you want it effectively open).
         </p>
       </div>
 
@@ -1720,16 +1924,60 @@ function ClaimLimitsPanel({
           {!txValid && <p className="text-xs text-rose-400 mt-1">Must be &gt; 0.</p>}
         </label>
         <label className="block space-y-1">
-          <div className="text-xs text-muted">Max claims per 24h window</div>
+          <div className="text-xs text-muted">
+            Max pool-drawing calls per user / window
+          </div>
           <input
             type="number"
             step="1"
             min="1"
-            value={maxPerDay}
-            onChange={(e) => setMaxPerDay(e.target.value)}
+            value={maxPerWindow}
+            onChange={(e) => setMaxPerWindow(e.target.value)}
             className="input"
           />
-          {!dayValid && (
+          {!windowCountValid && (
+            <p className="text-xs text-rose-400 mt-1">Integer &gt; 0.</p>
+          )}
+        </label>
+        <label className="block space-y-1">
+          <div className="text-xs text-muted">
+            Max cumulative TRUST per user / window
+          </div>
+          <input
+            type="number"
+            step="any"
+            min="0"
+            value={maxVolume}
+            onChange={(e) => setMaxVolume(e.target.value)}
+            className="input"
+          />
+          {!volumeValid && (
+            <p className="text-xs text-rose-400 mt-1">Must be &gt; 0.</p>
+          )}
+        </label>
+        <label className="block space-y-1">
+          <div className="text-xs text-muted">Window length (seconds)</div>
+          <input
+            type="number"
+            step="1"
+            min="1"
+            value={windowSec}
+            onChange={(e) => setWindowSec(e.target.value)}
+            className="input"
+          />
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {WINDOW_PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => setWindowSec(p.seconds.toString())}
+                className="text-[10px] font-mono uppercase tracking-wider rounded border border-line bg-canvas px-2 py-0.5 text-subtle hover:text-ink hover:border-line-strong transition-colors"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {!windowSecValid && (
             <p className="text-xs text-rose-400 mt-1">Integer &gt; 0.</p>
           )}
         </label>
@@ -1738,7 +1986,7 @@ function ClaimLimitsPanel({
       <button
         type="button"
         onClick={onSubmit}
-        disabled={!txValid || !dayValid || isPending || receipt.isLoading}
+        disabled={!allValid || isPending || receipt.isLoading}
         className="btn-primary"
       >
         {isPending
