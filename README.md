@@ -14,13 +14,12 @@ Monorepo for a versioned, upgradeable fee proxy on top of the [Intuition](https:
 ```
 intuition-fee-proxy-template/
 ├── packages/
-│   ├── contracts/   # Solidity (V2 upgradeable + Factory + ERC-7936 versioned proxy)
-│   ├── sdk/         # Shared ABIs, addresses, chain configs
-│   └── webapp/      # Vite + React UI (deploy, my proxies, proxy detail, /docs)
+│   ├── contracts/   # Solidity — V2 + V2Sponsored + Factory + ERC-7936 versioned proxy
+│   ├── sdk/         # Shared ABIs, addresses, chains, canonical-version registry, readers
+│   └── webapp/      # Vite + React UI — deploy / my-proxies / explore / proxy-detail / docs
 ├── scripts/
 │   └── sync-abis.ts # Copy compiled ABIs to SDK after contracts change
-├── .claude/         # Project context, rules, and skills (see .claude/README.md)
-└── docs/            # Audit reports, announcements
+└── .claude/         # Project context, rules, and skills (see .claude/README.md)
 ```
 
 ## Requirements
@@ -38,14 +37,15 @@ bun install
 
 ```bash
 # Contracts
-bun contracts:compile              # hardhat compile
-bun contracts:test                 # hardhat test (V2 + Factory + Versioned + Metrics)
-bun contracts:node                 # local hardhat node on :8545
-bun contracts:deploy:local         # deploy full stack on local node (writes webapp/.env.local)
-bun contracts:deploy:testnet       # Intuition testnet (chainId 13579)
-bun contracts:deploy:mainnet       # Intuition mainnet (chainId 1155)
-bun contracts:e2e:local            # end-to-end validation (deposits + upgrade + pin + withdraw)
-bun contracts:deploy:v3mock:local  # deploy a mock new-version impl for manual UX testing
+bun contracts:compile                  # hardhat compile
+bun contracts:test                     # hardhat test (V1 + V2 + V2Sponsored + Factory + Versioned)
+bun contracts:node                     # local hardhat node on :8545
+bun contracts:deploy:local             # deploy full stack on local node (writes webapp/.env.local)
+bun contracts:deploy:testnet           # Intuition testnet (chainId 13579)
+bun contracts:deploy:mainnet           # Intuition mainnet (chainId 1155)
+bun contracts:e2e:local                # end-to-end standard lifecycle
+bun contracts:e2e:sponsored:local      # end-to-end sponsored-pool lifecycle
+bun contracts:deploy:v3mock:local      # deploy a mock new-version impl for manual UX testing
 
 # SDK
 bun sdk:sync                       # copy compiled ABIs from contracts/ into sdk/
@@ -95,7 +95,7 @@ The [.claude/](./.claude/) directory holds the planning, architecture, rules, an
 
 ## Status
 
-V2 contracts, SDK, factory, webapp and docs are implemented and tested locally (124 passing tests). The design has been sent to the Intuition team for review. Next phases: testnet deploy, external audit, mainnet launch.
+V2 (standard) + V2Sponsored (shared-pool) contracts, SDK, Factory, webapp and docs are implemented and tested locally (166 passing tests, 18 audit findings addressed). The design has been sent to the Intuition team for review. Next phases: testnet deploy, external audit, mainnet launch.
 
 ## License
 
