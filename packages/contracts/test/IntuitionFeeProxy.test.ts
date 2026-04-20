@@ -93,6 +93,36 @@ describe("IntuitionFeeProxy", function () {
         )
       ).to.be.revertedWithCustomError(IntuitionFeeProxyFactory, "IntuitionFeeProxy_InvalidMultisigAddress");
     });
+
+    it("Should revert on empty initialAdmins array", async function () {
+      const { mockMultiVault } = await loadFixture(deployFixture);
+      const IntuitionFeeProxyFactory = await ethers.getContractFactory("IntuitionFeeProxy");
+
+      await expect(
+        IntuitionFeeProxyFactory.deploy(
+          await mockMultiVault.getAddress(),
+          FEE_RECIPIENT,
+          DEPOSIT_FEE,
+          DEPOSIT_PERCENTAGE,
+          []
+        )
+      ).to.be.revertedWithCustomError(IntuitionFeeProxyFactory, "IntuitionFeeProxy_NoAdminsProvided");
+    });
+
+    it("Should revert when every initialAdmins entry is zero", async function () {
+      const { mockMultiVault } = await loadFixture(deployFixture);
+      const IntuitionFeeProxyFactory = await ethers.getContractFactory("IntuitionFeeProxy");
+
+      await expect(
+        IntuitionFeeProxyFactory.deploy(
+          await mockMultiVault.getAddress(),
+          FEE_RECIPIENT,
+          DEPOSIT_FEE,
+          DEPOSIT_PERCENTAGE,
+          [ethers.ZeroAddress, ethers.ZeroAddress]
+        )
+      ).to.be.revertedWithCustomError(IntuitionFeeProxyFactory, "IntuitionFeeProxy_NoAdminsProvided");
+    });
   });
 
   describe("Fee Calculations", function () {

@@ -9,7 +9,7 @@ import {Errors} from "./libraries/Errors.sol";
 /// @dev
 ///  - Maintains a registry `version → implementation` and a current `defaultVersion`.
 ///  - Standard fallback routes calls to the default version (normal UX).
-///  - `executeAtVersion` lets advanced users pin to a specific (audited, immutable)
+///  - `executeAtVersion` lets advanced users pin to a specific (reviewed, immutable)
 ///    version of the logic.
 ///  - Proxy-level state is stored in a custom namespace slot so it never collides
 ///    with the logic implementation's regular storage.
@@ -35,6 +35,12 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
         mapping(bytes32 => bool) versionExists;
         address proxyAdmin;
         bytes32 name;
+        // 2-step admin transfer: `pendingProxyAdmin` holds the candidate set by
+        // the current admin via `transferProxyAdmin`. Only that address can
+        // promote itself via `acceptProxyAdmin`. Prevents fat-fingered
+        // transfers to lost / wrong addresses. Appended — ERC-7201 namespaced
+        // slot mask (~0xff) reserves 256 slots, plenty of room.
+        address pendingProxyAdmin;
     }
 
     function _layout() private pure returns (Layout storage s) {
@@ -150,9 +156,19 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
     function transferProxyAdmin(address newAdmin) external onlyProxyAdmin {
         if (newAdmin == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
         Layout storage s = _layout();
+        s.pendingProxyAdmin = newAdmin;
+        emit ProxyAdminTransferStarted(s.proxyAdmin, newAdmin);
+    }
+
+    /// @inheritdoc IIntuitionVersionedFeeProxy
+    function acceptProxyAdmin() external {
+        Layout storage s = _layout();
+        address pending = s.pendingProxyAdmin;
+        if (msg.sender != pending) revert Errors.VersionedFeeProxy_NotPendingProxyAdmin();
         address old = s.proxyAdmin;
-        s.proxyAdmin = newAdmin;
-        emit ProxyAdminTransferred(old, newAdmin);
+        s.proxyAdmin = pending;
+        delete s.pendingProxyAdmin;
+        emit ProxyAdminTransferred(old, pending);
     }
 
     /// @inheritdoc IIntuitionVersionedFeeProxy
@@ -189,6 +205,11 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
     /// @inheritdoc IIntuitionVersionedFeeProxy
     function proxyAdmin() external view returns (address) {
         return _layout().proxyAdmin;
+    }
+
+    /// @notice The candidate admin awaiting acceptance, or address(0) if none.
+    function pendingProxyAdmin() external view returns (address) {
+        return _layout().pendingProxyAdmin;
     }
 
     // ============ Execute at version ============

@@ -227,6 +227,13 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         if (maxPerTx == 0 || maxPerWindow == 0 || maxVolumePerWindow == 0 || windowSec == 0) {
             revert Errors.Sponsored_InvalidLimit();
         }
+        // ClaimWindow.volume is packed as uint128. Capping the per-window
+        // volume at uint128.max prevents silent truncation on `w.volume =
+        // uint128(currentVolume + consumed)` if an admin sets an absurdly
+        // high cap. uint128.max wei ≈ 3.4e20 ETH — far beyond any real pool.
+        if (maxVolumePerWindow > type(uint128).max) {
+            revert Errors.Sponsored_InvalidLimit();
+        }
         SponsoredLayout storage $ = _s();
         $.maxClaimPerTx = maxPerTx;
         $.maxClaimsPerWindow = maxPerWindow;

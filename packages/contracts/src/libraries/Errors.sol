@@ -32,9 +32,6 @@ library Errors {
 
     // ============ V2 errors ============
 
-    /// @notice `receiver` parameter differs from `msg.sender` — V2 fee-layer is pure, no sponsoring
-    error IntuitionFeeProxy_ReceiverNotSender();
-
     /// @notice Withdraw attempted while `accumulatedFees` is zero
     error IntuitionFeeProxy_NothingToWithdraw();
 
@@ -86,6 +83,9 @@ library Errors {
 
     /// @notice Delegatecall into the versioned implementation failed without returndata
     error VersionedFeeProxy_DelegateCallFailed();
+
+    /// @notice `acceptProxyAdmin` called by an address that is not the pending admin
+    error VersionedFeeProxy_NotPendingProxyAdmin();
 
     // ============ Sponsored-proxy errors ============
 

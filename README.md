@@ -1,5 +1,7 @@
 # Intuition Proxy Factory
 
+![tests](https://img.shields.io/badge/tests-170%2B%20passing-green) ![audit](https://img.shields.io/badge/audit-2%20passes%2C%200%20high%2Fcritical%20open-green) ![solidity](https://img.shields.io/badge/solidity-0.8.21-blue) ![oz](https://img.shields.io/badge/openzeppelin-v5%20namespaced-blue)
+
 Monorepo for a versioned, upgradeable fee proxy on top of the [Intuition](https://intuition.systems) MultiVault, with a permissionless Factory for one-click deployment and a web UI to manage individual proxies (fees, admins, versions, metrics).
 
 ## What this gives you
@@ -93,9 +95,40 @@ The [.claude/](./.claude/) directory holds the planning, architecture, rules, an
 - [.claude/08-rules.md](./.claude/08-rules.md) — project rules (design, copy, code, storage)
 - [.claude/09-skills.md](./.claude/09-skills.md) — step-by-step playbooks (ship a new version, local test, etc.)
 
+## Security
+
+**Two internal audit passes** using Trail of Bits' [Building Secure Contracts](https://github.com/crytic/building-secure-contracts) methodology. **25 findings raised, 0 HIGH/CRITICAL open.** The codebase has not yet undergone an external audit — that is scheduled before mainnet launch.
+
+### Trust model (what the admin can and can't do)
+
+| Role | Holder (recommended) | Powers | Limits |
+|---|---|---|---|
+| `proxyAdmin` (per-proxy) | Safe multisig | Register new impl versions, switch default, rename, transfer admin (2-step) | Cannot drain user shares (MultiVault enforces `receiver = msg.sender`). Cannot silently raise fees above `MAX_FEE_PERCENTAGE = 10%` (bytecode constant, requires a new reviewed impl registration to bump). |
+| Factory `owner` | Project Safe multisig | Update the default impl used for FUTURE deployments, UUPS-upgrade the Factory, rotate ownership (2-step via `Ownable2Step`) | Existing proxies untouched — each carries its own `proxyAdmin`. |
+| `whitelistedAdmin` | Per-proxy operator | Adjust fees (bounded 0–10%), add/remove admins, withdraw accumulated fees, fund/reclaim sponsor pool | Cannot mint shares on behalf of users (no `depositFor`). Cannot drain the sponsor pool past the credit-invariant (`balance ≥ sponsorPool + accumulatedFees`). |
+
+### Out of scope
+
+- **MultiVault core** — audited by the Intuition team, treated as a trusted dependency.
+- **Frontend key management** — users bring their own wallet (MetaMask, Rabby, Safe).
+- **Indexers and off-chain infra** — events are the source of truth.
+
+### Defensive guarantees in the code
+
+- `ReentrancyGuard` on every payable entry + all withdraw paths (including the 4 Sponsored overrides)
+- Inverse-formula `deposit()` splits `msg.value` exactly (no refund leak)
+- `_refundExcess` returns overpayment on `createAtoms` / `createTriples` / `depositBatch`
+- `_assertCreditInvariant` blocks any withdraw that would eat into the sponsor pool
+- ERC-7201 namespaced storage on VersionedFeeProxy + V2Sponsored (no slot collision)
+- `_disableInitializers()` on all upgradeable impls
+- Last-admin self-revoke guard (V1 + V2)
+- 2-step ownership transfer on Factory (`Ownable2Step`) and VersionedFeeProxy (`pendingProxyAdmin` / `acceptProxyAdmin`)
+- `uint128`-bounded `setClaimLimits` to prevent silent truncation
+- No `receive()` / `fallback()` that blindly accepts ETH — direct transfers revert
+
 ## Status
 
-V2 (standard) + V2Sponsored (shared-pool) contracts, SDK, Factory, webapp and docs are implemented and tested locally (166 passing tests, 18 audit findings addressed). The design has been sent to the Intuition team for review. Next phases: testnet deploy, external audit, mainnet launch.
+V2 (standard) + V2Sponsored (shared-pool) contracts, SDK, Factory, webapp and docs are implemented and tested locally (170+ passing tests, 25 internal-review findings all addressed). The design has been sent to the Intuition team for review. Each canonical implementation version is reviewed by the Intuition team before publication; users remain free to stay on any previous version, or pin to a specific one, indefinitely. Next phases: testnet deploy, external security review, mainnet launch.
 
 ## License
 

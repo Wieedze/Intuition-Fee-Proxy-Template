@@ -120,6 +120,19 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
           .setClaimLimits(ethers.parseEther("1"), 10n, ethers.parseEther("10"), BigInt(ONE_DAY)),
       ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_NotWhitelistedAdmin");
     });
+
+    it("rejects maxClaimVolumePerWindow > uint128.max (prevents silent truncation in ClaimWindow.volume)", async function () {
+      const { proxy, admin1 } = await loadFixture(deployFixture);
+      const U128_MAX = (1n << 128n) - 1n;
+      // Exactly uint128.max is allowed
+      await expect(
+        proxy.connect(admin1).setClaimLimits(ethers.parseEther("1"), 10n, U128_MAX, BigInt(ONE_DAY)),
+      ).to.emit(proxy, "ClaimLimitsSet");
+      // One wei over reverts
+      await expect(
+        proxy.connect(admin1).setClaimLimits(ethers.parseEther("1"), 10n, U128_MAX + 1n, BigInt(ONE_DAY)),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_InvalidLimit");
+    });
   });
 
   // ============ fundPool / reclaimFromPool ============

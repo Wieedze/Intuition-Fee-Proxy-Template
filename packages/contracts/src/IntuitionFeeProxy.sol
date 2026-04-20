@@ -128,6 +128,9 @@ contract IntuitionFeeProxy {
                 emit AdminWhitelistUpdated(a, true);
             }
         }
+        if (added == 0) {
+            revert Errors.IntuitionFeeProxy_NoAdminsProvided();
+        }
         adminCount = added;
     }
 

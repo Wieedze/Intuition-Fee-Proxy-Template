@@ -153,7 +153,7 @@ contract IntuitionFeeProxyV2 is
         uint256 depositPercentageFee_,
         address[] calldata initialAdmins_
     ) internal {
-        if (ethMultiVault_ == address(0)) {
+        if (ethMultiVault_ == address(0) || ethMultiVault_.code.length == 0) {
             revert Errors.IntuitionFeeProxy_InvalidMultiVaultAddress();
         }
         if (depositPercentageFee_ > MAX_FEE_PERCENTAGE) {

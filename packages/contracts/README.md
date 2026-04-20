@@ -50,7 +50,7 @@ Canonical Factory / impl addresses will be pinned in `@intuition-fee-proxy/sdk` 
 
 ## Admin model
 
-V2 uses `whitelistedAdmins[]` (multi-admin, not Ownable), with a last-admin guard + dedupe on init. The proxy-admin (first admin at deploy) additionally gates ERC-7936 version management + name updates. Production deployments must use a Gnosis Safe — this is document-only enforcement; audit finding M-03 is accepted with that caveat.
+V2 uses `whitelistedAdmins[]` (multi-admin, not Ownable), with a last-admin guard + dedupe on init. The proxy-admin (first admin at deploy) additionally gates ERC-7936 version management + name updates. Production deployments must use a Gnosis Safe — this is document-only enforcement; internal-review finding M-03 is accepted with that caveat.
 
 V2.1 will introduce a TimelockController (roadmap). See `../../.claude/07-roadmap.md`.
 
