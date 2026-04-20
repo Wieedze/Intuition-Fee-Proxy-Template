@@ -10,8 +10,15 @@ import {
   type Address,
   type Hex,
 } from 'viem'
-import { useAccount, useBlockNumber, useWaitForTransactionReceipt } from 'wagmi'
+import { useAccount, useBlock, useBlockNumber, useChainId, useWaitForTransactionReceipt } from 'wagmi'
 
+import {
+  getLatestVersion,
+  listVersionsByFamily,
+  type NetworkName,
+  type ProxyFamily,
+} from '@intuition-fee-proxy/sdk'
+import { networkFor } from '../lib/addresses'
 import {
   useAdmins,
   useIsAdmin,
@@ -57,6 +64,9 @@ export default function ProxyDetailPage() {
   const { name, unsupported: nameUnsupported, refetch: refetchName } =
     useProxyName(proxy)
   const { channel } = useProxyChannel(proxy)
+  const chainId = useChainId()
+  const network: NetworkName = networkFor(chainId)
+  const family: ProxyFamily = channel === 'sponsored' ? 'sponsored' : 'standard'
   const isProxyAdmin =
     account && proxyAdmin && account.toLowerCase() === proxyAdmin.toLowerCase()
 
@@ -99,6 +109,16 @@ export default function ProxyDetailPage() {
         )}
       </header>
 
+      <NewVersionBanner
+        proxy={proxy}
+        network={network}
+        family={family}
+        versions={versions}
+        defaultVersion={defaultVersion}
+        isProxyAdmin={Boolean(isProxyAdmin)}
+        onDone={refetchVersions}
+      />
+
       <Tabs active={tab} onChange={setTab} isSponsored={channel === 'sponsored'} />
 
       {isLoading && (
@@ -122,6 +142,8 @@ export default function ProxyDetailPage() {
 
           <VersionsPanel
             proxy={proxy}
+            network={network}
+            family={family}
             versions={versions}
             defaultVersion={defaultVersion}
             isProxyAdmin={Boolean(isProxyAdmin)}
@@ -220,9 +242,18 @@ function MetricsPanel({
 }) {
   const { data: currentBlock } = useBlockNumber({ watch: true })
 
-  const blocksAgo =
-    metrics && currentBlock && metrics.lastActivityBlock > 0n
-      ? currentBlock - metrics.lastActivityBlock
+  // Fetch the block the proxy last wrote to — gives us the wall-clock time of
+  // the last write. Skipped when there's no activity yet (block 0 is genesis
+  // and would return a meaningless timestamp).
+  const lastBlockQuery = useBlock({
+    blockNumber: metrics?.lastActivityBlock,
+    query: {
+      enabled: Boolean(metrics && metrics.lastActivityBlock > 0n),
+    },
+  })
+  const lastActivityTs =
+    lastBlockQuery.data?.timestamp !== undefined
+      ? Number(lastBlockQuery.data.timestamp)
       : undefined
 
   const fmtBig = (v: bigint | undefined) => (v === undefined ? '—' : v.toString())
@@ -232,16 +263,20 @@ function MetricsPanel({
       ? '—'
       : metrics.lastActivityBlock === 0n
         ? 'never'
-        : `block ${metrics.lastActivityBlock.toString()}`
+        : lastActivityTs !== undefined
+          ? formatAbsoluteDate(lastActivityTs)
+          : `block ${metrics.lastActivityBlock.toString()}`
 
   const lastActivityHint =
-    blocksAgo !== undefined && blocksAgo >= 0n
-      ? blocksAgo === 0n
-        ? 'just now'
-        : `${blocksAgo.toString()} block${blocksAgo === 1n ? '' : 's'} ago`
-      : metrics && metrics.lastActivityBlock === 0n
+    metrics === undefined
+      ? undefined
+      : metrics.lastActivityBlock === 0n
         ? 'no writes yet'
-        : undefined
+        : lastActivityTs !== undefined
+          ? `${formatRelativeTime(Math.floor(Date.now() / 1000) - lastActivityTs)} · block ${metrics.lastActivityBlock.toString()}`
+          : currentBlock && metrics.lastActivityBlock > 0n
+            ? `${(currentBlock - metrics.lastActivityBlock).toString()} block(s) ago`
+            : undefined
 
   return (
     <section className="space-y-6">
@@ -580,6 +615,43 @@ function SetFeesPanel({
   )
 }
 
+/// @dev Format a UNIX seconds timestamp to a readable local string.
+///      Short today ("17:23"), longer yesterday/older ("Apr 18, 17:23").
+function formatAbsoluteDate(tsSeconds: number): string {
+  const d = new Date(tsSeconds * 1000)
+  const now = new Date()
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  if (sameDay) {
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  }
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/// @dev Format a positive "seconds ago" delta to a compact relative string.
+///      Returns "just now" for < 1 min, or a rounded unit (min / h / d).
+function formatRelativeTime(secondsAgo: number): string {
+  if (secondsAgo < 0) return 'in the future'
+  if (secondsAgo < 60) return 'just now'
+  if (secondsAgo < 3600) {
+    const m = Math.floor(secondsAgo / 60)
+    return `${m} min ago`
+  }
+  if (secondsAgo < 86400) {
+    const h = Math.floor(secondsAgo / 3600)
+    return `${h} h ago`
+  }
+  const d = Math.floor(secondsAgo / 86400)
+  return `${d} day${d === 1 ? '' : 's'} ago`
+}
+
 function decodeVersion(v: Hex): string {
   try {
     const decoded = hexToString(v, { size: 32 })
@@ -631,22 +703,187 @@ function UpgradeAuthorityPanel({
   )
 }
 
-function VersionsPanel({
+function NewVersionBanner({
   proxy,
+  network,
+  family,
   versions,
   defaultVersion,
   isProxyAdmin,
   onDone,
 }: {
   proxy: Address
+  network: NetworkName
+  family: ProxyFamily
   versions: Hex[]
   defaultVersion: Hex | undefined
   isProxyAdmin: boolean
   onDone: () => void
 }) {
+  const latest = getLatestVersion(network, family)
+  const registeredLabels = new Set(versions.map((v) => decodeVersion(v)))
+  const currentDefaultLabel = defaultVersion
+    ? decodeVersion(defaultVersion)
+    : undefined
+
+  const dismissKey = latest
+    ? `proxy-new-version-dismissed:${proxy.toLowerCase()}:${latest.label}`
+    : undefined
+  const [dismissed, setDismissed] = useState<boolean>(() =>
+    typeof window !== 'undefined' && dismissKey
+      ? window.localStorage.getItem(dismissKey) === '1'
+      : false,
+  )
+
+  const {
+    register,
+    hash: registerHash,
+    isPending: registerPending,
+  } = useRegisterVersion(proxy)
+  const {
+    setDefault,
+    hash: defaultHash,
+    isPending: defaultPending,
+  } = useSetDefaultVersion(proxy)
+  const registerReceipt = useWaitForTransactionReceipt({ hash: registerHash })
+  const defaultReceipt = useWaitForTransactionReceipt({ hash: defaultHash })
+
+  useEffect(() => {
+    if (registerReceipt.isSuccess || defaultReceipt.isSuccess) onDone()
+  }, [registerReceipt.isSuccess, defaultReceipt.isSuccess])
+
+  if (!latest || dismissed) return null
+  if (currentDefaultLabel === latest.label) return null
+
+  const alreadyRegistered = registeredLabels.has(latest.label)
+  const busy =
+    registerPending ||
+    registerReceipt.isLoading ||
+    defaultPending ||
+    defaultReceipt.isLoading
+
+  function onDismiss() {
+    if (dismissKey && typeof window !== 'undefined') {
+      window.localStorage.setItem(dismissKey, '1')
+    }
+    setDismissed(true)
+  }
+
+  async function onRegisterAndPromote() {
+    try {
+      await register(
+        stringToHex(latest!.label, { size: 32 }),
+        latest!.impl as Address,
+      )
+      // Promotion happens in a second click after the register confirms —
+      // doing both in one flow would require chaining writeContract calls
+      // across receipts, which the current hooks don't expose.
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  async function onPromote() {
+    try {
+      await setDefault(stringToHex(latest!.label, { size: 32 }))
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const headline = alreadyRegistered
+    ? `${latest.label} is registered but not default`
+    : `New version available — ${latest.label}`
+
+  const body = alreadyRegistered
+    ? `Users on the default path will keep hitting ${currentDefaultLabel ?? 'the current impl'} until you promote ${latest.label}.`
+    : `Your proxy's default is ${currentDefaultLabel ?? 'unset'}. Register ${latest.label} to make it available to pinned users; promote it to move everyone over.`
+
+  return (
+    <section className="rounded-xl border border-brand/40 bg-brand/[0.06] p-4 flex flex-wrap items-start gap-3">
+      <span aria-hidden className="text-brand text-lg leading-none mt-0.5">
+        ⚡
+      </span>
+      <div className="flex-1 min-w-[240px] space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-semibold text-ink">{headline}</span>
+          {latest.audit && (
+            <a
+              href={latest.audit.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] font-mono uppercase tracking-wider rounded border border-brand/40 bg-brand/10 text-brand px-1.5 py-0.5 hover:opacity-80 transition-opacity"
+            >
+              audit · {latest.audit.firm}
+            </a>
+          )}
+        </div>
+        <p className="text-xs text-muted leading-relaxed">{body}</p>
+        {latest.summary && (
+          <p className="text-xs text-subtle leading-relaxed">
+            {latest.summary}
+          </p>
+        )}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {isProxyAdmin && (
+          <button
+            type="button"
+            onClick={alreadyRegistered ? onPromote : onRegisterAndPromote}
+            disabled={busy}
+            className="btn-primary text-xs px-3 py-1.5"
+          >
+            {busy
+              ? 'Pending…'
+              : alreadyRegistered
+                ? 'Set as default →'
+                : 'Register →'}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          className="text-xs text-subtle hover:text-ink transition-colors px-2"
+        >
+          ✕
+        </button>
+      </div>
+    </section>
+  )
+}
+
+function VersionsPanel({
+  proxy,
+  network,
+  family,
+  versions,
+  defaultVersion,
+  isProxyAdmin,
+  onDone,
+}: {
+  proxy: Address
+  network: NetworkName
+  family: ProxyFamily
+  versions: Hex[]
+  defaultVersion: Hex | undefined
+  isProxyAdmin: boolean
+  onDone: () => void
+}) {
+  const canonical = listVersionsByFamily(network, family)
+  const [mode, setMode] = useState<'canonical' | 'custom'>(
+    canonical.length > 0 ? 'canonical' : 'custom',
+  )
+  const [selectedCanonical, setSelectedCanonical] = useState<string>('')
   const [newLabel, setNewLabel] = useState('')
   const [newImpl, setNewImpl] = useState('')
   const [selectedVersion, setSelectedVersion] = useState<Hex | ''>('')
+
+  const registeredLabels = new Set(versions.map((v) => decodeVersion(v)))
+  const availableCanonical = canonical.filter(
+    (v) => !registeredLabels.has(v.label),
+  )
+  const picked = availableCanonical.find((v) => v.label === selectedCanonical)
 
   const {
     register,
@@ -672,15 +909,26 @@ function VersionsPanel({
     if (defaultReceipt.isSuccess) onDone()
   }, [defaultHash, defaultReceipt.isSuccess])
 
-  const labelValid = newLabel.length > 0 && newLabel.length <= 32
-  const implValid = isAddress(newImpl)
+  const customLabelValid = newLabel.length > 0 && newLabel.length <= 32
+  const customImplValid = isAddress(newImpl)
+  const canRegister =
+    mode === 'canonical'
+      ? Boolean(picked)
+      : customLabelValid && customImplValid
 
   async function onRegister() {
-    if (!labelValid || !implValid) return
     try {
-      await register(stringToHex(newLabel, { size: 32 }), newImpl as Address)
-      setNewLabel('')
-      setNewImpl('')
+      if (mode === 'canonical' && picked) {
+        await register(
+          stringToHex(picked.label, { size: 32 }),
+          picked.impl as Address,
+        )
+        setSelectedCanonical('')
+      } else if (customLabelValid && customImplValid) {
+        await register(stringToHex(newLabel, { size: 32 }), newImpl as Address)
+        setNewLabel('')
+        setNewImpl('')
+      }
     } catch (e) {
       console.error(e)
     }
@@ -738,26 +986,78 @@ function VersionsPanel({
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2 h-full">
             <div className="text-xs font-medium">Register new version</div>
-            <input
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="v2.1.0 (max 32 chars)"
-              className="input"
-            />
-            <input
-              value={newImpl}
-              onChange={(e) => setNewImpl(e.target.value)}
-              placeholder="0x… (implementation address)"
-              className="input font-mono text-xs"
-            />
+
+            {mode === 'canonical' ? (
+              <>
+                <select
+                  value={selectedCanonical}
+                  onChange={(e) => setSelectedCanonical(e.target.value)}
+                  className="input"
+                  disabled={availableCanonical.length === 0}
+                >
+                  <option value="">
+                    {availableCanonical.length === 0
+                      ? canonical.length === 0
+                        ? 'No canonical versions published yet'
+                        : 'All canonical versions already registered'
+                      : `Select an audited ${family} version…`}
+                  </option>
+                  {availableCanonical.map((v) => (
+                    <option key={v.label} value={v.label}>
+                      {v.label}
+                      {v.audit ? ` — audited by ${v.audit.firm}` : ''}
+                    </option>
+                  ))}
+                </select>
+                {picked && (
+                  <div className="rounded-md border border-line bg-canvas px-3 py-2 text-[11px] font-mono text-subtle break-all">
+                    {picked.impl}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setMode('custom')}
+                  className="text-left text-[11px] text-subtle hover:text-ink transition-colors"
+                >
+                  Advanced — paste a custom implementation →
+                </button>
+              </>
+            ) : (
+              <>
+                <input
+                  value={newLabel}
+                  onChange={(e) => setNewLabel(e.target.value)}
+                  placeholder="v2.1.0 (max 32 chars)"
+                  className="input"
+                />
+                <input
+                  value={newImpl}
+                  onChange={(e) => setNewImpl(e.target.value)}
+                  placeholder="0x… (implementation address)"
+                  className="input font-mono text-xs"
+                />
+                <div className="rounded-md border border-rose-500/30 bg-rose-500/5 px-2.5 py-1.5 text-[11px] text-rose-300 leading-snug">
+                  ⚠ Unaudited implementations put your users at risk. Use this
+                  path only when you&apos;ve deployed and reviewed the impl
+                  yourself.
+                </div>
+                {canonical.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setMode('canonical')}
+                    className="text-left text-[11px] text-subtle hover:text-ink transition-colors"
+                  >
+                    ← Back to audited versions
+                  </button>
+                )}
+              </>
+            )}
+
             <button
               type="button"
               onClick={onRegister}
               disabled={
-                !labelValid ||
-                !implValid ||
-                registerPending ||
-                registerReceipt.isLoading
+                !canRegister || registerPending || registerReceipt.isLoading
               }
               className="btn-primary w-full mt-auto"
             >

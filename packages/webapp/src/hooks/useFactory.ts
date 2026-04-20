@@ -91,3 +91,24 @@ export function useAllProxies() {
     factory,
   }
 }
+
+/**
+ * Reads the Factory's own semver via `factory.VERSION()`. Returns `undefined`
+ * if the deployed bytecode predates the constant (legacy Factory, or a local
+ * hardhat deploy that hasn't been recompiled since the constant was added).
+ * The UI should degrade to just showing the address in that case.
+ */
+export function useFactoryIdentity() {
+  const factory = useFactoryAddress()
+  const result = useReadContract({
+    abi: IntuitionFeeProxyFactoryABI as any,
+    address: factory,
+    functionName: 'VERSION',
+    query: { enabled: Boolean(factory) },
+  })
+  const version =
+    typeof result.data === 'string' && result.data.length > 0
+      ? (result.data as string)
+      : undefined
+  return { factory, version, isLoading: result.isLoading }
+}

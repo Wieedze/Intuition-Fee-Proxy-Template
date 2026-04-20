@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 
+import { useFactoryIdentity } from '../hooks/useFactory'
+import Address from './Address'
+
 const NAV_ITEMS = [
   { to: '/', label: 'Home', end: true },
   { to: '/deploy', label: 'Deploy' },
@@ -52,8 +55,8 @@ export default function Layout() {
       </main>
 
       <footer className="border-t border-line">
-        <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between text-xs text-subtle">
-          <span>Fee layer for the Intuition MultiVault.</span>
+        <div className="px-6 py-4 flex items-center justify-between text-xs text-subtle">
+          <FactoryStamp />
           <div className="flex items-center gap-5">
             <a
               href="https://intuition.systems"
@@ -153,6 +156,24 @@ function ThemeToggle() {
     >
       {isDark ? <SunIcon /> : <MoonIcon />}
     </button>
+  )
+}
+
+function FactoryStamp() {
+  const { factory, version } = useFactoryIdentity()
+  if (!factory) {
+    return (
+      <span className="inline-flex items-center gap-2 font-mono text-[11px] text-subtle">
+        Factory not configured
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-2 font-mono text-[11px] text-subtle">
+      <span>Factory</span>
+      {version ? <span className="text-muted">v{version}</span> : null}
+      <Address value={factory} variant="short" />
+    </span>
   )
 }
 

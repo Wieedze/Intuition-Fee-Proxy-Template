@@ -222,78 +222,98 @@ function Callout({
 
 function Overview() {
   return (
-    <div className="space-y-5">
-      <PageHeader kicker="Introduction" title="Overview" />
-      <P>
-        A fee proxy is a thin, versioned layer deployed in front of the
-        Intuition MultiVault. It lets you monetise access to the vault
-        (fixed and percentage fees per deposit), rotate the underlying
-        logic without migrating storage, and give users a cryptographic
-        escape hatch to stay on an audited version they trust.
-      </P>
-      <P>
-        Every proxy is permissionless to deploy. Fee admins are
-        whitelisted addresses — one per proxy, many possible — that
-        withdraw accumulated fees and reconfigure the fee schedule.
-        A separate proxy-admin (ideally a Safe) owns the version registry
-        and can register new audited implementations or swap the active
-        default.
-      </P>
-      <P>
-        Two channels are available at deploy time:{' '}
-        <b className="text-ink">Standard</b> (users pay deposit + fees
-        from their own wallet) and{' '}
-        <b className="text-ink">Sponsored</b> (admins fund a shared pool
-        the proxy taps into transparently on every user deposit, bounded
-        by per-user rate limits). In both channels the user signs their
-        own tx and the shares go to them. The channel is locked at
-        deploy time — pick before calling <Code>createProxy</Code>.
-      </P>
-
-      <H3>How this documentation is organised</H3>
-      <div className="grid gap-3 sm:grid-cols-2 mt-2">
-        <Link
-          to="/docs/call-flow"
-          className="rounded-xl border border-line bg-surface p-4 hover:border-line-strong transition-colors"
-        >
-          <div className="text-[11px] font-medium uppercase tracking-wider text-subtle">
-            Concepts
-          </div>
-          <div className="mt-1 font-medium text-ink">
-            Call flow · Proxy vs. impl · Pinning
-          </div>
-          <div className="mt-1 text-xs text-muted">
-            The mental model. Start here if you&apos;re new to ERC-7936.
-          </div>
-        </Link>
-        <Link
-          to="/docs/primitives"
-          className="rounded-xl border border-line bg-surface p-4 hover:border-line-strong transition-colors"
-        >
-          <div className="text-[11px] font-medium uppercase tracking-wider text-subtle">
-            Reference
-          </div>
-          <div className="mt-1 font-medium text-ink">Primitives</div>
-          <div className="mt-1 text-xs text-muted">
-            Function signatures and who can call them.
-          </div>
-        </Link>
-        <Link
-          to="/docs/workflow"
-          className="rounded-xl border border-line bg-surface p-4 hover:border-line-strong transition-colors sm:col-span-2"
-        >
-          <div className="text-[11px] font-medium uppercase tracking-wider text-subtle">
-            Ship a new version
-          </div>
-          <div className="mt-1 font-medium text-ink">
-            Workflow &amp; Golden rules
-          </div>
-          <div className="mt-1 text-xs text-muted">
-            Step-by-step for authors of new implementations, from writing
-            the Solidity file to pushing the canonical address.
-          </div>
-        </Link>
+    <div className="space-y-14">
+      <div className="space-y-4">
+        <div className="text-[11px] font-medium uppercase tracking-wider text-brand">
+          Introduction
+        </div>
+        <h1 className="text-4xl font-semibold tracking-tight text-ink leading-[1.05]">
+          A versioned fee layer for the{' '}
+          <span className="text-brand">Intuition MultiVault</span>.
+        </h1>
+        <p className="text-lg text-muted leading-relaxed max-w-xl">
+          Deploy a thin, upgradeable proxy. Charge fees. Ship new logic.
+          Never force users off the version they trust.
+        </p>
       </div>
+
+      <section className="space-y-3">
+        <div className="text-[11px] font-medium uppercase tracking-wider text-subtle">
+          Four principles
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Principle
+            title="Versioned"
+            body="Append-only registry of audited implementations. Ship upgrades without breaking users pinned to a previous one."
+          />
+          <Principle
+            title="Permissionless"
+            body="Anyone deploys — no allowlist, no gatekeeper. Just TRUST for gas and you have your own fee proxy."
+          />
+          <Principle
+            title="Sponsorable"
+            body="Optional shared pool admins fund once. Users consume transparently, or admins act on their behalf."
+          />
+          <Principle
+            title="User-pinned"
+            body="Any user can route through a specific past version forever via executeAtVersion. Admin-independent trust."
+          />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <div className="text-[11px] font-medium uppercase tracking-wider text-subtle">
+          Two channels, one factory
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ChannelPreview
+            variant="fee"
+            name="Standard"
+            body="Users pay deposits and fees from their own wallet. Zero trust in a sponsor. Simplest path, ideal when your users already hold TRUST."
+          />
+          <ChannelPreview
+            variant="sponsor"
+            name="Sponsored"
+            body="Admins pre-fund a TRUST pool. Users draw from it with reduced msg.value, or admins deposit on their behalf. Ideal for fiat-onboarded dApps."
+          />
+        </div>
+        <p className="text-xs text-subtle pt-1">
+          The channel is locked at deploy time. Pick before calling{' '}
+          <Code>createProxy</Code>.
+        </p>
+      </section>
+
+      <section className="space-y-3">
+        <div className="text-[11px] font-medium uppercase tracking-wider text-subtle">
+          Dive in
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NavCard
+            to="/docs/architecture"
+            kicker="Start here"
+            title="Architecture"
+            body="The full system — factory, admins, proxies, impl, MultiVault — with a Fee/Sponsor toggle. 5-minute read."
+          />
+          <NavCard
+            to="/docs/integration"
+            kicker="Reference"
+            title="SDK integration"
+            body="Ship it. Install, recipes, and the live canonical versions table."
+          />
+          <NavCard
+            to="/docs/call-flow"
+            kicker="Concepts"
+            title="Call flow + pinning"
+            body="How a deposit travels through delegatecall, and why versioning matters for user trust."
+          />
+          <NavCard
+            to="/docs/workflow"
+            kicker="Ship a new version"
+            title="Author workflow"
+            body="Writing, auditing, deploying and publishing a new implementation as canonical."
+          />
+        </div>
+      </section>
     </div>
   )
 }
@@ -1362,6 +1382,71 @@ function Sponsoring() {
 }
 
 // ============ Small building blocks ============
+
+function Principle({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-xl border border-line bg-surface p-5">
+      <div className="flex items-center gap-2">
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand" />
+        <span className="text-sm font-semibold text-ink">{title}</span>
+      </div>
+      <p className="mt-2 text-sm text-muted leading-relaxed">{body}</p>
+    </div>
+  )
+}
+
+function ChannelPreview({
+  variant,
+  name,
+  body,
+}: {
+  variant: 'fee' | 'sponsor'
+  name: string
+  body: string
+}) {
+  const isSponsor = variant === 'sponsor'
+  const borderCls = isSponsor ? 'border-[#e8a04a]/50' : 'border-brand/50'
+  const bgCls = isSponsor ? 'bg-[#e8a04a]/[0.05]' : 'bg-brand/[0.05]'
+  const textCls = isSponsor ? 'text-[#e8a04a]' : 'text-brand'
+  return (
+    <div className={`rounded-xl border ${borderCls} ${bgCls} p-5`}>
+      <div
+        className={`text-[10px] font-mono uppercase tracking-wider ${textCls}`}
+      >
+        {name}
+      </div>
+      <p className="mt-2 text-sm text-muted leading-relaxed">{body}</p>
+    </div>
+  )
+}
+
+function NavCard({
+  to,
+  kicker,
+  title,
+  body,
+}: {
+  to: string
+  kicker: string
+  title: string
+  body: string
+}) {
+  return (
+    <Link
+      to={to}
+      className="group rounded-xl border border-line bg-surface p-5 hover:border-line-strong transition-colors flex flex-col gap-2 h-full"
+    >
+      <div className="text-[10px] font-mono uppercase tracking-wider text-subtle">
+        {kicker}
+      </div>
+      <div className="font-semibold text-ink">{title}</div>
+      <p className="text-xs text-muted leading-relaxed">{body}</p>
+      <div className="mt-auto pt-2 text-xs text-muted group-hover:text-ink transition-colors">
+        Read →
+      </div>
+    </Link>
+  )
+}
 
 function Primitive({ term, desc }: { term: string; desc: string }) {
   return (

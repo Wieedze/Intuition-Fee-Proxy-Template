@@ -43,6 +43,14 @@ contract IntuitionFeeProxyFactory is
     OwnableUpgradeable,
     UUPSUpgradeable
 {
+    // ============ Metadata ============
+
+    /// @notice Human-readable semver of the Factory's own logic. Bumped on
+    ///         each UUPS upgrade (`_authorizeUpgrade` gated by `onlyOwner`).
+    ///         Consumers read this to prove which bytecode is actually live
+    ///         behind the Factory proxy.
+    string public constant VERSION = "1.0.0";
+
     // ============ Storage ============
 
     /// @notice Standard-channel implementation used for new deployments
