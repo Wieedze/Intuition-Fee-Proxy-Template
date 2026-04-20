@@ -90,8 +90,7 @@ export default function DeployPage() {
         <div className="rounded-lg border-l-4 border-l-brand border border-line bg-surface p-4 text-sm text-ink">
           <b>No factory address for <code className="font-mono text-muted">{network}</code>.</b>{' '}
           <span className="text-muted">
-            Set <code className="font-mono text-brand">VITE_FACTORY_ADDRESS</code> and{' '}
-            <code className="font-mono text-brand">VITE_IMPLEMENTATION_ADDRESS</code> in{' '}
+            Set <code className="font-mono text-brand">VITE_FACTORY_ADDRESS</code> in{' '}
             <code className="font-mono">packages/webapp/.env.local</code>, or deploy the contracts and
             update <code className="font-mono">V2_ADDRESSES</code> in the SDK.
           </span>

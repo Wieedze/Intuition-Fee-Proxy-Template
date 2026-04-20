@@ -4,24 +4,23 @@ import type { Address } from 'viem'
 type Network = 'mainnet' | 'testnet'
 
 const DEV_FACTORY = import.meta.env.VITE_FACTORY_ADDRESS as Address | undefined
-const DEV_IMPL = import.meta.env.VITE_IMPLEMENTATION_ADDRESS as Address | undefined
 
 /**
- * Factory + implementation addresses per network.
- * Dev override via env vars takes precedence on testnet so you can point the
- * webapp at a local/hardhat deploy without touching the SDK.
+ * Factory address per network. Standard / sponsored impls are read live
+ * from the Factory on-chain — no SDK snapshot (single source of truth).
+ * Dev override via `VITE_FACTORY_ADDRESS` takes precedence on testnet so
+ * you can point the webapp at a local/hardhat deploy without touching
+ * the SDK.
  */
 export function addressesFor(network: Network): {
   factory: Address
-  implementation: Address
 } {
-  if (network === 'testnet' && DEV_FACTORY && DEV_IMPL) {
-    return { factory: DEV_FACTORY, implementation: DEV_IMPL }
+  if (network === 'testnet' && DEV_FACTORY) {
+    return { factory: DEV_FACTORY }
   }
   const entry = V2_ADDRESSES[network]
   return {
     factory: entry.factory as Address,
-    implementation: entry.implementation as Address,
   }
 }
 
