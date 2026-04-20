@@ -1,14 +1,14 @@
 /**
- * Canonical registry of audited implementation versions per network.
+ * Canonical registry of reviewed implementation versions per network.
  *
  * This file is the single source of truth for "what impl should proxy admins
  * adopt?". It's intentionally separated from on-chain data: the Factory only
- * stores raw implementation addresses, never metadata — audit links, publish
+ * stores raw implementation addresses, never metadata — review links, publish
  * dates and human-readable labels live here, off-chain, bumped via SDK
  * releases.
  *
  * Entries are added by the maintainers (Intuition team) after an impl is
- * deployed AND audited AND verified on the explorer. Consumers read this
+ * reviewed, deployed, and verified on the explorer. Consumers read this
  * object to build dropdowns, banners and freshness checks; they never have
  * to maintain a parallel table themselves.
  *
@@ -29,9 +29,8 @@ export type CanonicalVersion = {
   impl: `0x${string}`
   /** Which family of proxy this impl serves. */
   family: ProxyFamily
-  /** Audit reference. Absent means "not audited yet — advanced users only". */
-  audit?: {
-    firm: string
+  /** Internal review reference. Absent means "not in the canonical registry — third-party, advanced users only". */
+  review?: {
     url: string
     /** ISO 8601 date — e.g. "2026-04-15". */
     date: string
@@ -88,7 +87,7 @@ export function listVersionsByFamily(
 /**
  * Returns true if a given implementation address matches the latest canonical
  * one for its family. Used off-chain to verify a pinned proxy is running the
- * expected audited bytecode.
+ * expected canonical bytecode.
  */
 export function isLatestCanonical(
   network: NetworkName,

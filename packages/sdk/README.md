@@ -22,8 +22,8 @@ npm i @intuition-fee-proxy/sdk viem
   (`mainnet` / `testnet`).
 - **Chains** — `INTUITION_MAINNET`, `INTUITION_TESTNET` viem-compatible
   chain definitions.
-- **Canonical registry** — `CANONICAL_VERSIONS` maps each audited impl to
-  its label, audit link and publish date. Proxy admins use this to decide
+- **Canonical registry** — `CANONICAL_VERSIONS` maps each reviewed impl to
+  its label, review link and publish date. Proxy admins use this to decide
   what to register via `registerVersion`. Helpers: `getLatestVersion`,
   `listVersionsByFamily`, `isLatestCanonical`.
 - **Readers** — framework-agnostic helpers (`fetchAllProxies`,
@@ -55,7 +55,7 @@ const proxies = await fetchAllProxies(client, V2_ADDRESSES.testnet.factory)
 // Read a proxy's headline stats
 const stats = await readProxyStats(client, proxies[0])
 
-// Ask the registry for the latest audited standard impl
+// Ask the registry for the latest canonical standard impl
 const latest = getLatestVersion('testnet', 'standard')
 ```
 
@@ -66,4 +66,7 @@ See the full integration guide at
 
 The `CANONICAL_VERSIONS` object is the source of truth for "what impl
 should admins adopt?" — bumping this package and publishing a new semver
-is how maintainers broadcast a new audited version to every consumer.
+is how maintainers broadcast a new reviewed version to every consumer.
+Each entry is an implementation the Intuition team has reviewed before
+publishing. Admins and users remain free to stay on any previous version,
+or pin to a specific one, indefinitely.
