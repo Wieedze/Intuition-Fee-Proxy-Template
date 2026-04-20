@@ -2,9 +2,10 @@ import { ethers, network } from "hardhat";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-// Known MultiVault addresses. On chainId 31337 we deploy a MockMultiVault.
-const MULTIVAULT_INTUITION = "0x6E35cF57A41fA15eA0EaE9C33e751b01A784Fe7e";
-const MULTIVAULT_TESTNET = "0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91";
+import {
+  MULTIVAULT_INTUITION,
+  MULTIVAULT_TESTNET,
+} from "./multiVaultAddresses";
 
 const DEFAULT_VERSION_LABEL = process.env.INITIAL_VERSION || "v2.0.0";
 
