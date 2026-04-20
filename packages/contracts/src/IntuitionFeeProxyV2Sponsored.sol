@@ -8,13 +8,18 @@ import {Errors} from "./libraries/Errors.sol";
 
 /// @title IntuitionFeeProxyV2Sponsored
 /// @notice V2 + shared sponsorship pool. The proxy itself acts as the sponsor:
-///         a whitelisted admin funds a single `sponsorPool` slot once, and any
-///         user interacting with the proxy draws from it transparently on
-///         their regular `deposit` / `createAtoms` / `createTriples` /
-///         `depositBatch` calls (reduced or zero `msg.value`). Two rate-limit
-///         knobs (`maxClaimPerTx` cap per call, `maxClaimsPerDay` per-user
-///         tumbling 24h window) protect the pool from drain / spam. Defaults:
-///         1 TRUST per call, 10 claims per 24h per user.
+///         whitelisted admins top up the shared `sponsorPool` slot whenever
+///         they need to, and any user interacting with the proxy draws from
+///         it transparently on their regular `deposit` / `createAtoms` /
+///         `createTriples` / `depositBatch` calls (reduced or zero
+///         `msg.value`). Four admin-configurable knobs bound the drain per
+///         user per configurable window:
+///           - `maxClaimPerTx`              — max TRUST drawn in a single call
+///           - `maxClaimsPerWindow`         — max pool-drawing calls / user / window
+///           - `maxClaimVolumePerWindow`    — max cumulative TRUST / user / window
+///           - `claimWindowSeconds`         — window length in seconds (default 86400 = 1 day)
+///         Defaults: 1 TRUST per call, 10 pool-drawing calls per day per user,
+///         10 TRUST cumulative per day per user, window = 1 day.
 /// @dev
 ///  - All sponsored state lives in an ERC-7201 namespaced slot
 ///    (`keccak256("intuition.feeproxy.sponsored.v1")`) so V2's and future V3's
@@ -28,9 +33,10 @@ import {Errors} from "./libraries/Errors.sol";
 ///    needs custodial onboarding (user without wallet), it is a frontend
 ///    concern: use an embedded-AA kit (Privy, Thirdweb, Turnkey) that signs
 ///    for the user. The wallet still belongs to the user conceptually.
-///  - Per-user quotas are not tracked on-chain (first come, first served
-///    within the per-user `maxClaimsPerDay` cap); when tier differentiation
-///    is needed, ship a V2.2Sponsored variant via the version registry.
+///  - For tiered-subscription scenarios (free / pro / premium), deploy one
+///    sponsored proxy per tier rather than encoding tiers on-chain. Each
+///    proxy has its own pool, limits and admins — isolation is cleaner and
+///    keeps this contract simple.
 ///  - NEVER `registerVersion` a V2-standard impl on a sponsored proxy (or vice
 ///    versa). Storage layouts differ, cross-family switching orphans the pool.
 ///    The Factory enforces the split via its two-channel design.
@@ -45,26 +51,31 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     ) & ~bytes32(uint256(0xff));
 
     struct ClaimWindow {
-        uint128 count;        // claims so far in the current window
-        uint128 windowStart;  // timestamp when the current window began
+        // Packed into a single storage slot: 8 + 8 + 16 = 32 bytes.
+        uint64 windowStart;  // unix timestamp of the current window's start
+        uint64 count;        // pool-drawing calls so far in the current window
+        uint128 volume;      // cumulative TRUST drawn from the pool in this window (wei)
     }
 
     struct SponsoredLayout {
         // ── Shared sponsorship pool ──
-        // A single pool funded once by the admin. Any user interacting with
-        // the proxy can draw from it transparently via the normal entry points
-        // (reduced msg.value). Rate limits below keep one user from draining
-        // the whole pool at once.
+        // A single pool admins top up whenever they need to. Any user
+        // interacting with the proxy can draw from it transparently via the
+        // normal entry points (reduced msg.value). Rate limits below keep any
+        // one user from draining the whole pool at once.
         uint256 sponsorPool;
         // ── Rate limits (all must be > 0 after init; never "unlimited") ──
-        uint256 maxClaimPerTx;     // default 1 ether
-        uint256 maxClaimsPerDay;   // default 10
+        uint256 maxClaimPerTx;              // cap per call — default 1 ether
+        uint256 maxClaimsPerWindow;         // cap on pool-drawing calls / user / window — default 10
         mapping(address user => ClaimWindow) claimWindows;
         // ── Sponsored metrics (additive to V2's base metrics) ──
         uint256 totalSponsoredDeposits;
         uint256 totalSponsoredVolume;
         uint256 totalSponsoredUniqueReceivers;
         mapping(address => bool) hasReceivedSponsored;
+        // ── Appended in the same ERC-7201 layout (append-only) ──
+        uint256 maxClaimVolumePerWindow;    // cap on cumulative TRUST / user / window — default 10 ether
+        uint256 claimWindowSeconds;         // window length in seconds — default 86400 (1 day)
     }
 
     function _s() private pure returns (SponsoredLayout storage $) {
@@ -76,16 +87,22 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Constants ============
 
-    uint256 public constant CLAIM_WINDOW = 1 days;
     uint256 private constant DEFAULT_MAX_CLAIM_PER_TX = 1 ether;
-    uint256 private constant DEFAULT_MAX_CLAIMS_PER_DAY = 10;
+    uint256 private constant DEFAULT_MAX_CLAIMS_PER_WINDOW = 10;
+    uint256 private constant DEFAULT_MAX_CLAIM_VOLUME_PER_WINDOW = 10 ether;
+    uint256 private constant DEFAULT_CLAIM_WINDOW_SECONDS = 1 days;
 
     // ============ Events ============
 
     event PoolFunded(uint256 amount, address indexed by);
     event PoolReclaimed(uint256 amount, address indexed to, address indexed by);
     event CreditConsumed(address indexed user, uint256 amount);
-    event ClaimLimitsSet(uint256 maxClaimPerTx, uint256 maxClaimsPerDay);
+    event ClaimLimitsSet(
+        uint256 maxClaimPerTx,
+        uint256 maxClaimsPerWindow,
+        uint256 maxClaimVolumePerWindow,
+        uint256 claimWindowSeconds
+    );
     event SponsoredMetricsUpdated(
         uint256 totalSponsoredDeposits,
         uint256 totalSponsoredVolume,
@@ -106,8 +123,15 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
         SponsoredLayout storage $ = _s();
         $.maxClaimPerTx = DEFAULT_MAX_CLAIM_PER_TX;
-        $.maxClaimsPerDay = DEFAULT_MAX_CLAIMS_PER_DAY;
-        emit ClaimLimitsSet(DEFAULT_MAX_CLAIM_PER_TX, DEFAULT_MAX_CLAIMS_PER_DAY);
+        $.maxClaimsPerWindow = DEFAULT_MAX_CLAIMS_PER_WINDOW;
+        $.maxClaimVolumePerWindow = DEFAULT_MAX_CLAIM_VOLUME_PER_WINDOW;
+        $.claimWindowSeconds = DEFAULT_CLAIM_WINDOW_SECONDS;
+        emit ClaimLimitsSet(
+            DEFAULT_MAX_CLAIM_PER_TX,
+            DEFAULT_MAX_CLAIMS_PER_WINDOW,
+            DEFAULT_MAX_CLAIM_VOLUME_PER_WINDOW,
+            DEFAULT_CLAIM_WINDOW_SECONDS
+        );
     }
 
     // ============ Identification ============
@@ -127,23 +151,33 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         return _s().maxClaimPerTx;
     }
 
-    function maxClaimsPerDay() external view returns (uint256) {
-        return _s().maxClaimsPerDay;
+    function maxClaimsPerWindow() external view returns (uint256) {
+        return _s().maxClaimsPerWindow;
+    }
+
+    function maxClaimVolumePerWindow() external view returns (uint256) {
+        return _s().maxClaimVolumePerWindow;
+    }
+
+    function claimWindowSeconds() external view returns (uint256) {
+        return _s().claimWindowSeconds;
     }
 
     /// @notice Returns the live claim state for a given user.
-    /// @return claimsUsed How many claims have fired in the current 24h window.
+    /// @return claimsUsed How many pool-drawing calls have fired in the current window.
+    /// @return volumeUsed Cumulative TRUST (wei) drawn from the pool in the current window.
     /// @return windowResetsAt Unix timestamp when the window will roll over.
     function getClaimStatus(address user)
         external
         view
-        returns (uint256 claimsUsed, uint256 windowResetsAt)
+        returns (uint256 claimsUsed, uint256 volumeUsed, uint256 windowResetsAt)
     {
-        ClaimWindow storage w = _s().claimWindows[user];
-        if (uint256(w.windowStart) == 0) return (0, 0);
+        SponsoredLayout storage $ = _s();
+        ClaimWindow storage w = $.claimWindows[user];
+        if (uint256(w.windowStart) == 0) return (0, 0, 0);
         // If the window already expired, effectively reset.
-        if (block.timestamp >= uint256(w.windowStart) + CLAIM_WINDOW) return (0, 0);
-        return (uint256(w.count), uint256(w.windowStart) + CLAIM_WINDOW);
+        if (block.timestamp >= uint256(w.windowStart) + $.claimWindowSeconds) return (0, 0, 0);
+        return (uint256(w.count), uint256(w.volume), uint256(w.windowStart) + $.claimWindowSeconds);
     }
 
     function totalSponsoredDeposits() external view returns (uint256) {
@@ -177,12 +211,28 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Admin: claim limits ============
 
-    function setClaimLimits(uint256 maxPerTx, uint256 maxPerDay) external onlyWhitelistedAdmin {
-        if (maxPerTx == 0 || maxPerDay == 0) revert Errors.Sponsored_InvalidLimit();
+    /// @notice Update all four per-user rate-limit knobs atomically.
+    /// @param maxPerTx           Cap on TRUST drawn from the pool in a single call (wei).
+    /// @param maxPerWindow       Cap on pool-drawing calls per user per window.
+    /// @param maxVolumePerWindow Cap on cumulative TRUST per user per window (wei).
+    /// @param windowSec          Window length in seconds (e.g. 86400 = 1 day, 604800 = 1 week).
+    /// @dev All four values must be strictly > 0. Zero is never "unlimited"; to lift a cap
+    ///      in practice, set it high (e.g. `type(uint128).max` for volume).
+    function setClaimLimits(
+        uint256 maxPerTx,
+        uint256 maxPerWindow,
+        uint256 maxVolumePerWindow,
+        uint256 windowSec
+    ) external onlyWhitelistedAdmin {
+        if (maxPerTx == 0 || maxPerWindow == 0 || maxVolumePerWindow == 0 || windowSec == 0) {
+            revert Errors.Sponsored_InvalidLimit();
+        }
         SponsoredLayout storage $ = _s();
         $.maxClaimPerTx = maxPerTx;
-        $.maxClaimsPerDay = maxPerDay;
-        emit ClaimLimitsSet(maxPerTx, maxPerDay);
+        $.maxClaimsPerWindow = maxPerWindow;
+        $.maxClaimVolumePerWindow = maxVolumePerWindow;
+        $.claimWindowSeconds = windowSec;
+        emit ClaimLimitsSet(maxPerTx, maxPerWindow, maxVolumePerWindow, windowSec);
     }
 
     // ============ Admin: pool top-up / reclaim ============
@@ -190,7 +240,10 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     /// @notice Fund the shared sponsorship pool with `msg.value` TRUST.
     /// @dev Single-pool model: all users of this proxy draw from the same
     ///      bucket. Admins manage fairness via the per-user rate limits
-    ///      (`maxClaimPerTx`, `maxClaimsPerDay`), not per-user allocations.
+    ///      (`maxClaimPerTx`, `maxClaimsPerWindow`, `maxClaimVolumePerWindow`,
+    ///      `claimWindowSeconds`), not per-user allocations. For tiered
+    ///      sponsorship (free / pro / premium), deploy one proxy per tier
+    ///      rather than encoding tiers on-chain.
     function fundPool() external payable onlyWhitelistedAdmin {
         if (msg.value == 0) revert Errors.Sponsored_NothingToCredit();
 
@@ -421,14 +474,21 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         return missing >= usable ? usable : missing;
     }
 
-    /// @dev Commits a pool draw + enforces the per-user daily-count rate limit
-    ///      on msg.sender + bumps the sponsored metrics. No-op if
-    ///      `consumed == 0` (the user paid fully from msg.value, pool untouched).
+    /// @dev Commits a pool draw + enforces the per-user rate limits (count +
+    ///      cumulative volume, both over the configurable window) on
+    ///      msg.sender + bumps the sponsored metrics. No-op if `consumed == 0`
+    ///      (the user paid fully from msg.value, pool untouched).
     function _finaliseCredit(uint256 consumed) internal {
         if (consumed == 0) return;
         SponsoredLayout storage $ = _s();
 
-        _applyRateLimit(msg.sender, $.maxClaimsPerDay);
+        _applyRateLimit(
+            msg.sender,
+            $.maxClaimsPerWindow,
+            $.maxClaimVolumePerWindow,
+            $.claimWindowSeconds,
+            consumed
+        );
 
         // Pool accounting.
         $.sponsorPool -= consumed;
@@ -449,17 +509,34 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         );
     }
 
-    function _applyRateLimit(address user, uint256 capPerDay) internal {
+    /// @dev Enforces both per-user caps over a sliding window and bumps the
+    ///      per-user counters atomically. Called only when `consumed > 0`.
+    function _applyRateLimit(
+        address user,
+        uint256 capCount,
+        uint256 capVolume,
+        uint256 windowSec,
+        uint256 consumed
+    ) internal {
         ClaimWindow storage w = _s().claimWindows[user];
         uint256 start = uint256(w.windowStart);
-        if (start == 0 || block.timestamp >= start + CLAIM_WINDOW) {
-            // Fresh window
-            w.windowStart = uint128(block.timestamp);
+        if (start == 0 || block.timestamp >= start + windowSec) {
+            // Fresh window. Count always starts at 1 and capCount > 0 is
+            // enforced by setClaimLimits / initialize, so the count check is
+            // trivially satisfied. The single `consumed` draw must itself
+            // respect the volume cap — otherwise a single fat call could
+            // silently bypass it on a cold user.
+            if (consumed > capVolume) revert Errors.Sponsored_VolumeLimited();
+            w.windowStart = uint64(block.timestamp);
             w.count = 1;
+            w.volume = uint128(consumed);
         } else {
-            uint256 current = uint256(w.count);
-            if (current >= capPerDay) revert Errors.Sponsored_RateLimited();
-            w.count = uint128(current + 1);
+            uint256 currentCount = uint256(w.count);
+            uint256 currentVolume = uint256(w.volume);
+            if (currentCount + 1 > capCount) revert Errors.Sponsored_RateLimited();
+            if (currentVolume + consumed > capVolume) revert Errors.Sponsored_VolumeLimited();
+            w.count = uint64(currentCount + 1);
+            w.volume = uint128(currentVolume + consumed);
         }
     }
 }

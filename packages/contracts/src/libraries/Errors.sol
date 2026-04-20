@@ -101,8 +101,11 @@ library Errors {
     /// @notice Withdraw would breach the totalSponsoredCredit invariant (balance - amount < totalSponsoredCredit)
     error Sponsored_WithdrawBreachesCreditInvariant();
 
-    /// @notice User has hit `maxClaimsPerDay` in the current 24h window
+    /// @notice User has hit `maxClaimsPerWindow` in the current window
     error Sponsored_RateLimited();
+
+    /// @notice User has hit `maxClaimVolumePerWindow` (cumulative TRUST) in the current window
+    error Sponsored_VolumeLimited();
 
     /// @notice setClaimLimits called with zero max — zero is never "unlimited", it's zero
     error Sponsored_InvalidLimit();

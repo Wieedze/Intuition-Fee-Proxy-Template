@@ -13,6 +13,10 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
 
   const INITIAL_VERSION = ethers.encodeBytes32String("v2.0.0-sponsored");
   const ONE_DAY = 86400;
+  const DEFAULT_MAX_PER_TX = ethers.parseEther("1");
+  const DEFAULT_MAX_PER_WINDOW = 10n;
+  const DEFAULT_MAX_VOLUME_PER_WINDOW = ethers.parseEther("10");
+  const DEFAULT_WINDOW_SEC = BigInt(ONE_DAY);
 
   async function deployFixture() {
     const [deployer, admin1, admin2, user1, user2, user3, to, nonAdmin] =
@@ -59,10 +63,12 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
       expect(await proxy.version()).to.equal("v2.0.0-sponsored");
     });
 
-    it("claim limits default to 1 TRUST / 10 per day", async function () {
+    it("claim limits default to 1 TRUST / 10 calls / 10 TRUST / 1 day", async function () {
       const { proxy } = await loadFixture(deployFixture);
-      expect(await proxy.maxClaimPerTx()).to.equal(ethers.parseEther("1"));
-      expect(await proxy.maxClaimsPerDay()).to.equal(10n);
+      expect(await proxy.maxClaimPerTx()).to.equal(DEFAULT_MAX_PER_TX);
+      expect(await proxy.maxClaimsPerWindow()).to.equal(DEFAULT_MAX_PER_WINDOW);
+      expect(await proxy.maxClaimVolumePerWindow()).to.equal(DEFAULT_MAX_VOLUME_PER_WINDOW);
+      expect(await proxy.claimWindowSeconds()).to.equal(DEFAULT_WINDOW_SEC);
     });
 
     it("pool starts empty", async function () {
@@ -74,28 +80,45 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
   // ============ setClaimLimits ============
 
   describe("setClaimLimits", function () {
-    it("admin can set new limits and emit event", async function () {
+    it("admin can set all four knobs and emits ClaimLimitsSet", async function () {
       const { proxy, admin1 } = await loadFixture(deployFixture);
-      const newMaxPerTx = ethers.parseEther("5");
-      const newMaxPerDay = 20n;
-      await expect(proxy.connect(admin1).setClaimLimits(newMaxPerTx, newMaxPerDay))
-        .to.emit(proxy, "ClaimLimitsSet").withArgs(newMaxPerTx, newMaxPerDay);
-      expect(await proxy.maxClaimPerTx()).to.equal(newMaxPerTx);
-      expect(await proxy.maxClaimsPerDay()).to.equal(newMaxPerDay);
+      const newPerTx = ethers.parseEther("5");
+      const newPerWindow = 20n;
+      const newVolume = ethers.parseEther("50");
+      const newWindow = BigInt(ONE_DAY * 7); // 1 week
+      await expect(
+        proxy.connect(admin1).setClaimLimits(newPerTx, newPerWindow, newVolume, newWindow),
+      )
+        .to.emit(proxy, "ClaimLimitsSet")
+        .withArgs(newPerTx, newPerWindow, newVolume, newWindow);
+      expect(await proxy.maxClaimPerTx()).to.equal(newPerTx);
+      expect(await proxy.maxClaimsPerWindow()).to.equal(newPerWindow);
+      expect(await proxy.maxClaimVolumePerWindow()).to.equal(newVolume);
+      expect(await proxy.claimWindowSeconds()).to.equal(newWindow);
     });
 
-    it("reverts if any max is zero (no 'unlimited' escape)", async function () {
+    it("reverts if any of the four knobs is zero (no 'unlimited' escape)", async function () {
       const { proxy, admin1 } = await loadFixture(deployFixture);
-      await expect(proxy.connect(admin1).setClaimLimits(0, 10n))
+      const perTx = ethers.parseEther("1");
+      const vol = ethers.parseEther("5");
+      const win = BigInt(ONE_DAY);
+      await expect(proxy.connect(admin1).setClaimLimits(0, 10n, vol, win))
         .to.be.revertedWithCustomError(proxy, "Sponsored_InvalidLimit");
-      await expect(proxy.connect(admin1).setClaimLimits(ethers.parseEther("1"), 0))
+      await expect(proxy.connect(admin1).setClaimLimits(perTx, 0, vol, win))
+        .to.be.revertedWithCustomError(proxy, "Sponsored_InvalidLimit");
+      await expect(proxy.connect(admin1).setClaimLimits(perTx, 10n, 0, win))
+        .to.be.revertedWithCustomError(proxy, "Sponsored_InvalidLimit");
+      await expect(proxy.connect(admin1).setClaimLimits(perTx, 10n, vol, 0))
         .to.be.revertedWithCustomError(proxy, "Sponsored_InvalidLimit");
     });
 
     it("non-admin cannot change limits", async function () {
       const { proxy, nonAdmin } = await loadFixture(deployFixture);
-      await expect(proxy.connect(nonAdmin).setClaimLimits(ethers.parseEther("1"), 10n))
-        .to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_NotWhitelistedAdmin");
+      await expect(
+        proxy
+          .connect(nonAdmin)
+          .setClaimLimits(ethers.parseEther("1"), 10n, ethers.parseEther("10"), BigInt(ONE_DAY)),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_NotWhitelistedAdmin");
     });
   });
 
@@ -108,6 +131,14 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
       await expect(proxy.connect(admin1).fundPool({ value: amount }))
         .to.emit(proxy, "PoolFunded").withArgs(amount, admin1.address);
       expect(await proxy.sponsorPool()).to.equal(amount);
+    });
+
+    it("fundPool is re-callable; balance accumulates across top-ups", async function () {
+      const { proxy, admin1, admin2 } = await loadFixture(deployFixture);
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
+      await proxy.connect(admin2).fundPool({ value: ethers.parseEther("2.5") });
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("0.5") });
+      expect(await proxy.sponsorPool()).to.equal(ethers.parseEther("4"));
     });
 
     it("non-admin cannot fundPool", async function () {
@@ -230,22 +261,26 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
     it("raising the cap allows larger single-tx claims", async function () {
       const { proxy, admin1, user1 } = await loadFixture(deployFixture);
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("2") });
-      await proxy.connect(admin1).setClaimLimits(ethers.parseEther("3"), 10n);
+      await proxy
+        .connect(admin1)
+        .setClaimLimits(ethers.parseEther("3"), 10n, ethers.parseEther("10"), BigInt(ONE_DAY));
       const termId = ethers.encodeBytes32String("t");
       await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
       expect(await proxy.sponsorPool()).to.equal(0n);
     });
   });
 
-  describe("maxClaimsPerDay rate limit (24h tumbling window, per-user)", function () {
+  describe("maxClaimsPerWindow rate limit (per-user count cap)", function () {
     it("blocks a user after N claims in the same window", async function () {
       const { proxy, admin1, user1, user2 } = await loadFixture(deployFixture);
-      // Cap 1 TRUST per tx, 2 claims per day per user. Fund pool with 6 TRUST so there's plenty.
-      await proxy.connect(admin1).setClaimLimits(ethers.parseEther("1"), 2n);
+      // Cap 1 TRUST per tx, 2 claims per window, plenty of volume headroom.
+      await proxy
+        .connect(admin1)
+        .setClaimLimits(ethers.parseEther("1"), 2n, ethers.parseEther("100"), BigInt(ONE_DAY));
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("6") });
       const termId = ethers.encodeBytes32String("t");
 
-      // user1 hits the limit after 2 claims.
+      // user1 hits the count cap after 2 claims.
       await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.2") });
       await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.2") });
       await expect(
@@ -256,9 +291,11 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
       await proxy.connect(user2).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.2") });
     });
 
-    it("resets after 24h and allows new claims", async function () {
+    it("resets after the configured window elapses", async function () {
       const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      await proxy.connect(admin1).setClaimLimits(ethers.parseEther("1"), 1n);
+      await proxy
+        .connect(admin1)
+        .setClaimLimits(ethers.parseEther("1"), 1n, ethers.parseEther("100"), BigInt(ONE_DAY));
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("3") });
       const termId = ethers.encodeBytes32String("t");
 
@@ -273,12 +310,115 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
 
     it("does not count toward the window if consumed == 0 (user pays everything)", async function () {
       const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      await proxy.connect(admin1).setClaimLimits(ethers.parseEther("1"), 1n);
+      await proxy
+        .connect(admin1)
+        .setClaimLimits(ethers.parseEther("1"), 1n, ethers.parseEther("100"), BigInt(ONE_DAY));
       const termId = ethers.encodeBytes32String("t");
       // No pool; user pays full. Should NOT trip the rate limit.
       for (let i = 0; i < 3; i++) {
         await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.5") });
       }
+    });
+  });
+
+  describe("maxClaimVolumePerWindow rate limit (per-user cumulative TRUST)", function () {
+    it("blocks the user when cumulative volume hits the cap, before the count cap", async function () {
+      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
+      // 1 TRUST per tx, 10 claims / window (headroom), BUT only 1.5 TRUST cumulative.
+      await proxy
+        .connect(admin1)
+        .setClaimLimits(ethers.parseEther("1"), 10n, ethers.parseEther("1.5"), BigInt(ONE_DAY));
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
+      const termId = ethers.encodeBytes32String("t");
+
+      // First claim: draws full cap (1 TRUST) — cumulative = 1 TRUST.
+      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+      // Second claim would bring cumulative to 2 TRUST, exceeds 1.5 cap → revert.
+      await expect(
+        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_VolumeLimited");
+    });
+
+    it("a single fresh-window call whose draw exceeds the volume cap reverts", async function () {
+      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
+      // Per-tx cap 1 TRUST, but volume cap only 0.3 TRUST.
+      await proxy
+        .connect(admin1)
+        .setClaimLimits(
+          ethers.parseEther("1"),
+          10n,
+          ethers.parseEther("0.3"),
+          BigInt(ONE_DAY),
+        );
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
+      const termId = ethers.encodeBytes32String("t");
+      // deposit() calls _consumeCredit(0) which returns maxClaimPerTx = 1 TRUST
+      // → exceeds the 0.3 TRUST volume cap on a cold user → revert.
+      await expect(
+        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_VolumeLimited");
+    });
+
+    it("volume counter resets after the configured window", async function () {
+      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
+      await proxy
+        .connect(admin1)
+        .setClaimLimits(ethers.parseEther("1"), 10n, ethers.parseEther("1"), BigInt(ONE_DAY));
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
+      const termId = ethers.encodeBytes32String("t");
+
+      // Exhaust the 1-TRUST volume cap in a single claim.
+      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+      await expect(
+        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_VolumeLimited");
+
+      // Roll the window forward → reset.
+      await time.increase(ONE_DAY + 1);
+      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+    });
+  });
+
+  describe("configurable claimWindowSeconds", function () {
+    it("a 1-hour window resets after 1h (not 24h)", async function () {
+      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
+      const ONE_HOUR = 3600;
+      await proxy
+        .connect(admin1)
+        .setClaimLimits(ethers.parseEther("1"), 1n, ethers.parseEther("10"), BigInt(ONE_HOUR));
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
+      const termId = ethers.encodeBytes32String("t");
+
+      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+      await expect(
+        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_RateLimited");
+
+      // 30 minutes — still in the window.
+      await time.increase(1800);
+      await expect(
+        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_RateLimited");
+
+      // +31 minutes → past the 1-hour window → reset.
+      await time.increase(1860);
+      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+    });
+
+    it("a 1-week window does NOT reset after 1 day", async function () {
+      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
+      const ONE_WEEK = ONE_DAY * 7;
+      await proxy
+        .connect(admin1)
+        .setClaimLimits(ethers.parseEther("1"), 1n, ethers.parseEther("10"), BigInt(ONE_WEEK));
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
+      const termId = ethers.encodeBytes32String("t");
+
+      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+      await time.increase(ONE_DAY + 1);
+      await expect(
+        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_RateLimited");
     });
   });
 
@@ -354,22 +494,24 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
   // ============ getClaimStatus view ============
 
   describe("getClaimStatus", function () {
-    it("returns (0, 0) for a user who never claimed", async function () {
+    it("returns (0, 0, 0) for a user who never claimed", async function () {
       const { proxy, user1 } = await loadFixture(deployFixture);
-      const [count, resetsAt] = await proxy.getClaimStatus(user1.address);
+      const [count, volume, resetsAt] = await proxy.getClaimStatus(user1.address);
       expect(count).to.equal(0n);
+      expect(volume).to.equal(0n);
       expect(resetsAt).to.equal(0n);
     });
 
-    it("tracks count and window after a claim", async function () {
+    it("tracks count, volume and window after a claim", async function () {
       const { proxy, admin1, user1 } = await loadFixture(deployFixture);
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("0.5") });
       const termId = ethers.encodeBytes32String("t");
       const tx = await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.15") });
       const block = await ethers.provider.getBlock((await tx.wait())!.blockNumber);
 
-      const [count, resetsAt] = await proxy.getClaimStatus(user1.address);
+      const [count, volume, resetsAt] = await proxy.getClaimStatus(user1.address);
       expect(count).to.equal(1n);
+      expect(volume).to.equal(ethers.parseEther("0.5")); // drained the whole pool
       expect(resetsAt).to.equal(BigInt(block!.timestamp) + BigInt(ONE_DAY));
     });
   });
