@@ -47,7 +47,7 @@ jobs:
         env:
           # Must match the repo name so assets resolve under
           # `https://<user>.github.io/<repo>/…`. Trailing slash is important.
-          VITE_BASE: /Intuition-Fee-Proxy-Template/
+          VITE_BASE: /Intuition-Proxy-Factory/
         run: bun webapp:build
 
       - name: SPA fallback — copy index.html to 404.html
