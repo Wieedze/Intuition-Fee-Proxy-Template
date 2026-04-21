@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
+import { useDisconnect } from 'wagmi'
 
 import { useFactoryIdentity } from '../hooks/useFactory'
 import Address from './Address'
@@ -183,7 +184,6 @@ function WalletButton() {
       {({
         account,
         chain,
-        openAccountModal,
         openChainModal,
         openConnectModal,
         authenticationStatus,
@@ -208,68 +208,28 @@ function WalletButton() {
             {...(wrapperProps as React.HTMLAttributes<HTMLDivElement>)}
             className="flex items-center gap-2"
           >
-            {(() => {
-              if (!connected) {
-                return (
-                  <button
-                    type="button"
-                    onClick={openConnectModal}
-                    className="btn-primary h-9 px-4 text-sm"
-                  >
-                    Connect wallet
-                  </button>
-                )
-              }
-
-              if (chain.unsupported) {
-                return (
-                  <button
-                    type="button"
-                    onClick={openChainModal}
-                    className="h-9 px-3 inline-flex items-center gap-2 rounded-md border border-rose-500/40 bg-rose-500/5 text-sm font-medium text-rose-400 hover:bg-rose-500/10 transition-colors"
-                  >
-                    <span aria-hidden>⚠</span>
-                    Wrong network
-                  </button>
-                )
-              }
-
-              return (
-                <>
-                  <button
-                    type="button"
-                    onClick={openChainModal}
-                    className="h-9 px-3 inline-flex items-center gap-2 rounded-md border border-line bg-surface text-sm text-ink hover:bg-surface-hover hover:border-line-strong transition-colors"
-                  >
-                    {chain.hasIcon && chain.iconUrl && (
-                      <span
-                        className="inline-flex h-4 w-4 overflow-hidden rounded-full shrink-0"
-                        style={{ background: chain.iconBackground }}
-                      >
-                        <img
-                          alt={chain.name ?? 'chain'}
-                          src={chain.iconUrl}
-                          className="h-4 w-4"
-                        />
-                      </span>
-                    )}
-                    <span className="hidden sm:inline">{chain.name}</span>
-                    <ChevronIcon />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={openAccountModal}
-                    className="h-9 px-3 inline-flex items-center gap-2 rounded-md border border-line bg-surface text-sm text-ink hover:bg-surface-hover hover:border-line-strong transition-colors"
-                  >
-                    <span className="font-mono text-xs">
-                      {account.displayName}
-                    </span>
-                    <ChevronIcon />
-                  </button>
-                </>
-              )
-            })()}
+            {!connected && (
+              <button
+                type="button"
+                onClick={openConnectModal}
+                className="btn-primary h-9 px-4 text-sm"
+              >
+                Connect wallet
+              </button>
+            )}
+            {connected && chain.unsupported && (
+              <button
+                type="button"
+                onClick={openChainModal}
+                className="h-9 px-3 inline-flex items-center gap-2 rounded-md border border-rose-500/40 bg-rose-500/5 text-sm font-medium text-rose-400 hover:bg-rose-500/10 transition-colors"
+              >
+                <span aria-hidden>⚠</span>
+                Wrong network
+              </button>
+            )}
+            {connected && !chain.unsupported && (
+              <WalletDropdown account={account} chain={chain} />
+            )}
           </div>
         )
       }}
@@ -277,24 +237,228 @@ function WalletButton() {
   )
 }
 
-function ChevronIcon() {
+interface RKAccount {
+  address: string
+  displayName: string
+  displayBalance?: string
+  ensAvatar?: string
+}
+
+interface RKChain {
+  id: number
+  name?: string
+  iconUrl?: string
+  iconBackground?: string
+  hasIcon?: boolean
+}
+
+/**
+ * Portal-style wallet menu: single round avatar in the navbar; click
+ * reveals an inline dropdown with wallet address + balance, network,
+ * and quick actions (Profile / Explorer / Disconnect).
+ *
+ * Replaces the 2-button "chain | address" pair that opened the
+ * RainbowKit account modal — gives us the same information density
+ * without leaving the page.
+ */
+function WalletDropdown({ account, chain }: { account: RKAccount; chain: RKChain }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const { disconnect } = useDisconnect()
+
+  // Close on outside click + Escape.
+  useEffect(() => {
+    if (!open) return
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  // Derive a deterministic pastel gradient from the address for the
+  // avatar fallback (when no ENS avatar). Reads 6 hex chars → 2 HSL
+  // hues → CSS background.
+  const gradient = (() => {
+    if (account.ensAvatar) return undefined
+    const raw = account.address.toLowerCase().replace(/^0x/, '')
+    const h1 = parseInt(raw.slice(2, 5), 16) % 360
+    const h2 = parseInt(raw.slice(5, 8), 16) % 360
+    return `linear-gradient(135deg, hsl(${h1} 70% 55%), hsl(${h2} 70% 45%))`
+  })()
+
+  const explorerUrl = EXPLORER_BY_CHAIN[chain.id]
+  const explorerAddressUrl = explorerUrl
+    ? `${explorerUrl}/address/${account.address}`
+    : undefined
+
   return (
-    <svg
-      width="10"
-      height="10"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="text-subtle shrink-0"
-      aria-hidden="true"
-    >
-      <polyline points="6 9 12 15 18 9" />
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Wallet menu"
+        aria-expanded={open}
+        className="h-7 w-7 rounded-full border border-line overflow-hidden ring-1 ring-transparent hover:ring-line-strong transition-all"
+        style={{ background: gradient }}
+      >
+        {account.ensAvatar && (
+          <img
+            src={account.ensAvatar}
+            alt=""
+            className="h-full w-full object-cover"
+            aria-hidden
+          />
+        )}
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 mt-2 w-72 rounded-xl border border-line bg-surface shadow-xl shadow-black/20 overflow-hidden z-30"
+        >
+          <div className="px-4 py-3 space-y-3">
+            <div>
+              <div className="text-[10px] font-medium uppercase tracking-widest text-subtle mb-1.5">
+                Wallet
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                <span className="font-mono text-ink">{account.displayName}</span>
+                {account.displayBalance && (
+                  <span className="ml-auto text-muted text-xs">
+                    {account.displayBalance}
+                  </span>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-medium uppercase tracking-widest text-subtle mb-1.5">
+                Network
+              </div>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-ink">{chain.name ?? '—'}</div>
+                  <div className="text-[11px] text-subtle">
+                    Chain ID: {chain.id}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-line py-1">
+            <MenuItem
+              icon={<CopyIcon />}
+              label="Copy address"
+              onClick={() => {
+                navigator.clipboard.writeText(account.address).catch(() => {})
+                setOpen(false)
+              }}
+            />
+            {explorerAddressUrl && (
+              <MenuItem
+                icon={<ExternalIcon />}
+                label="View on Explorer"
+                href={explorerAddressUrl}
+                onClick={() => setOpen(false)}
+              />
+            )}
+            <MenuItem
+              icon={<LogoutIcon />}
+              label="Disconnect"
+              onClick={() => {
+                disconnect()
+                setOpen(false)
+              }}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Block-explorer roots per supported chainId. Keep in sync with the
+ *  wagmi/SDK chain config. Unknown chains simply hide the "View on
+ *  Explorer" row instead of linking to a 404. */
+const EXPLORER_BY_CHAIN: Record<number, string> = {
+  1155: 'https://explorer.intuition.systems',
+  13579: 'https://testnet.explorer.intuition.systems',
+}
+
+function MenuItem({
+  icon,
+  label,
+  href,
+  onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  href?: string
+  onClick?: () => void
+}) {
+  const cls =
+    'flex items-center gap-3 w-full text-left px-4 py-2.5 text-sm text-ink hover:bg-canvas transition-colors'
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={onClick}
+        className={cls}
+        role="menuitem"
+      >
+        <span className="text-muted">{icon}</span>
+        <span>{label}</span>
+      </a>
+    )
+  }
+  return (
+    <button type="button" onClick={onClick} className={cls} role="menuitem">
+      <span className="text-muted">{icon}</span>
+      <span>{label}</span>
+    </button>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
     </svg>
   )
 }
+
+function ExternalIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
+  )
+}
+
+function LogoutIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  )
+}
+
 
 function LogoMark() {
   return (
