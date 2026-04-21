@@ -300,7 +300,7 @@ function LogoMark() {
   return (
     <>
       <img
-        src="/icon-dark.svg"
+        src={`${import.meta.env.BASE_URL}icon-dark.svg`}
         alt=""
         width={26}
         height={26}
@@ -308,7 +308,7 @@ function LogoMark() {
         aria-hidden="true"
       />
       <img
-        src="/icon-light.svg"
+        src={`${import.meta.env.BASE_URL}icon-light.svg`}
         alt=""
         width={26}
         height={26}
