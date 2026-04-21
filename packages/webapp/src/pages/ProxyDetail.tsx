@@ -16,8 +16,8 @@ import {
   useProxyVersions,
 } from '../hooks/useVersionedProxy'
 import AddressDisplay from '../components/Address'
+import { EditableName } from '../components/EditableName'
 import { NewVersionBanner } from '../components/NewVersionBanner'
-import { RenameButton } from '../components/RenameButton'
 import { AdminsTab } from '../components/AdminsTab'
 import { FeeTab } from '../components/FeeTab'
 import { MetricsTab } from '../components/MetricsTab'
@@ -86,20 +86,16 @@ function ProxyDetail({ proxy }: { proxy: Address }) {
   useTabAutoSnap({ isViewer, tab, setTab })
 
   return (
-    <div className="space-y-8 max-w-3xl mx-auto">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-ink">
-          {name || <span className="text-subtle">Untitled proxy</span>}
-        </h1>
+    <div className="space-y-5 max-w-3xl mx-auto">
+      <header className="space-y-1">
+        <EditableName
+          proxy={proxy}
+          currentName={name}
+          canEdit={isProxyAdmin}
+          onDone={refetchName}
+        />
         <div className="flex items-center gap-3 flex-wrap">
           <AddressDisplay value={proxy} variant="short" />
-          {isProxyAdmin && (
-            <RenameButton
-              proxy={proxy}
-              currentName={name}
-              onDone={refetchName}
-            />
-          )}
         </div>
         {nameUnsupported && isProxyAdmin && (
           <p className="text-xs text-subtle">

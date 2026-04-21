@@ -323,7 +323,17 @@ function VersionRow({
       {isProxyAdmin && (
         <div className="shrink-0">
           {row.status.kind === 'default' && (
-            <span className="text-[11px] text-subtle">live</span>
+            <span className="inline-flex items-center gap-1.5 text-[11px] text-subtle">
+              <span
+                aria-hidden
+                className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"
+                style={{
+                  boxShadow:
+                    '0 0 8px rgba(16, 185, 129, 0.7), 0 0 2px rgba(16, 185, 129, 1)',
+                }}
+              />
+              live
+            </span>
           )}
           {row.status.kind === 'registered' && (
             <button

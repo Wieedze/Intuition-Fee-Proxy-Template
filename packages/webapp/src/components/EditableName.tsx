@@ -7,11 +7,20 @@ import { useSetProxyName } from '../hooks/useVersionedProxy'
 interface Props {
   proxy: Address
   currentName: string
+  canEdit: boolean
   onDone: () => void
 }
 
-export function RenameButton({ proxy, currentName, onDone }: Props) {
-  const [open, setOpen] = useState(false)
+/**
+ * Inline-editable proxy title. At rest: just the h1. Double-click (when
+ * canEdit) switches to an input with Save / Cancel buttons. Save fires
+ * setProxyName on the proxy; receipt success flips back to rest.
+ *
+ * Only proxy admins can toggle edit mode — for everyone else the title
+ * is a plain h1 (no double-click handler, no visible affordance).
+ */
+export function EditableName({ proxy, currentName, canEdit, onDone }: Props) {
+  const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(currentName)
   const { setName, hash, isPending, error, reset } = useSetProxyName(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
@@ -19,13 +28,19 @@ export function RenameButton({ proxy, currentName, onDone }: Props) {
   useEffect(() => {
     if (receipt.isSuccess) {
       onDone()
-      setOpen(false)
+      setEditing(false)
       reset()
     }
   }, [hash, receipt.isSuccess])
 
   const trimmed = draft.trim()
   const valid = new Blob([trimmed]).size <= 32 && trimmed !== currentName
+
+  function enterEdit() {
+    if (!canEdit) return
+    setDraft(currentName)
+    setEditing(true)
+  }
 
   async function onConfirm() {
     if (!valid) return
@@ -36,30 +51,35 @@ export function RenameButton({ proxy, currentName, onDone }: Props) {
     }
   }
 
-  if (!open) {
+  function onKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter' && valid) onConfirm()
+    if (e.key === 'Escape') setEditing(false)
+  }
+
+  if (!editing) {
     return (
-      <button
-        type="button"
-        onClick={() => {
-          setDraft(currentName)
-          setOpen(true)
-        }}
-        className="text-xs text-muted hover:text-ink transition-colors underline underline-offset-2 decoration-dotted"
+      <h1
+        onDoubleClick={enterEdit}
+        title={canEdit ? 'Double-click to rename' : undefined}
+        className={`text-2xl font-semibold tracking-tight text-ink ${
+          canEdit ? 'cursor-text select-none' : ''
+        }`}
       >
-        {currentName ? 'rename' : 'name this proxy'}
-      </button>
+        {currentName || <span className="text-subtle">Untitled proxy</span>}
+      </h1>
     )
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 flex-wrap">
       <input
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={onKey}
         placeholder="My DAO Fees"
         maxLength={32}
-        className="input max-w-[220px] py-1 text-sm"
+        className="input text-2xl font-semibold tracking-tight text-ink py-1 px-2 max-w-[420px]"
       />
       <button
         type="button"
@@ -71,7 +91,7 @@ export function RenameButton({ proxy, currentName, onDone }: Props) {
       </button>
       <button
         type="button"
-        onClick={() => setOpen(false)}
+        onClick={() => setEditing(false)}
         className="btn-secondary text-xs px-3 py-1.5"
       >
         Cancel

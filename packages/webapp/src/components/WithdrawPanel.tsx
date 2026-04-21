@@ -15,7 +15,7 @@ export function WithdrawPanel({ proxy, accumulated, onDone }: Props) {
   const [to, setTo] = useState<string>(address ?? '')
   const [amount, setAmount] = useState<string>('')
 
-  const { withdraw, withdrawAll, hash, isPending, error } = useWithdraw(proxy)
+  const { withdraw, hash, isPending, error } = useWithdraw(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
 
   useEffect(() => {
@@ -25,19 +25,10 @@ export function WithdrawPanel({ proxy, accumulated, onDone }: Props) {
   const toValid = isAddress(to)
   const amountValid = amount ? Number(amount) > 0 : false
 
-  async function onPartial() {
+  async function onWithdraw() {
     if (!toValid || !amountValid) return
     try {
       await withdraw(to as Address, parseEther(amount))
-    } catch (e) {
-      console.error(e)
-    }
-  }
-
-  async function onAll() {
-    if (!toValid) return
-    try {
-      await withdrawAll(to as Address)
     } catch (e) {
       console.error(e)
     }
@@ -63,9 +54,7 @@ export function WithdrawPanel({ proxy, accumulated, onDone }: Props) {
       </label>
 
       <label className="block space-y-1">
-        <div className="text-xs text-muted">
-          Amount (TRUST) — leave empty and use “Withdraw all” to drain
-        </div>
+        <div className="text-xs text-muted">Amount (TRUST)</div>
         <input
           type="number"
           step="any"
@@ -75,29 +64,38 @@ export function WithdrawPanel({ proxy, accumulated, onDone }: Props) {
           className="input"
           placeholder="0.0"
         />
-        <div className="text-xs text-subtle">
-          Available: {formatEther(accumulated)} TRUST
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="text-xs text-subtle">
+            Available: {formatEther(accumulated)} TRUST
+          </div>
+          <div className="flex gap-1.5">
+            {[25, 50, 100].map((pct) => (
+              <button
+                key={pct}
+                type="button"
+                onClick={() =>
+                  setAmount(
+                    formatEther((accumulated * BigInt(pct)) / 100n),
+                  )
+                }
+                disabled={accumulated === 0n}
+                className="text-[10px] font-mono uppercase tracking-wider rounded border border-line bg-canvas px-2 py-0.5 text-subtle hover:text-ink hover:border-line-strong transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {pct}%
+              </button>
+            ))}
+          </div>
         </div>
       </label>
 
-      <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={onPartial}
-          disabled={!toValid || !amountValid || isPending}
-          className="btn-primary"
-        >
-          Withdraw
-        </button>
-        <button
-          type="button"
-          onClick={onAll}
-          disabled={!toValid || accumulated === 0n || isPending}
-          className="btn-secondary"
-        >
-          Withdraw all
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={onWithdraw}
+        disabled={!toValid || !amountValid || isPending}
+        className="btn-primary"
+      >
+        Withdraw
+      </button>
 
       {isPending && <p className="text-xs text-muted">Confirm in wallet…</p>}
       {receipt.isLoading && <p className="text-xs text-muted">Mining…</p>}
