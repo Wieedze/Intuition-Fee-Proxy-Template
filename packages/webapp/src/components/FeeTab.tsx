@@ -14,8 +14,8 @@ interface Props {
 
 export function FeeTab({ proxy, stats, isAdmin, onWriteDone }: Props) {
   return (
-    <div className="space-y-10">
-      <section className="grid gap-4 sm:grid-cols-2">
+    <div className="space-y-5">
+      <section className="grid gap-3 sm:grid-cols-2">
         <Stat
           label="Accumulated fees"
           value={`${formatEther(stats.accumulatedFees)} TRUST`}
@@ -36,7 +36,7 @@ export function FeeTab({ proxy, stats, isAdmin, onWriteDone }: Props) {
       </section>
 
       {isAdmin ? (
-        <div className="space-y-8">
+        <div className="space-y-4">
           <WithdrawPanel
             proxy={proxy}
             accumulated={stats.accumulatedFees}

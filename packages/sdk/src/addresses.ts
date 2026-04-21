@@ -23,9 +23,10 @@ export const MULTIVAULT_ADDRESSES = {
  */
 export const V2_ADDRESSES = {
   mainnet: {
+    // Not yet deployed — webapp treats the zero address as "not configured".
     factory: '0x0000000000000000000000000000000000000000',
   },
   testnet: {
-    factory: '0x0000000000000000000000000000000000000000',
+    factory: '0x7D2a0C97324876F327281BBffFfE076Eaf3af84a',
   },
 } as const satisfies Record<NetworkName, { factory: `0x${string}` }>

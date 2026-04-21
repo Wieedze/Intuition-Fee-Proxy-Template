@@ -464,6 +464,72 @@ function Architecture() {
         />
       </dl>
 
+      <H3>Governance — who can push what</H3>
+      <P>
+        Three distinct levels of &ldquo;pushing&rdquo; an implementation.
+        Mixing them up is the single most common source of confusion; worth
+        reading carefully.
+      </P>
+      <div className="overflow-x-auto rounded-xl border border-line bg-surface">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] font-medium uppercase tracking-wider text-subtle bg-canvas/60">
+              <th className="px-4 py-2.5">Level</th>
+              <th className="px-4 py-2.5">Who can do it</th>
+              <th className="px-4 py-2.5">Effect</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            <tr>
+              <td className="px-4 py-3 font-medium text-ink align-top">
+                Deploy an impl on-chain
+              </td>
+              <td className="px-4 py-3 text-muted align-top">Anyone</td>
+              <td className="px-4 py-3 text-muted align-top leading-relaxed">
+                Just a contract address with bytecode. Nobody runs it until
+                a proxy admin explicitly registers it. Permissionless,
+                inert by itself.
+              </td>
+            </tr>
+            <tr>
+              <td className="px-4 py-3 font-medium text-ink align-top">
+                Register an impl on a proxy
+              </td>
+              <td className="px-4 py-3 text-muted align-top">
+                The <Code>proxyAdmin</Code> of that specific proxy
+              </td>
+              <td className="px-4 py-3 text-muted align-top leading-relaxed">
+                Only that proxy gains access to the new impl — via{' '}
+                <Code>executeAtVersion</Code> once registered, or as the
+                runtime target after <Code>setDefaultVersion</Code>. All
+                other proxies are unaffected. No cross-proxy push possible.
+              </td>
+            </tr>
+            <tr>
+              <td className="px-4 py-3 font-medium text-ink align-top">
+                Publish in the canonical directory (<Code>CANONICAL_VERSIONS</Code>)
+              </td>
+              <td className="px-4 py-3 text-muted align-top">
+                Whoever has write access to the SDK repo (the team)
+              </td>
+              <td className="px-4 py-3 text-muted align-top leading-relaxed">
+                The impl shows up in the <Code>Register new version</Code>{' '}
+                dropdown of every hosted webapp running that SDK version.
+                <b className="text-ink"> Nothing on-chain changes.</b> Each
+                proxy admin still has to manually register + promote on
+                their own proxy for it to take effect.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <Callout title="No unilateral upgrades">
+        The team can ship and suggest a new version; it cannot force-push
+        it to anyone. This is the core decentralisation guarantee — a
+        compromised team key cannot cascade into a mass proxy upgrade.
+        Adoption is per-proxy, admin-driven, and opt-in.
+      </Callout>
+
       <H3>{isFee ? 'Fee economics' : 'Pool economics'}</H3>
       {isFee ? (
         <>
