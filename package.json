@@ -13,7 +13,13 @@
     "contracts:node": "bun --filter @intuition-fee-proxy/contracts node",
     "contracts:deploy:local": "bun --filter @intuition-fee-proxy/contracts deploy:local",
     "contracts:e2e:local": "bun --filter @intuition-fee-proxy/contracts e2e:local",
+    "contracts:e2e:testnet": "bun --filter @intuition-fee-proxy/contracts e2e:testnet",
+    "contracts:e2e:sponsored:local": "bun --filter @intuition-fee-proxy/contracts e2e:sponsored:local",
+    "contracts:e2e:sponsored:testnet": "bun --filter @intuition-fee-proxy/contracts e2e:sponsored:testnet",
     "contracts:deploy:v3mock:local": "bun --filter @intuition-fee-proxy/contracts deploy:v3mock:local",
+    "contracts:deploy:v2_1:local": "bun --filter @intuition-fee-proxy/contracts deploy:v2_1:local",
+    "contracts:deploy:v2_1:testnet": "bun --filter @intuition-fee-proxy/contracts deploy:v2_1:testnet",
+    "contracts:deploy:v2_1:mainnet": "bun --filter @intuition-fee-proxy/contracts deploy:v2_1:mainnet",
     "contracts:deploy:testnet": "bun --filter @intuition-fee-proxy/contracts deploy:testnet",
     "contracts:deploy:mainnet": "bun --filter @intuition-fee-proxy/contracts deploy:mainnet",
     "sdk:build": "bun --filter @intuition-fee-proxy/sdk build",
@@ -25,6 +31,8 @@
   "license": "MIT",
   "devDependencies": {
     "typescript": "^5.3.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "@intuition-fee-proxy/sdk": "workspace:*",
+    "viem": "^2.21.0"
   }
 }

@@ -126,7 +126,7 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
       const badInit = impl.interface.encodeFunctionData("initialize", [
         await mv.getAddress(),
         DEPOSIT_FEE,
-        10001n, // > MAX
+        1001n, // > MAX (1000 = 10%)
         [proxyAdmin.address],
       ]);
       const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
@@ -315,38 +315,83 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
   // ============ transferProxyAdmin ============
 
   describe("transferProxyAdmin", function () {
-    it("transfers admin and old admin loses powers", async function () {
+    it("2-step transfer: pending is set, accept finalises, old admin loses powers", async function () {
       const { versioned, proxyAdmin, newAdmin } = await loadFixture(deployFixture);
       const v3Addr = await deployV3Impl();
 
+      // Step 1 — current admin initiates transfer (pending only)
       await expect(versioned.connect(proxyAdmin).transferProxyAdmin(newAdmin.address))
+        .to.emit(versioned, "ProxyAdminTransferStarted")
+        .withArgs(proxyAdmin.address, newAdmin.address);
+      expect(await versioned.proxyAdmin()).to.equal(proxyAdmin.address);
+      expect(await versioned.pendingProxyAdmin()).to.equal(newAdmin.address);
+
+      // Before acceptance: old admin still has powers
+      await expect(versioned.connect(proxyAdmin).registerVersion(V3, v3Addr))
+        .to.emit(versioned, "VersionRegistered")
+        .withArgs(V3, v3Addr);
+      // And new admin cannot yet act
+      await expect(
+        versioned.connect(newAdmin).registerVersion(ethers.encodeBytes32String("v99"), v3Addr),
+      ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_NotProxyAdmin");
+
+      // Step 2 — pending admin accepts
+      await expect(versioned.connect(newAdmin).acceptProxyAdmin())
         .to.emit(versioned, "ProxyAdminTransferred")
         .withArgs(proxyAdmin.address, newAdmin.address);
       expect(await versioned.proxyAdmin()).to.equal(newAdmin.address);
+      expect(await versioned.pendingProxyAdmin()).to.equal(ethers.ZeroAddress);
 
-      // Old admin reverts
+      // Old admin now reverts
       await expect(
-        versioned.connect(proxyAdmin).registerVersion(V3, v3Addr),
+        versioned.connect(proxyAdmin).registerVersion(ethers.encodeBytes32String("v100"), v3Addr),
       ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_NotProxyAdmin");
-
-      // New admin can act
-      await expect(versioned.connect(newAdmin).registerVersion(V3, v3Addr))
-        .to.emit(versioned, "VersionRegistered")
-        .withArgs(V3, v3Addr);
     });
 
-    it("reverts on zero address", async function () {
+    it("transferProxyAdmin reverts on zero address", async function () {
       const { versioned, proxyAdmin } = await loadFixture(deployFixture);
       await expect(
         versioned.connect(proxyAdmin).transferProxyAdmin(ethers.ZeroAddress),
       ).to.be.revertedWithCustomError(versioned, "IntuitionFeeProxy_ZeroAddress");
     });
 
-    it("non-admin cannot transfer", async function () {
+    it("non-admin cannot initiate transfer", async function () {
       const { versioned, nonAdmin, newAdmin } = await loadFixture(deployFixture);
       await expect(
         versioned.connect(nonAdmin).transferProxyAdmin(newAdmin.address),
       ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_NotProxyAdmin");
+    });
+
+    it("acceptProxyAdmin reverts when called by non-pending address", async function () {
+      const { versioned, proxyAdmin, newAdmin, nonAdmin } = await loadFixture(deployFixture);
+
+      // No pending admin yet → anyone should revert
+      await expect(
+        versioned.connect(newAdmin).acceptProxyAdmin(),
+      ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_NotPendingProxyAdmin");
+
+      // After transferProxyAdmin, only `newAdmin` can accept
+      await versioned.connect(proxyAdmin).transferProxyAdmin(newAdmin.address);
+      await expect(
+        versioned.connect(nonAdmin).acceptProxyAdmin(),
+      ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_NotPendingProxyAdmin");
+      await expect(
+        versioned.connect(proxyAdmin).acceptProxyAdmin(),
+      ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_NotPendingProxyAdmin");
+    });
+
+    it("transferProxyAdmin overwrites a pending candidate", async function () {
+      const { versioned, proxyAdmin, newAdmin, nonAdmin } = await loadFixture(deployFixture);
+      await versioned.connect(proxyAdmin).transferProxyAdmin(newAdmin.address);
+      expect(await versioned.pendingProxyAdmin()).to.equal(newAdmin.address);
+
+      await versioned.connect(proxyAdmin).transferProxyAdmin(nonAdmin.address);
+      expect(await versioned.pendingProxyAdmin()).to.equal(nonAdmin.address);
+
+      // Old pending can no longer accept
+      await expect(
+        versioned.connect(newAdmin).acceptProxyAdmin(),
+      ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_NotPendingProxyAdmin");
     });
   });
 

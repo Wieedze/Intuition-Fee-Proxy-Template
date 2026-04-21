@@ -1,0 +1,65 @@
+name: Deploy webapp to GitHub Pages
+
+# Trigger on every push to main + allow manual re-deploy from the Actions tab.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# GITHUB_TOKEN permissions needed by the `deploy-pages` action.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Cancel previous in-flight runs if a new commit lands — we only care about the
+# latest build.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install workspace deps
+        run: bun install --frozen-lockfile
+
+      - name: Build SDK (generates dist/ consumed by the webapp)
+        run: bun sdk:build
+
+      - name: Build webapp for Pages
+        env:
+          # Must match the repo name so assets resolve under
+          # `https://<user>.github.io/<repo>/…`. Trailing slash is important.
+          VITE_BASE: /Intuition-Fee-Proxy-Template/
+        run: bun webapp:build
+
+      - name: SPA fallback — copy index.html to 404.html
+        # GitHub Pages has no server-side rewrites. When a user hits
+        # `/proxy/0xABC…` directly (deep link or refresh), GH serves 404.html.
+        # Making 404.html identical to index.html lets the React Router boot
+        # normally and resolve the route client-side.
+        run: cp packages/webapp/dist/index.html packages/webapp/dist/404.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/webapp/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

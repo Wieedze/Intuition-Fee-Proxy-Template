@@ -15,6 +15,9 @@ interface IIntuitionVersionedFeeProxy {
     event DefaultVersionChanged(bytes32 indexed oldVersion, bytes32 indexed newVersion);
     event ProxyAdminTransferred(address indexed oldAdmin, address indexed newAdmin);
 
+    /// @notice Emitted when a new proxy-admin transfer is initiated (pending the new admin's acceptance).
+    event ProxyAdminTransferStarted(address indexed currentAdmin, address indexed pendingAdmin);
+
     /// @notice Emitted when the proxy's human-readable name is set or changed.
     event NameChanged(bytes32 indexed oldName, bytes32 indexed newName);
 
@@ -23,7 +26,15 @@ interface IIntuitionVersionedFeeProxy {
     function registerVersion(bytes32 version, address implementation) external;
     function removeVersion(bytes32 version) external;
     function setDefaultVersion(bytes32 version) external;
+
+    /// @notice Initiate a proxy-admin transfer. The new admin takes over only
+    ///         after they call `acceptProxyAdmin`. Passing `address(0)` reverts.
+    ///         Calling again before acceptance overwrites the pending admin.
     function transferProxyAdmin(address newAdmin) external;
+
+    /// @notice Finalize a pending proxy-admin transfer. Only callable by the
+    ///         address set as `pendingProxyAdmin` via `transferProxyAdmin`.
+    function acceptProxyAdmin() external;
 
     /// @notice Set or rename the proxy's human-readable label. Pass bytes32(0) to clear.
     function setName(bytes32 newName) external;
@@ -34,6 +45,7 @@ interface IIntuitionVersionedFeeProxy {
     function getDefaultVersion() external view returns (bytes32);
     function getVersions() external view returns (bytes32[] memory);
     function proxyAdmin() external view returns (address);
+    function pendingProxyAdmin() external view returns (address);
     function getName() external view returns (bytes32);
 
     // ============ ERC-7936 execute-at-version ============

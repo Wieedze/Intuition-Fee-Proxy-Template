@@ -1,5 +1,20 @@
+/**
+ * Public surface of the @intuition-fee-proxy/sdk package.
+ *
+ * Three concern areas:
+ *  - ABIs + addresses + chain configs — the foundational types consumers
+ *    need to read/write contracts.
+ *  - Canonical registry (versions.ts) — the curated list of reviewed impls
+ *    proxy admins are recommended to adopt. Empty until the first release.
+ *  - Readers (readers.ts) — framework-agnostic helpers that take a viem
+ *    PublicClient and return typed data. The webapp's wagmi hooks are
+ *    thin adapters over these; other frameworks re-use them directly.
+ */
+
 export * from './addresses'
 export * from './chains'
+export * from './versions'
+export * from './readers'
 
 import IntuitionFeeProxyV2Abi from './abis/IntuitionFeeProxyV2.json'
 import IntuitionFeeProxyV2SponsoredAbi from './abis/IntuitionFeeProxyV2Sponsored.json'

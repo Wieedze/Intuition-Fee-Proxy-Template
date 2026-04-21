@@ -32,9 +32,6 @@ library Errors {
 
     // ============ V2 errors ============
 
-    /// @notice `receiver` parameter differs from `msg.sender` — V2 fee-layer is pure, no sponsoring
-    error IntuitionFeeProxy_ReceiverNotSender();
-
     /// @notice Withdraw attempted while `accumulatedFees` is zero
     error IntuitionFeeProxy_NothingToWithdraw();
 
@@ -87,6 +84,9 @@ library Errors {
     /// @notice Delegatecall into the versioned implementation failed without returndata
     error VersionedFeeProxy_DelegateCallFailed();
 
+    /// @notice `acceptProxyAdmin` called by an address that is not the pending admin
+    error VersionedFeeProxy_NotPendingProxyAdmin();
+
     // ============ Sponsored-proxy errors ============
 
     /// @notice Admin tried to credit / uncredit zero amount
@@ -101,11 +101,11 @@ library Errors {
     /// @notice Withdraw would breach the totalSponsoredCredit invariant (balance - amount < totalSponsoredCredit)
     error Sponsored_WithdrawBreachesCreditInvariant();
 
-    /// @notice `receiver` for a *For function is zero
-    error Sponsored_ZeroReceiver();
-
-    /// @notice User has hit `maxClaimsPerDay` in the current 24h window
+    /// @notice User has hit `maxClaimsPerWindow` in the current window
     error Sponsored_RateLimited();
+
+    /// @notice User has hit `maxClaimVolumePerWindow` (cumulative TRUST) in the current window
+    error Sponsored_VolumeLimited();
 
     /// @notice setClaimLimits called with zero max — zero is never "unlimited", it's zero
     error Sponsored_InvalidLimit();

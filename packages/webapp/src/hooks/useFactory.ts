@@ -24,6 +24,8 @@ export function useDeployProxy() {
     depositPercentageFee: bigint
     admins: Address[]
     name?: string
+    /** 0 = Standard, 1 = Sponsored. Defaults to Standard. */
+    channel?: 0 | 1
   }) {
     if (!factory) throw new Error('Factory address not configured for this network')
     const nameBytes: Hex = params.name
@@ -39,7 +41,14 @@ export function useDeployProxy() {
         params.depositPercentageFee,
         params.admins,
         nameBytes,
+        params.channel ?? 0,
       ],
+      // `createProxy` deploys a fresh VersionedFeeProxy + delegatecalls
+      // init on the V2 impl — the true cost is ~4–5M gas. We cap at 10M
+      // so MetaMask never falls back to its default (viem otherwise
+      // buffers estimates to ~21M, which MM rejects against its 2^24
+      // per-chain cap).
+      gas: 10_000_000n,
     })
   }
 
@@ -71,4 +80,41 @@ export function useMyProxies() {
     proxies: (result.data as Address[] | undefined) ?? [],
     factory,
   }
+}
+
+export function useAllProxies() {
+  const factory = useFactoryAddress()
+  const result = useReadContract({
+    abi: IntuitionFeeProxyFactoryABI as any,
+    address: factory,
+    functionName: 'getAllProxies',
+    query: { enabled: Boolean(factory) },
+  })
+
+  return {
+    ...result,
+    proxies: (result.data as Address[] | undefined) ?? [],
+    factory,
+  }
+}
+
+/**
+ * Reads the Factory's own semver via `factory.VERSION()`. Returns `undefined`
+ * if the deployed bytecode predates the constant (legacy Factory, or a local
+ * hardhat deploy that hasn't been recompiled since the constant was added).
+ * The UI should degrade to just showing the address in that case.
+ */
+export function useFactoryIdentity() {
+  const factory = useFactoryAddress()
+  const result = useReadContract({
+    abi: IntuitionFeeProxyFactoryABI as any,
+    address: factory,
+    functionName: 'VERSION',
+    query: { enabled: Boolean(factory) },
+  })
+  const version =
+    typeof result.data === 'string' && result.data.length > 0
+      ? (result.data as string)
+      : undefined
+  return { factory, version, isLoading: result.isLoading }
 }

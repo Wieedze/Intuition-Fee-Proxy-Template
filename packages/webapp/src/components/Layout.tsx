@@ -2,9 +2,13 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 
+import { useFactoryIdentity } from '../hooks/useFactory'
+import Address from './Address'
+
 const NAV_ITEMS = [
   { to: '/', label: 'Home', end: true },
   { to: '/deploy', label: 'Deploy' },
+  { to: '/explore', label: 'Explore' },
   { to: '/my-proxies', label: 'My proxies' },
   { to: '/docs', label: 'Docs' },
 ]
@@ -26,7 +30,7 @@ export default function Layout() {
           scrolled ? 'border-b border-line' : 'border-b border-transparent'
         }`}
       >
-        <div className="mx-auto max-w-6xl px-6 h-14 flex items-center justify-between gap-6">
+        <div className="px-6 h-[72px] flex items-center justify-between gap-6">
           <Wordmark />
 
           <nav className="flex items-center gap-6">
@@ -39,24 +43,20 @@ export default function Layout() {
 
           <div className="flex items-center gap-2 shrink-0">
             <ThemeToggle />
-            <ConnectButton
-              accountStatus="address"
-              chainStatus="icon"
-              showBalance={false}
-            />
+            <WalletButton />
           </div>
         </div>
       </header>
 
       <main className="flex-1">
-        <div className="mx-auto max-w-6xl px-6 py-14 animate-fade-in">
+        <div className="mx-auto max-w-6xl px-6 pt-14 pb-8 animate-fade-in">
           <Outlet />
         </div>
       </main>
 
-      <footer className="border-t border-line">
-        <div className="mx-auto max-w-6xl px-6 py-6 flex items-center justify-between text-xs text-subtle">
-          <span>Fee layer for the Intuition MultiVault.</span>
+      <footer className="sticky bottom-0 z-20 bg-canvas/70 backdrop-blur-md border-t border-line">
+        <div className="px-6 py-4 flex items-center justify-between text-xs text-subtle">
+          <FactoryStamp />
           <div className="flex items-center gap-5">
             <a
               href="https://intuition.systems"
@@ -83,13 +83,13 @@ export default function Layout() {
 
 function Wordmark() {
   return (
-    <Link to="/" className="flex items-center gap-2.5 shrink-0 group">
+    <Link to="/" className="flex items-center gap-3 shrink-0 group">
       <LogoMark />
       <div className="flex items-baseline gap-1.5">
-        <span className="font-semibold text-[15px] tracking-tight text-ink">
+        <span className="font-semibold text-[17px] tracking-tight text-ink">
           Intuition.box
         </span>
-        <span className="font-normal text-[15px] text-muted tracking-tight">
+        <span className="font-normal text-[17px] text-muted tracking-tight">
           Proxy Factory
         </span>
       </div>
@@ -121,7 +121,7 @@ function NavItem({
     >
       {children}
       <span
-        className={`absolute left-0 right-0 -bottom-[17px] h-px bg-ink transition-opacity ${
+        className={`absolute left-0 right-0 -bottom-[25px] h-px bg-ink transition-opacity ${
           isActive ? 'opacity-100' : 'opacity-0'
         }`}
       />
@@ -159,22 +159,159 @@ function ThemeToggle() {
   )
 }
 
+function FactoryStamp() {
+  const { factory, version } = useFactoryIdentity()
+  if (!factory) {
+    return (
+      <span className="inline-flex items-center gap-2 font-mono text-[11px] text-subtle">
+        Factory not configured
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-2 font-mono text-[11px] text-subtle">
+      <span>Factory</span>
+      {version ? <span className="text-muted">v{version}</span> : null}
+      <Address value={factory} variant="short" />
+    </span>
+  )
+}
+
+function WalletButton() {
+  return (
+    <ConnectButton.Custom>
+      {({
+        account,
+        chain,
+        openAccountModal,
+        openChainModal,
+        openConnectModal,
+        authenticationStatus,
+        mounted,
+      }) => {
+        const ready = mounted && authenticationStatus !== 'loading'
+        const connected =
+          ready &&
+          account &&
+          chain &&
+          (!authenticationStatus || authenticationStatus === 'authenticated')
+
+        const wrapperProps = !ready
+          ? {
+              'aria-hidden': true,
+              style: { opacity: 0, pointerEvents: 'none', userSelect: 'none' },
+            }
+          : {}
+
+        return (
+          <div
+            {...(wrapperProps as React.HTMLAttributes<HTMLDivElement>)}
+            className="flex items-center gap-2"
+          >
+            {(() => {
+              if (!connected) {
+                return (
+                  <button
+                    type="button"
+                    onClick={openConnectModal}
+                    className="btn-primary h-9 px-4 text-sm"
+                  >
+                    Connect wallet
+                  </button>
+                )
+              }
+
+              if (chain.unsupported) {
+                return (
+                  <button
+                    type="button"
+                    onClick={openChainModal}
+                    className="h-9 px-3 inline-flex items-center gap-2 rounded-md border border-rose-500/40 bg-rose-500/5 text-sm font-medium text-rose-400 hover:bg-rose-500/10 transition-colors"
+                  >
+                    <span aria-hidden>⚠</span>
+                    Wrong network
+                  </button>
+                )
+              }
+
+              return (
+                <>
+                  <button
+                    type="button"
+                    onClick={openChainModal}
+                    className="h-9 px-3 inline-flex items-center gap-2 rounded-md border border-line bg-surface text-sm text-ink hover:bg-surface-hover hover:border-line-strong transition-colors"
+                  >
+                    {chain.hasIcon && chain.iconUrl && (
+                      <span
+                        className="inline-flex h-4 w-4 overflow-hidden rounded-full shrink-0"
+                        style={{ background: chain.iconBackground }}
+                      >
+                        <img
+                          alt={chain.name ?? 'chain'}
+                          src={chain.iconUrl}
+                          className="h-4 w-4"
+                        />
+                      </span>
+                    )}
+                    <span className="hidden sm:inline">{chain.name}</span>
+                    <ChevronIcon />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={openAccountModal}
+                    className="h-9 px-3 inline-flex items-center gap-2 rounded-md border border-line bg-surface text-sm text-ink hover:bg-surface-hover hover:border-line-strong transition-colors"
+                  >
+                    <span className="font-mono text-xs">
+                      {account.displayName}
+                    </span>
+                    <ChevronIcon />
+                  </button>
+                </>
+              )
+            })()}
+          </div>
+        )
+      }}
+    </ConnectButton.Custom>
+  )
+}
+
+function ChevronIcon() {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-subtle shrink-0"
+      aria-hidden="true"
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
 function LogoMark() {
   return (
     <>
       <img
         src="/icon-dark.svg"
         alt=""
-        width={22}
-        height={22}
+        width={26}
+        height={26}
         className="block dark:hidden rounded-[5px]"
         aria-hidden="true"
       />
       <img
         src="/icon-light.svg"
         alt=""
-        width={22}
-        height={22}
+        width={26}
+        height={26}
         className="hidden dark:block rounded-[5px]"
         aria-hidden="true"
       />

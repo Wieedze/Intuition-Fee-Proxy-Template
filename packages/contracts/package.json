@@ -15,7 +15,13 @@
     "deploy:testnet": "hardhat run scripts/deploy.ts --network intuitionTestnet",
     "deploy:mainnet": "hardhat run scripts/deploy.ts --network intuition",
     "e2e:local": "hardhat run scripts/e2e-validate.ts --network localhost",
+    "e2e:testnet": "hardhat run scripts/e2e-validate.ts --network intuitionTestnet",
+    "e2e:sponsored:local": "hardhat run scripts/e2e-sponsored.ts --network localhost",
+    "e2e:sponsored:testnet": "hardhat run scripts/e2e-sponsored.ts --network intuitionTestnet",
     "deploy:v3mock:local": "hardhat run scripts/deploy-v3mock.ts --network localhost",
+    "deploy:v2_1:local": "hardhat run scripts/deploy-v2_1.ts --network localhost",
+    "deploy:v2_1:testnet": "hardhat run scripts/deploy-v2_1.ts --network intuitionTestnet",
+    "deploy:v2_1:mainnet": "hardhat run scripts/deploy-v2_1.ts --network intuition",
     "verify": "hardhat verify"
   },
   "keywords": [

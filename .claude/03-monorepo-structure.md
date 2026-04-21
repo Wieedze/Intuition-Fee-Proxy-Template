@@ -23,22 +23,32 @@ intuition-fee-proxy-template/
 ├── packages/
 │   ├── contracts/                        # Hardhat
 │   │   ├── src/
-│   │   │   ├── IntuitionFeeProxy.sol     # V1 (conservé pour référence)
-│   │   │   ├── IntuitionFeeProxyV2.sol   # V2 (nouveau)
-│   │   │   ├── IntuitionFeeProxyFactory.sol
+│   │   │   ├── IntuitionFeeProxy.sol              # V1 (legacy, backward-compat)
+│   │   │   ├── IntuitionFeeProxyV2.sol            # V2 standard (fee layer)
+│   │   │   ├── IntuitionFeeProxyV2Sponsored.sol   # V2 sponsored (shared pool)
+│   │   │   ├── IntuitionVersionedFeeProxy.sol     # ERC-7936 versioned proxy
+│   │   │   ├── IntuitionFeeProxyFactory.sol       # UUPS, two-channel
 │   │   │   ├── interfaces/
 │   │   │   │   ├── IEthMultiVault.sol
 │   │   │   │   └── IIntuitionFeeProxyV2.sol
 │   │   │   ├── libraries/
 │   │   │   │   └── Errors.sol
-│   │   │   └── test/
-│   │   │       └── MockMultiVault.sol
-│   │   ├── test/
+│   │   │   └── test/                    # Mocks + OZ import forcer
+│   │   │       ├── MockMultiVault.sol
+│   │   │       ├── IntuitionFeeProxyV3Mock.sol
+│   │   │       ├── IntuitionFeeProxyFactoryV2Mock.sol
+│   │   │       └── OZImports.sol
+│   │   ├── test/                        # 166 passing tests
 │   │   │   ├── IntuitionFeeProxy.test.ts
 │   │   │   ├── IntuitionFeeProxyV2.test.ts
+│   │   │   ├── IntuitionFeeProxyV2Sponsored.test.ts
+│   │   │   ├── IntuitionVersionedFeeProxy.test.ts
 │   │   │   └── IntuitionFeeProxyFactory.test.ts
 │   │   ├── scripts/
-│   │   │   └── deploy-v2-*.ts
+│   │   │   ├── deploy.ts                # Deploy stack complet
+│   │   │   ├── deploy-v3mock.ts         # Helper deploy V3Mock isolé
+│   │   │   ├── e2e-validate.ts          # E2E standard lifecycle
+│   │   │   └── e2e-sponsored.ts         # E2E sponsored pool lifecycle
 │   │   ├── hardhat.config.ts
 │   │   └── package.json
 │   │

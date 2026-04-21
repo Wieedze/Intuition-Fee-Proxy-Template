@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 
 export default function HomePage() {
   return (
-    <div className="space-y-24">
+    <div className="space-y-10">
       <section className="max-w-3xl space-y-6 pt-6">
         <h1 className="text-5xl font-semibold tracking-tight text-ink leading-[1.1]">
           A versioned fee layer for the{' '}
@@ -26,47 +26,41 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="grid gap-6 sm:grid-cols-3">
-        {[
-          {
-            n: '01',
-            title: 'Versioned',
-            body:
-              'Your proxy is a registry of logic implementations. Ship new versions without displacing the old ones — users can pin to any past version via executeAtVersion.',
-          },
-          {
-            n: '02',
-            title: 'Pull-based fees',
-            body:
-              'Fees accumulate in-contract on every deposit. Admins withdraw on-demand to any address; no streaming, no external dependencies.',
-          },
-          {
-            n: '03',
-            title: 'Permissionless',
-            body:
-              'Anyone can deploy a proxy. No deployment fee, no allowlist. A Safe is recommended as the admin on the deploy form.',
-          },
-        ].map((f) => (
-          <div key={f.n} className="rounded-xl border border-line bg-surface p-6">
-            <div className="font-mono text-xs text-subtle">{f.n}</div>
-            <div className="mt-4 text-base font-medium text-ink">{f.title}</div>
-            <p className="mt-2 text-sm text-muted leading-relaxed">{f.body}</p>
-          </div>
-        ))}
-      </section>
-
       <section className="space-y-8">
-        <h2 className="text-sm font-medium uppercase tracking-wider text-subtle">
-          Call flow
-        </h2>
         <CallFlow />
         <Link
-          to="/docs"
+          to="/docs/architecture"
           className="inline-block text-sm text-muted hover:text-ink transition-colors"
         >
           See the full architecture →
         </Link>
       </section>
+
+      <section className="grid gap-12 sm:grid-cols-3">
+        {[
+          {
+            title: 'Versioned',
+            body:
+              'Your proxy is a registry of logic implementations. Ship new versions without displacing the old ones — users can pin to any past version via executeAtVersion.',
+          },
+          {
+            title: 'Pull-based fees',
+            body:
+              'Fees accumulate in-contract on every deposit. Admins withdraw on-demand to any address; no streaming, no external dependencies.',
+          },
+          {
+            title: 'Permissionless',
+            body:
+              'Anyone can deploy a proxy. No deployment fee, no allowlist. A Safe is recommended as the admin on the deploy form.',
+          },
+        ].map((f) => (
+          <div key={f.title} className="rounded-xl border border-line bg-surface p-6">
+            <div className="text-base font-medium text-ink">{f.title}</div>
+            <p className="mt-2 text-sm text-muted leading-relaxed">{f.body}</p>
+          </div>
+        ))}
+      </section>
+
     </div>
   )
 }
@@ -79,26 +73,73 @@ function CallFlow() {
           icon={<WalletIcon />}
           title="Wallet"
           subtitle="User / dApp"
-          body="Sends a deposit tx with an extra fee forwarded to the proxy."
+          body="Initiates the deposit."
         />
-        <FlowArrow label="deposit() + fee" />
-        <FlowNode
-          accent
-          icon={<ProxyIcon />}
-          title="Fee proxy"
-          subtitle="Versioned logic"
-          body="Accumulates fees, routes the call to the selected MultiVault version."
-        />
-        <FlowArrow label="executeAtVersion()" />
+
+        <FlowArrow />
+
+        <ProxyWheel />
+
+        <FlowArrow />
+
         <FlowNode
           icon={<VaultIcon />}
           title="MultiVault"
           subtitle="Intuition core"
-          body="Executes the deposit and mints the position to the original sender."
+          body="Mints the position to the original sender."
         />
       </div>
     </div>
   )
+}
+
+function ProxyWheel() {
+  const reduce =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  return (
+    <div className="relative h-[200px] overflow-hidden" aria-label="Proxy variant carousel">
+      <div
+        className={reduce ? '' : 'animate-proxy-wheel will-change-transform'}
+      >
+        <WheelSlide>
+          <FlowNode
+            variant="fee"
+            icon={<ProxyIcon />}
+            title="Fee proxy"
+            subtitle="Versioned logic"
+            badge="FEE"
+            body="User pays the fee on every deposit."
+          />
+        </WheelSlide>
+        <WheelSlide>
+          <FlowNode
+            variant="sponsor"
+            icon={<ProxyIcon />}
+            title="Sponsor proxy"
+            subtitle="Sponsored channel"
+            badge="SPONSORED"
+            body="Admin pool absorbs the cost for the user."
+          />
+        </WheelSlide>
+        <WheelSlide>
+          <FlowNode
+            variant="fee"
+            icon={<ProxyIcon />}
+            title="Fee proxy"
+            subtitle="Versioned logic"
+            badge="FEE"
+            body="User pays the fee on every deposit."
+          />
+        </WheelSlide>
+      </div>
+    </div>
+  )
+}
+
+function WheelSlide({ children }: { children: React.ReactNode }) {
+  return <div className="h-[240px] pb-10">{children}</div>
 }
 
 function FlowNode({
@@ -106,49 +147,77 @@ function FlowNode({
   title,
   subtitle,
   body,
-  accent,
+  variant = 'neutral',
+  badge,
 }: {
   icon: React.ReactNode
   title: string
   subtitle: string
   body: string
-  accent?: boolean
+  variant?: 'neutral' | 'fee' | 'sponsor'
+  badge?: string
 }) {
-  const border = accent ? 'border-brand/50' : 'border-line'
-  const bg = accent ? 'bg-brand/[0.06]' : 'bg-bg'
-  const titleColor = accent ? 'text-brand' : 'text-ink'
+  const border =
+    variant === 'fee'
+      ? 'border-brand/50'
+      : variant === 'sponsor'
+        ? 'border-[#e8a04a]/60'
+        : 'border-line'
+  const bg =
+    variant === 'fee'
+      ? 'bg-brand/[0.06]'
+      : variant === 'sponsor'
+        ? 'bg-[#e8a04a]/[0.07]'
+        : 'bg-bg'
+  const accentText =
+    variant === 'fee'
+      ? 'text-brand'
+      : variant === 'sponsor'
+        ? 'text-[#e8a04a]'
+        : 'text-ink'
+  const iconText =
+    variant === 'fee'
+      ? 'text-brand'
+      : variant === 'sponsor'
+        ? 'text-[#e8a04a]'
+        : 'text-muted'
+
   return (
     <div
-      className={`rounded-xl border ${border} ${bg} p-5 flex flex-col gap-3 min-h-[160px]`}
+      className={`rounded-xl border ${border} ${bg} p-5 flex flex-col gap-3 min-h-[160px] h-full`}
     >
-      <div className="flex items-center gap-2.5">
-        <span
-          className={`inline-flex h-8 w-8 items-center justify-center rounded-md border ${border} ${
-            accent ? 'text-brand' : 'text-muted'
-          }`}
-        >
-          {icon}
-        </span>
-        <div className="flex flex-col leading-tight">
-          <span className={`text-base font-semibold tracking-tight ${titleColor}`}>
-            {title}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-md border ${border} ${iconText}`}
+          >
+            {icon}
           </span>
-          <span className="text-[11px] font-mono uppercase tracking-wider text-subtle">
-            {subtitle}
-          </span>
+          <div className="flex flex-col leading-tight min-w-0">
+            <span className={`text-base font-semibold tracking-tight ${accentText}`}>
+              {title}
+            </span>
+            <span className="text-[11px] font-mono uppercase tracking-wider text-subtle">
+              {subtitle}
+            </span>
+          </div>
         </div>
+        {badge && (
+          <span
+            className={`shrink-0 rounded border px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider ${border} ${accentText}`}
+          >
+            {badge}
+          </span>
+        )}
       </div>
       <p className="text-sm text-muted leading-relaxed">{body}</p>
     </div>
   )
 }
 
-function FlowArrow({ label }: { label: string }) {
+function FlowArrow() {
   return (
-    <div className="flex flex-col items-center justify-center px-4 py-2 md:py-0 md:min-w-[140px]">
-      <span className="font-mono text-[11px] text-subtle whitespace-nowrap mb-1.5">
-        {label}
-      </span>
+    <div className="flex items-center justify-center px-4 py-2 md:py-0 md:min-w-[100px]">
       <div className="flex items-center w-full">
         <span className="h-px flex-1 bg-line" />
         <svg

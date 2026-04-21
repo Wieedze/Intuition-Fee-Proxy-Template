@@ -36,7 +36,7 @@ bun webapp:dev
 ```bash
 # 1. Tests unitaires (prérequis : doit être vert avant E2E)
 bun contracts:test
-# → doit afficher "124 passing" (ou plus si nouvelles suites)
+# → doit afficher "166 passing" (ou plus si nouvelles suites)
 
 # 2. Préflight : redeploy pour prendre en compte les changements Solidity
 bun contracts:deploy:local

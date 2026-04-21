@@ -1,10 +1,9 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { isAddress, parseEther, type Address } from 'viem'
 import { useAccount, useChainId, useWaitForTransactionReceipt } from 'wagmi'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { MULTIVAULT_ADDRESSES } from '@intuition-fee-proxy/sdk'
-import { networkFor } from '../lib/addresses'
+import { addressesFor, networkFor } from '../lib/addresses'
 import { useDeployProxy } from '../hooks/useFactory'
 
 const FEE_DENOMINATOR = 10_000n
@@ -15,9 +14,10 @@ export default function DeployPage() {
   const network = networkFor(chainId)
   const navigate = useNavigate()
 
-  const defaultMV = MULTIVAULT_ADDRESSES[network]
+  const defaultMV = addressesFor(network).multiVault
 
   const [name, setName] = useState<string>('')
+  const [channel, setChannel] = useState<0 | 1>(0) // 0 = Standard, 1 = Sponsored
   const [ethMultiVault, setEthMultiVault] = useState<string>(defaultMV)
   const [fixedFeeEth, setFixedFeeEth] = useState<string>('0.1')
   const [percentageBps, setPercentageBps] = useState<string>('500')
@@ -53,6 +53,7 @@ export default function DeployPage() {
         depositPercentageFee: BigInt(percentageBps),
         admins: admins as Address[],
         name: name.trim(),
+        channel,
       })
     } catch (err) {
       console.error(err)
@@ -73,6 +74,15 @@ export default function DeployPage() {
     return (`0x${topic.slice(26)}` as Address)
   })()
 
+  // When the deploy settles, snap to top so the success card (above the
+  // form) is immediately visible — users clicking Deploy tend to be
+  // scrolled down at the submit button.
+  useEffect(() => {
+    if (receipt.isSuccess && newProxyAddress) {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }, [receipt.isSuccess, newProxyAddress])
+
   return (
     <div className="space-y-8 max-w-2xl mx-auto">
       <div className="space-y-2">
@@ -84,12 +94,35 @@ export default function DeployPage() {
         </p>
       </div>
 
+      {receipt.isSuccess && newProxyAddress && (
+        <div className="rounded-xl border border-brand/30 bg-brand/10 p-5 space-y-3">
+          <div className="text-sm font-medium text-brand">Proxy deployed</div>
+          <div className="font-mono text-xs text-ink break-all">
+            {newProxyAddress}
+          </div>
+          <div className="flex gap-4 pt-1 text-sm">
+            <Link
+              to={`/proxy/${newProxyAddress}`}
+              className="text-brand hover:opacity-80 transition-opacity"
+            >
+              Open detail →
+            </Link>
+            <button
+              type="button"
+              onClick={() => navigate('/my-proxies')}
+              className="text-muted hover:text-ink"
+            >
+              See all my proxies
+            </button>
+          </div>
+        </div>
+      )}
+
       {!factory && (
         <div className="rounded-lg border-l-4 border-l-brand border border-line bg-surface p-4 text-sm text-ink">
           <b>No factory address for <code className="font-mono text-muted">{network}</code>.</b>{' '}
           <span className="text-muted">
-            Set <code className="font-mono text-brand">VITE_FACTORY_ADDRESS</code> and{' '}
-            <code className="font-mono text-brand">VITE_IMPLEMENTATION_ADDRESS</code> in{' '}
+            Set <code className="font-mono text-brand">VITE_FACTORY_ADDRESS</code> in{' '}
             <code className="font-mono">packages/webapp/.env.local</code>, or deploy the contracts and
             update <code className="font-mono">V2_ADDRESSES</code> in the SDK.
           </span>
@@ -97,6 +130,13 @@ export default function DeployPage() {
       )}
 
       <form onSubmit={onSubmit} className="space-y-5">
+        <Field
+          label="Proxy type"
+          hint="Locked at deploy. Switching families later requires redeploying a new proxy."
+        >
+          <ChannelRadio value={channel} onChange={setChannel} />
+        </Field>
+
         <Field
           label="Name (optional)"
           hint="Human-readable label — max 32 bytes. Editable later by the proxy admin. Leave empty for an unnamed proxy."
@@ -207,30 +247,6 @@ export default function DeployPage() {
           </p>
         )}
       </form>
-
-      {receipt.isSuccess && newProxyAddress && (
-        <div className="rounded-xl border border-brand/30 bg-brand/10 p-5 space-y-3">
-          <div className="text-sm font-medium text-brand">Proxy deployed</div>
-          <div className="font-mono text-xs text-ink break-all">
-            {newProxyAddress}
-          </div>
-          <div className="flex gap-4 pt-1 text-sm">
-            <Link
-              to={`/proxy/${newProxyAddress}`}
-              className="text-brand hover:opacity-80 transition-opacity"
-            >
-              Open detail →
-            </Link>
-            <button
-              type="button"
-              onClick={() => navigate('/my-proxies')}
-              className="text-muted hover:text-ink"
-            >
-              See all my proxies
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -250,5 +266,75 @@ function Field({
       {hint && <div className="text-xs text-subtle">{hint}</div>}
       {children}
     </label>
+  )
+}
+
+function ChannelRadio({
+  value,
+  onChange,
+}: {
+  value: 0 | 1
+  onChange: (v: 0 | 1) => void
+}) {
+  const options: {
+    value: 0 | 1
+    title: string
+    body: string
+    doc: string
+  }[] = [
+    {
+      value: 0,
+      title: 'Standard',
+      body:
+        'Users pay deposits and fees from their own wallet. Simplest path, no sponsor trust. Pick this when your users already hold TRUST.',
+      doc: '/docs/call-flow',
+    },
+    {
+      value: 1,
+      title: 'Sponsored',
+      body:
+        'Admins fund a shared TRUST pool. The proxy tops up user deposits automatically, bounded by per-user rate limits. Pick this when your dApp covers users’ on-chain cost.',
+      doc: '/docs/sponsoring',
+    },
+  ]
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      {options.map((opt) => {
+        const active = value === opt.value
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={`text-left rounded-xl border p-4 transition-colors h-full flex flex-col ${
+              active
+                ? 'border-brand bg-brand/10 text-ink'
+                : 'border-line bg-surface text-ink hover:border-line-strong'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border ${
+                  active ? 'border-brand' : 'border-line-strong'
+                }`}
+                aria-hidden
+              >
+                {active && <span className="h-1.5 w-1.5 rounded-full bg-brand" />}
+              </span>
+              <span className="text-sm font-medium">{opt.title}</span>
+            </div>
+            <p className="mt-2 text-xs text-muted leading-relaxed">{opt.body}</p>
+            <Link
+              to={opt.doc}
+              onClick={(e) => e.stopPropagation()}
+              className="mt-auto pt-3 inline-block text-[11px] text-muted hover:text-ink transition-colors self-start"
+            >
+              Learn more →
+            </Link>
+          </button>
+        )
+      })}
+    </div>
   )
 }

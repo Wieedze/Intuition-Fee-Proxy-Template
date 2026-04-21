@@ -93,6 +93,36 @@ describe("IntuitionFeeProxy", function () {
         )
       ).to.be.revertedWithCustomError(IntuitionFeeProxyFactory, "IntuitionFeeProxy_InvalidMultisigAddress");
     });
+
+    it("Should revert on empty initialAdmins array", async function () {
+      const { mockMultiVault } = await loadFixture(deployFixture);
+      const IntuitionFeeProxyFactory = await ethers.getContractFactory("IntuitionFeeProxy");
+
+      await expect(
+        IntuitionFeeProxyFactory.deploy(
+          await mockMultiVault.getAddress(),
+          FEE_RECIPIENT,
+          DEPOSIT_FEE,
+          DEPOSIT_PERCENTAGE,
+          []
+        )
+      ).to.be.revertedWithCustomError(IntuitionFeeProxyFactory, "IntuitionFeeProxy_NoAdminsProvided");
+    });
+
+    it("Should revert when every initialAdmins entry is zero", async function () {
+      const { mockMultiVault } = await loadFixture(deployFixture);
+      const IntuitionFeeProxyFactory = await ethers.getContractFactory("IntuitionFeeProxy");
+
+      await expect(
+        IntuitionFeeProxyFactory.deploy(
+          await mockMultiVault.getAddress(),
+          FEE_RECIPIENT,
+          DEPOSIT_FEE,
+          DEPOSIT_PERCENTAGE,
+          [ethers.ZeroAddress, ethers.ZeroAddress]
+        )
+      ).to.be.revertedWithCustomError(IntuitionFeeProxyFactory, "IntuitionFeeProxy_NoAdminsProvided");
+    });
   });
 
   describe("Fee Calculations", function () {
@@ -188,6 +218,35 @@ describe("IntuitionFeeProxy", function () {
       expect(await proxy.whitelistedAdmins(admin2.address)).to.be.false;
     });
 
+    it("forbids the last admin from self-revoking (L-01)", async function () {
+      const { proxy, admin1, admin2, admin3 } = await loadFixture(deployFixture);
+
+      // Fixture ships with 3 admins — drain down to admin1 alone.
+      await proxy.connect(admin1).setWhitelistedAdmin(admin2.address, false);
+      await proxy.connect(admin1).setWhitelistedAdmin(admin3.address, false);
+      expect(await proxy.adminCount()).to.equal(1n);
+      await expect(
+        proxy.connect(admin1).setWhitelistedAdmin(admin1.address, false),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_LastAdminCannotRevoke");
+      // Sanity: admin1 still whitelisted, count unchanged.
+      expect(await proxy.whitelistedAdmins(admin1.address)).to.be.true;
+      expect(await proxy.adminCount()).to.equal(1n);
+    });
+
+    it("the last admin can still be revoked by another admin (L-01)", async function () {
+      const { proxy, admin1, admin2, admin3 } = await loadFixture(deployFixture);
+
+      // Leave two admins so the last-admin guard doesn't apply, then admin2
+      // kicks admin1 even though admin1 is "one of the last two".
+      await proxy.connect(admin1).setWhitelistedAdmin(admin3.address, false);
+      expect(await proxy.adminCount()).to.equal(2n);
+      await expect(proxy.connect(admin2).setWhitelistedAdmin(admin1.address, false))
+        .to.emit(proxy, "AdminWhitelistUpdated")
+        .withArgs(admin1.address, false);
+      expect(await proxy.whitelistedAdmins(admin1.address)).to.be.false;
+      expect(await proxy.adminCount()).to.equal(1n);
+    });
+
     it("Should revert when non-admin tries to set fees", async function () {
       const { proxy, nonAdmin } = await loadFixture(deployFixture);
 
@@ -205,7 +264,11 @@ describe("IntuitionFeeProxy", function () {
     it("Should revert when percentage fee is too high", async function () {
       const { proxy, admin1 } = await loadFixture(deployFixture);
 
-      await expect(proxy.connect(admin1).setDepositPercentageFee(10001n))
+      // At the boundary (1000 = 10%) — allowed.
+      await proxy.connect(admin1).setDepositPercentageFee(1000n);
+      expect(await proxy.depositPercentageFee()).to.equal(1000n);
+      // One above the boundary — rejected.
+      await expect(proxy.connect(admin1).setDepositPercentageFee(1001n))
         .to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_FeePercentageTooHigh");
     });
   });

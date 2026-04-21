@@ -30,7 +30,13 @@ contract IntuitionFeeProxyV2 is
     // ============ Constants ============
 
     uint256 public constant FEE_DENOMINATOR = 10000;
-    uint256 public constant MAX_FEE_PERCENTAGE = 10000;
+    /// @notice Hard upper bound on `depositPercentageFee`. Set to 10% (1000 bps).
+    /// @dev Chosen to cap admin-controlled rug potential. An admin can still
+    ///      tune fees within [0, 10%], but cannot flip to 100% and drain user
+    ///      deposits via the inverse-formula path in `deposit()`. Constant —
+    ///      only a fresh impl version registered on the versioned proxy can
+    ///      raise it; existing proxies stay bounded forever.
+    uint256 public constant MAX_FEE_PERCENTAGE = 1000;
 
     // ============ Storage (50 slots reserved) ============
 
@@ -147,7 +153,7 @@ contract IntuitionFeeProxyV2 is
         uint256 depositPercentageFee_,
         address[] calldata initialAdmins_
     ) internal {
-        if (ethMultiVault_ == address(0)) {
+        if (ethMultiVault_ == address(0) || ethMultiVault_.code.length == 0) {
             revert Errors.IntuitionFeeProxy_InvalidMultiVaultAddress();
         }
         if (depositPercentageFee_ > MAX_FEE_PERCENTAGE) {
@@ -497,7 +503,7 @@ contract IntuitionFeeProxyV2 is
 
     // ============ Internal ============
 
-    function _accrueFee(uint256 fee, string memory operation, uint256 mvValue) internal {
+    function _accrueFee(uint256 fee, string memory operation, uint256 mvValue) internal virtual {
         if (fee > 0) {
             accumulatedFees += fee;
             totalFeesCollectedAllTime += fee;

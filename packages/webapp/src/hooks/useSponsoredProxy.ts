@@ -1,4 +1,10 @@
-import { useReadContracts, useWriteContract } from 'wagmi'
+import { useEffect, useState } from 'react'
+import {
+  useBlockNumber,
+  usePublicClient,
+  useReadContracts,
+  useWriteContract,
+} from 'wagmi'
 import type { Address } from 'viem'
 
 import { IntuitionFeeProxyV2SponsoredABI } from '@intuition-fee-proxy/sdk'
@@ -9,14 +15,18 @@ const abi = IntuitionFeeProxyV2SponsoredABI as any
 
 export type ClaimLimits = {
   maxClaimPerTx: bigint
-  maxClaimsPerDay: bigint
+  maxClaimsPerWindow: bigint
+  maxClaimVolumePerWindow: bigint
+  claimWindowSeconds: bigint
 }
 
 export function useClaimLimits(proxy: Address | undefined) {
   const result = useReadContracts({
     contracts: [
       { abi, address: proxy, functionName: 'maxClaimPerTx' },
-      { abi, address: proxy, functionName: 'maxClaimsPerDay' },
+      { abi, address: proxy, functionName: 'maxClaimsPerWindow' },
+      { abi, address: proxy, functionName: 'maxClaimVolumePerWindow' },
+      { abi, address: proxy, functionName: 'claimWindowSeconds' },
     ],
     allowFailure: true,
     query: { enabled: Boolean(proxy) },
@@ -24,12 +34,16 @@ export function useClaimLimits(proxy: Address | undefined) {
 
   const ok =
     result.data?.[0]?.status === 'success' &&
-    result.data?.[1]?.status === 'success'
+    result.data?.[1]?.status === 'success' &&
+    result.data?.[2]?.status === 'success' &&
+    result.data?.[3]?.status === 'success'
 
   const limits: ClaimLimits | undefined = ok
     ? {
         maxClaimPerTx: result.data![0].result as bigint,
-        maxClaimsPerDay: result.data![1].result as bigint,
+        maxClaimsPerWindow: result.data![1].result as bigint,
+        maxClaimVolumePerWindow: result.data![2].result as bigint,
+        claimWindowSeconds: result.data![3].result as bigint,
       }
     : undefined
 
@@ -39,119 +53,78 @@ export function useClaimLimits(proxy: Address | undefined) {
 export function useSetClaimLimits(proxy: Address | undefined) {
   const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
 
-  function setClaimLimits(maxPerTx: bigint, maxPerDay: bigint) {
+  function setClaimLimits(
+    maxPerTx: bigint,
+    maxPerWindow: bigint,
+    maxVolumePerWindow: bigint,
+    windowSec: bigint,
+  ) {
     if (!proxy) throw new Error('Proxy address missing')
     return writeContractAsync({
       abi,
       address: proxy,
       functionName: 'setClaimLimits',
-      args: [maxPerTx, maxPerDay],
+      args: [maxPerTx, maxPerWindow, maxVolumePerWindow, windowSec],
     })
   }
 
   return { setClaimLimits, hash: data, isPending, error, reset }
 }
 
-// ============ Credit pool ============
+// ============ Sponsor pool ============
 
-export type SponsoredPool = {
-  totalSponsoredCredit: bigint
-}
-
-export function useSponsoredPool(proxy: Address | undefined) {
+export function useSponsorPool(proxy: Address | undefined) {
   const result = useReadContracts({
-    contracts: [
-      { abi, address: proxy, functionName: 'totalSponsoredCredit' },
-    ],
+    contracts: [{ abi, address: proxy, functionName: 'sponsorPool' }],
     allowFailure: true,
     query: { enabled: Boolean(proxy) },
   })
 
   const entry = result.data?.[0]
-  const pool: SponsoredPool | undefined =
-    entry?.status === 'success'
-      ? { totalSponsoredCredit: entry.result as bigint }
-      : undefined
-
-  return { ...result, pool }
-}
-
-export function useUserCredit(proxy: Address | undefined, user: Address | undefined) {
-  const result = useReadContracts({
-    contracts: [
-      {
-        abi,
-        address: proxy,
-        functionName: 'sponsoredCredit',
-        args: user ? [user] : undefined,
-      },
-    ],
-    allowFailure: true,
-    query: { enabled: Boolean(proxy && user) },
-  })
-
-  const entry = result.data?.[0]
-  const credit: bigint | undefined =
+  const balance: bigint | undefined =
     entry?.status === 'success' ? (entry.result as bigint) : undefined
 
-  return { ...result, credit }
+  return { ...result, balance }
 }
 
-export function useCreditUser(proxy: Address | undefined) {
+export function useFundPool(proxy: Address | undefined) {
   const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
 
-  function credit(user: Address, amount: bigint) {
+  function fund(amount: bigint) {
     if (!proxy) throw new Error('Proxy address missing')
     return writeContractAsync({
       abi,
       address: proxy,
-      functionName: 'creditUser',
-      args: [user],
+      functionName: 'fundPool',
+      args: [],
       value: amount,
     })
   }
 
-  return { credit, hash: data, isPending, error, reset }
+  return { fund, hash: data, isPending, error, reset }
 }
 
-export function useCreditUsers(proxy: Address | undefined) {
+export function useReclaimFromPool(proxy: Address | undefined) {
   const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
 
-  function creditMany(users: Address[], amounts: bigint[]) {
-    if (!proxy) throw new Error('Proxy address missing')
-    const total = amounts.reduce((s, a) => s + a, 0n)
-    return writeContractAsync({
-      abi,
-      address: proxy,
-      functionName: 'creditUsers',
-      args: [users, amounts],
-      value: total,
-    })
-  }
-
-  return { creditMany, hash: data, isPending, error, reset }
-}
-
-export function useUncreditUser(proxy: Address | undefined) {
-  const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
-
-  function uncredit(user: Address, amount: bigint, to: Address) {
+  function reclaim(amount: bigint, to: Address) {
     if (!proxy) throw new Error('Proxy address missing')
     return writeContractAsync({
       abi,
       address: proxy,
-      functionName: 'uncreditUser',
-      args: [user, amount, to],
+      functionName: 'reclaimFromPool',
+      args: [amount, to],
     })
   }
 
-  return { uncredit, hash: data, isPending, error, reset }
+  return { reclaim, hash: data, isPending, error, reset }
 }
 
 // ============ Claim status + sponsored metrics ============
 
 export type ClaimStatus = {
   claimsUsed: bigint
+  volumeUsed: bigint
   windowResetsAt: bigint
 }
 
@@ -173,8 +146,12 @@ export function useClaimStatus(proxy: Address | undefined, user: Address | undef
   const status: ClaimStatus | undefined =
     entry?.status === 'success'
       ? (() => {
-          const [claimsUsed, windowResetsAt] = entry.result as [bigint, bigint]
-          return { claimsUsed, windowResetsAt }
+          const [claimsUsed, volumeUsed, windowResetsAt] = entry.result as [
+            bigint,
+            bigint,
+            bigint,
+          ]
+          return { claimsUsed, volumeUsed, windowResetsAt }
         })()
       : undefined
 
@@ -210,4 +187,112 @@ export function useSponsoredMetrics(proxy: Address | undefined) {
       : undefined
 
   return { ...result, metrics }
+}
+
+// ============ Burn rate — 7d sliding window ============
+
+export type PoolBurnStats = {
+  /** Total TRUST consumed in the observed window. */
+  burn: bigint
+  /** Actual number of days the sample spans (≤ 7, lower if pool is young). */
+  daysCovered: number
+  /** TRUST per day (burn / daysCovered), or 0n if no activity yet. */
+  ratePerDay: bigint
+}
+
+/// Over-estimates a 7-day window at 2s block time; over-fetches (but
+/// post-filters by timestamp) on slower chains so it's always correct.
+const APPROX_BLOCKS_7D = 302_400n
+
+/**
+ * Replays `CreditConsumed` logs to compute the pool's burn rate over a
+ * sliding 7-day window. Uses linear block-time estimation (3 RPC calls
+ * regardless of event count) instead of per-event timestamp lookups.
+ */
+export function usePoolBurnRate(proxy: Address | undefined): {
+  stats: PoolBurnStats | undefined
+  isLoading: boolean
+  error: Error | null
+  refetch: () => void
+} {
+  const publicClient = usePublicClient()
+  const { data: currentBlock } = useBlockNumber({ watch: true })
+  const [stats, setStats] = useState<PoolBurnStats | undefined>(undefined)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    if (!publicClient || !proxy || !currentBlock) return
+    let cancelled = false
+    setIsLoading(true)
+    setError(null)
+
+    const fromBlock =
+      currentBlock > APPROX_BLOCKS_7D ? currentBlock - APPROX_BLOCKS_7D : 0n
+
+    publicClient
+      .getLogs({
+        address: proxy,
+        event: {
+          type: 'event',
+          name: 'CreditConsumed',
+          inputs: [
+            { type: 'address', name: 'user', indexed: true },
+            { type: 'uint256', name: 'amount', indexed: false },
+          ],
+        },
+        fromBlock,
+        toBlock: currentBlock,
+      })
+      .then(async (logs) => {
+        if (cancelled) return
+        if (logs.length === 0) {
+          setStats({ burn: 0n, daysCovered: 0, ratePerDay: 0n })
+          setIsLoading(false)
+          return
+        }
+        const [nowBlock, oldestLogBlock] = await Promise.all([
+          publicClient.getBlock({ blockNumber: currentBlock }),
+          publicClient.getBlock({ blockNumber: logs[0].blockNumber! }),
+        ])
+        if (cancelled) return
+
+        const nowTs = Number(nowBlock.timestamp)
+        const oldestTs = Number(oldestLogBlock.timestamp)
+        const blockSpan = Number(currentBlock - logs[0].blockNumber!)
+        const tsSpan = Math.max(1, nowTs - oldestTs)
+        const blocksPerSec = blockSpan > 0 ? blockSpan / tsSpan : 0
+
+        const sevenDaysAgoBlock =
+          blocksPerSec > 0
+            ? currentBlock -
+              BigInt(Math.floor(7 * 86400 * blocksPerSec))
+            : fromBlock
+
+        let burn = 0n
+        for (const log of logs) {
+          if (log.blockNumber! >= sevenDaysAgoBlock) {
+            burn += (log as any).args.amount as bigint
+          }
+        }
+
+        const elapsedSec = BigInt(Math.max(1, nowTs - oldestTs))
+        const ratePerDay = (burn * 86_400n) / elapsedSec
+        const daysCovered = Math.min(7, (nowTs - oldestTs) / 86_400)
+
+        setStats({ burn, daysCovered, ratePerDay })
+        setIsLoading(false)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setError(e as Error)
+        setIsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [publicClient, proxy, currentBlock ? Number(currentBlock) : 0, refreshKey])
+
+  return { stats, isLoading, error, refetch: () => setRefreshKey((k) => k + 1) }
 }

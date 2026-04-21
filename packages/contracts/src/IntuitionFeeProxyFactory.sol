@@ -3,7 +3,7 @@ pragma solidity ^0.8.21;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
 import {IntuitionVersionedFeeProxy} from "./IntuitionVersionedFeeProxy.sol";
 import {IIntuitionFeeProxyV2} from "./interfaces/IIntuitionFeeProxyV2.sol";
@@ -40,9 +40,17 @@ enum ProxyChannel {
 ///  - No CREATE2 — addresses are discoverable via `ProxyCreated` events.
 contract IntuitionFeeProxyFactory is
     Initializable,
-    OwnableUpgradeable,
+    Ownable2StepUpgradeable,
     UUPSUpgradeable
 {
+    // ============ Metadata ============
+
+    /// @notice Human-readable semver of the Factory's own logic. Bumped on
+    ///         each UUPS upgrade (`_authorizeUpgrade` gated by `onlyOwner`).
+    ///         Consumers read this to prove which bytecode is actually live
+    ///         behind the Factory proxy.
+    string public constant VERSION = "1.0.0";
+
     // ============ Storage ============
 
     /// @notice Standard-channel implementation used for new deployments
