@@ -74,10 +74,24 @@ export const CANONICAL_VERSIONS: Record<NetworkName, CanonicalRegistry> = {
         review: { url: 'https://github.com/intuition/fee-proxy-review', date: '2026-04-21' },
         summary: 'Initial canonical sponsored impl shipped with the Factory.',
       },
+      'v2.1.0': {
+        label: 'v2.1.0',
+        impl: '0xC65e0e84d44269fA6286BeC88C9E22CE09fab204',
+        family: 'standard',
+        review: { url: 'https://github.com/intuition/fee-proxy-review', date: '2026-04-21' },
+        summary: 'Emits VersionUsed(version, user) on every write-path call so indexers can attribute activity to the active impl.',
+      },
+      'v2.1.0-sponsored': {
+        label: 'v2.1.0-sponsored',
+        impl: '0x435979B23F561db76eAc6eb54f524e3B0fAF91fA',
+        family: 'sponsored',
+        review: { url: 'https://github.com/intuition/fee-proxy-review', date: '2026-04-21' },
+        summary: 'Sponsored sibling of v2.1.0 — same VersionUsed marker, version() now returns "v2.1.0-sponsored".',
+      },
     },
     latest: {
-      standard: 'v2.0.0',
-      sponsored: 'v2.0.0-sponsored',
+      standard: 'v2.1.0',
+      sponsored: 'v2.1.0-sponsored',
     },
   },
 }
