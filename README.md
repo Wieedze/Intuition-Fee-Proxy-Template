@@ -128,10 +128,6 @@ What has been done is **two internal security-review passes** (self-review guide
 - `uint128`-bounded `setClaimLimits` to prevent silent truncation
 - No `receive()` / `fallback()` that blindly accepts ETH — direct transfers revert
 
-## Status
-
-V2 (standard) + V2Sponsored (shared-pool) contracts, SDK, Factory, webapp and docs are implemented and tested locally (170+ passing tests, 25 self-review findings all addressed). The design has been sent to the Intuition team for review. Each canonical implementation version is reviewed by the Intuition team before publication; users remain free to stay on any previous version, or pin to a specific one, indefinitely. Next phases: testnet deploy, **external audit**, mainnet launch.
-
 ## License
 
 MIT
