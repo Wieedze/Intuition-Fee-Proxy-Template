@@ -67,6 +67,7 @@ export default function ProxyDetailPage() {
     proxyAdmin,
     pendingProxyAdmin,
     refetch: refetchVersions,
+    isFetching: isVersionsFetching,
   } = useProxyVersions(proxy)
   const { metrics, unsupported: metricsUnsupported, isLoading: metricsLoading } =
     useProxyMetrics(proxy)
@@ -78,8 +79,21 @@ export default function ProxyDetailPage() {
   const family: ProxyFamily = channel === 'sponsored' ? 'sponsored' : 'standard'
   const isProxyAdmin =
     account && proxyAdmin && account.toLowerCase() === proxyAdmin.toLowerCase()
+  // "Viewer" = no management rights at all on this proxy (neither fee-admin
+  // nor proxyAdmin). Either wallet disconnected, or connected with an
+  // address that holds neither role. Shown a read-only view so the UI
+  // stops implying actions that would just revert.
+  const isViewer = !isAdmin && !isProxyAdmin
 
   const [tab, setTab] = useState<TabId>('overview')
+
+  // Snap the tab back to a viewer-allowed one if the user disconnects or
+  // switches to a non-admin wallet while on a management tab.
+  useEffect(() => {
+    if (isViewer && tab !== 'overview' && tab !== 'metrics') {
+      setTab('overview')
+    }
+  }, [isViewer, tab])
 
   if (!proxy) {
     return (
@@ -118,17 +132,26 @@ export default function ProxyDetailPage() {
         )}
       </header>
 
-      <NewVersionBanner
-        proxy={proxy}
-        network={network}
-        family={family}
-        versions={versions}
-        defaultVersion={defaultVersion}
-        isProxyAdmin={Boolean(isProxyAdmin)}
-        onDone={refetchVersions}
-      />
+      {!isViewer && (
+        <NewVersionBanner
+          proxy={proxy}
+          network={network}
+          family={family}
+          versions={versions}
+          defaultVersion={defaultVersion}
+          isProxyAdmin={Boolean(isProxyAdmin)}
+          onDone={refetchVersions}
+        />
+      )}
 
-      <Tabs active={tab} onChange={setTab} isSponsored={channel === 'sponsored'} />
+      {isViewer && <ViewerBanner connected={Boolean(account)} />}
+
+      <Tabs
+        active={tab}
+        onChange={setTab}
+        isSponsored={channel === 'sponsored'}
+        isViewer={isViewer}
+      />
 
       {isLoading && (
         <div className="grid gap-4 sm:grid-cols-3">
@@ -228,6 +251,7 @@ export default function ProxyDetailPage() {
             account={account}
             isConnectedFeeAdmin={isAdmin}
             onTransferred={refetchVersions}
+            isRefreshing={isVersionsFetching}
           />
           <AdminsPanel proxy={proxy} connectedAccount={account} />
         </div>
@@ -240,22 +264,48 @@ export default function ProxyDetailPage() {
   )
 }
 
+function ViewerBanner({ connected }: { connected: boolean }) {
+  return (
+    <div className="rounded-lg border border-line bg-surface px-4 py-3 text-xs text-muted flex items-center gap-3">
+      <span
+        aria-hidden
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-line text-subtle"
+      >
+        👁
+      </span>
+      <span className="leading-relaxed">
+        <strong className="text-ink font-medium">Read-only view.</strong>{' '}
+        {connected
+          ? 'Your connected wallet is not an admin of this proxy — management tabs are hidden.'
+          : 'Connect the fee-admin or proxyAdmin wallet to manage fees, admins, or versions.'}
+      </span>
+    </div>
+  )
+}
+
 function Tabs({
   active,
   onChange,
   isSponsored,
+  isViewer,
 }: {
   active: TabId
   onChange: (t: TabId) => void
   isSponsored: boolean
+  isViewer: boolean
 }) {
-  const items: { id: TabId; label: string }[] = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'fee', label: 'Fee' },
-    ...(isSponsored ? [{ id: 'sponsoring' as TabId, label: 'Sponsoring' }] : []),
-    { id: 'metrics', label: 'Metrics' },
-    { id: 'admins', label: 'Admins' },
-  ]
+  const items: { id: TabId; label: string }[] = isViewer
+    ? [
+        { id: 'overview', label: 'Overview' },
+        { id: 'metrics', label: 'Metrics' },
+      ]
+    : [
+        { id: 'overview', label: 'Overview' },
+        { id: 'fee', label: 'Fee' },
+        ...(isSponsored ? [{ id: 'sponsoring' as TabId, label: 'Sponsoring' }] : []),
+        { id: 'metrics', label: 'Metrics' },
+        { id: 'admins', label: 'Admins' },
+      ]
   return (
     <div className="flex items-center gap-6 border-b border-line">
       {items.map((item) => {
@@ -720,6 +770,7 @@ function UpgradeAuthorityPanel({
   account,
   isConnectedFeeAdmin,
   onTransferred,
+  isRefreshing,
 }: {
   proxy: Address
   proxyAdmin: Address | undefined
@@ -727,6 +778,7 @@ function UpgradeAuthorityPanel({
   account: Address | undefined
   isConnectedFeeAdmin: boolean
   onTransferred: () => void
+  isRefreshing: boolean
 }) {
   const ZERO = '0x0000000000000000000000000000000000000000'
   const isYou =
@@ -780,6 +832,11 @@ function UpgradeAuthorityPanel({
   // new admin visually that they now hold the role. Auto-dismisses.
   const [acceptedFlash, setAcceptedFlash] = useState(false)
 
+  // Bridges the window between "tx mined" and "useProxyVersions reflects
+  // the new on-chain state" — drives the spinner next to the card title
+  // so the UI never looks idle while the data is still catching up.
+  const [postTxRefreshing, setPostTxRefreshing] = useState(false)
+
   function resetRotate() {
     setRotateStage('idle')
     setRotateInput('')
@@ -793,6 +850,7 @@ function UpgradeAuthorityPanel({
       setNewAdminInput('')
       resetTransfer()
       onTransferred()
+      setPostTxRefreshing(true)
       if (rotateStage === 'transfer') setRotateStage('done')
     }
   }, [transferReceipt.isSuccess, resetTransfer, onTransferred, rotateStage])
@@ -801,6 +859,7 @@ function UpgradeAuthorityPanel({
     if (acceptReceipt.isSuccess) {
       resetAccept()
       onTransferred()
+      setPostTxRefreshing(true)
       // If a rotate is in flight in this tab, it's now finalised.
       setRotateStage((s) => (s === 'done' ? 'complete' : s))
       setAcceptedFlash(true)
@@ -808,6 +867,14 @@ function UpgradeAuthorityPanel({
       return () => clearTimeout(t)
     }
   }, [acceptReceipt.isSuccess, resetAccept, onTransferred])
+
+  // Release the card-level spinner once the parent's versions query has
+  // actually fetched fresh data post-tx.
+  useEffect(() => {
+    if (postTxRefreshing && !isRefreshing) {
+      setPostTxRefreshing(false)
+    }
+  }, [postTxRefreshing, isRefreshing])
 
   // Detect acceptance that happened in another tab/wallet: when the
   // on-chain proxyAdmin flips to the rotate target address, mark the
@@ -865,7 +932,22 @@ function UpgradeAuthorityPanel({
           <span className="text-[10px] font-mono uppercase tracking-widest text-brand">
             Role 1
           </span>
-          <h2 className="font-semibold">Upgrade authority (proxyAdmin)</h2>
+          <h2 className="font-semibold inline-flex items-baseline gap-2">
+            Upgrade authority (proxyAdmin)
+            {(postTxRefreshing ||
+              transferPending ||
+              transferReceipt.isLoading ||
+              acceptPending ||
+              acceptReceipt.isLoading ||
+              grantPending ||
+              grantReceipt.isLoading) && (
+              <span
+                aria-hidden
+                aria-label="Refreshing"
+                className="inline-block h-3 w-3 self-center rounded-full border border-current border-r-transparent animate-spin opacity-60"
+              />
+            )}
+          </h2>
         </div>
         <span className="text-[10px] uppercase tracking-wide text-subtle">
           Single slot · 2-step grant
@@ -1624,25 +1706,44 @@ function AdminsPanel({
   // Tracks which row (or 'ADD') owns the in-flight tx, so only that button
   // shows "Signing…" / "Mining…" state. Other rows stay idle (but disabled).
   const [pendingTarget, setPendingTarget] = useState<Address | 'ADD' | null>(null)
+  // True between "receipt mined" and "admins list refetched" — bridges the
+  // gap where the tx is done but the event-log-derived list hasn't caught
+  // up yet. Drives the discrete title spinner + keeps the row button
+  // spinner alive so the UI never looks idle during that window.
+  const [postTxRefreshing, setPostTxRefreshing] = useState(false)
 
-  const busy = isPending || receipt.isLoading
+  const busy = isPending || receipt.isLoading || postTxRefreshing
 
   useEffect(() => {
     if (receipt.isSuccess) {
       refetch()
       reset()
       setAddDraft('')
-      setPendingTarget(null)
+      setPostTxRefreshing(true)
     }
   }, [hash, receipt.isSuccess])
+
+  // Release the spinner once the admins refetch settles.
+  useEffect(() => {
+    if (postTxRefreshing && !isLoading) {
+      setPostTxRefreshing(false)
+      setPendingTarget(null)
+    }
+  }, [postTxRefreshing, isLoading])
 
   // If the write errored or the user rejected the signature, release the
   // per-row pending marker so the buttons become clickable again.
   useEffect(() => {
-    if (!isPending && !receipt.isLoading && !receipt.isSuccess && pendingTarget) {
+    if (
+      !isPending &&
+      !receipt.isLoading &&
+      !receipt.isSuccess &&
+      !postTxRefreshing &&
+      pendingTarget
+    ) {
       setPendingTarget(null)
     }
-  }, [isPending, receipt.isLoading, receipt.isSuccess, writeError])
+  }, [isPending, receipt.isLoading, receipt.isSuccess, postTxRefreshing, writeError])
 
   const addValid = isAddress(addDraft) && !admins.some((a) => a.toLowerCase() === addDraft.toLowerCase())
 
@@ -1674,7 +1775,16 @@ function AdminsPanel({
           <span className="text-[10px] font-mono uppercase tracking-widest text-muted">
             Role 2
           </span>
-          <h2 className="font-semibold">Fee admins (whitelisted)</h2>
+          <h2 className="font-semibold inline-flex items-baseline gap-2">
+            Fee admins (whitelisted)
+            {(postTxRefreshing || (isLoading && admins.length > 0)) && (
+              <span
+                aria-hidden
+                aria-label="Refreshing"
+                className="inline-block h-3 w-3 self-center rounded-full border border-current border-r-transparent animate-spin opacity-60"
+              />
+            )}
+          </h2>
         </div>
         <span className="text-[10px] uppercase tracking-wide text-subtle">
           N addresses · instant add/revoke
@@ -1688,7 +1798,7 @@ function AdminsPanel({
         on-chain events.
       </p>
 
-      {isLoading && (
+      {isLoading && admins.length === 0 && (
         <div className="space-y-2">
           <div className="skeleton h-12 w-full" />
           <div className="skeleton h-12 w-full" />
@@ -1701,7 +1811,7 @@ function AdminsPanel({
         </p>
       )}
 
-      {!isLoading && admins.length > 0 && (
+      {admins.length > 0 && (
         <ul className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
           {admins.map((addr) => {
             const isSelf =
