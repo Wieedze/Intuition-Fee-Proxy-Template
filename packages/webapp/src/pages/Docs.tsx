@@ -464,6 +464,56 @@ function Architecture() {
         />
       </dl>
 
+      <H3>Admin rotation — two flows</H3>
+      <P>
+        Both roles are rotatable but the mechanics differ on purpose —
+        the slower path covers the higher-impact role.
+      </P>
+      <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
+        <Actor
+          term="Role 1 — proxyAdmin (2-step)"
+          desc={
+            <>
+              Current admin calls <Code>transferProxyAdmin(newAdmin)</Code>,
+              which only sets <Code>pendingProxyAdmin</Code> — no powers
+              move. The target must then sign{' '}
+              <Code>acceptProxyAdmin()</Code> from their own wallet to
+              finalise. Until then the outgoing admin keeps full powers
+              and can overwrite the pending candidate. Defends against
+              fat-fingered transfers to dead or wrong addresses.
+            </>
+          }
+        />
+        <Actor
+          term="Role 2 — fee admins (instant, N addresses)"
+          desc={
+            <>
+              Whitelist-style. <Code>setWhitelistedAdmin(addr, true/false)</Code>{' '}
+              adds or removes in a single tx. Any fee admin can grant or
+              revoke any other — except the last one cannot self-revoke
+              (guards against stranding the proxy). Multiple fee admins
+              can coexist; all share the same powers.
+            </>
+          }
+        />
+        <Actor
+          term="Convenience — Grant both roles"
+          desc={
+            <>
+              When a single wallet holds both roles and wants to hand the
+              whole proxy off, the webapp exposes a combined flow that
+              fires <Code>setWhitelistedAdmin(new, true)</Code> then{' '}
+              <Code>transferProxyAdmin(new)</Code> back-to-back (2 sigs,
+              1 click). The target still has to{' '}
+              <Code>acceptProxyAdmin()</Code> from their side; acceptance
+              is auto-detected via the on-chain state poll. The outgoing
+              admin optionally revokes themselves as fee admin from the
+              new owner&apos;s wallet afterwards.
+            </>
+          }
+        />
+      </dl>
+
       <H3>Governance — who can push what</H3>
       <P>
         Three distinct levels of &ldquo;pushing&rdquo; an implementation.
@@ -855,7 +905,7 @@ function Primitives() {
         />
         <Primitive
           term="setDepositPercentageFee(newFee)"
-          desc="Update the percentage fee, max 10000 (basis points)."
+          desc="Update the percentage fee in basis points. Hard-capped at MAX_FEE_PERCENTAGE = 1000 (10%) — an admin cannot push it higher. Constant on a given impl; only a fresh impl version registered on the versioned proxy can raise the cap, and existing proxies stay bounded forever."
         />
         <Primitive
           term="setWhitelistedAdmin(admin, status)"
@@ -892,6 +942,14 @@ function Primitives() {
         <Primitive
           term="setName(newName) / getName()"
           desc="Optional human-readable label on the proxy. setName is proxy-admin only; getName is public. 32 bytes max."
+        />
+        <Primitive
+          term="getVersions() → bytes32[]"
+          desc="Public view. Full list of labels registered on this proxy, in registration order. Used by the webapp's VersionsPanel to render the directory."
+        />
+        <Primitive
+          term="getDefaultVersion() → bytes32"
+          desc="Public view. Label of the impl that handles non-pinned calls. Flipped by setDefaultVersion."
         />
       </dl>
 
@@ -935,8 +993,53 @@ function Primitives() {
           desc="Aggregate tuple: atoms, triples, deposits, volume, unique users, last-activity block."
         />
         <Primitive
+          term="totalFeesCollectedAllTime() → uint256"
+          desc="Monotonic counter, never decreases. Useful to chart cumulative fee accrual independently of current accumulatedFees (which drops on withdraw)."
+        />
+        <Primitive
           term="hasInteracted(user)"
           desc="Whether an address has ever hit the proxy. Feeds totalUniqueUsers."
+        />
+        <Primitive
+          term="version() → string (V2.1+ only)"
+          desc="Returns the running impl's label (e.g. 'v2.1.0-sponsored'). Absent on V2 base — reverts with 'function not found'. Off-chain callers use the presence/value as a cheap probe for which impl the proxy is currently delegating to."
+        />
+      </dl>
+
+      <H3>Events (observable markers)</H3>
+      <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
+        <Primitive
+          term="VersionUsed(bytes32 indexed version, address indexed user) — V2.1+ only"
+          desc="Emitted before fee accrual on every write-path call (deposit / depositBatch / createAtoms / createTriples). The single observable diff between V2 and V2.1 — lets indexers attribute tx volume to the exact impl that executed, and serves as proof-of-routing for the versioning demo."
+        />
+        <Primitive
+          term="MetricsUpdated(atoms, triples, deposits, volume, uniqueUsers, lastActivityBlock)"
+          desc="Emitted on every write-path call with the post-update counters. Single source of truth for dashboards — no need to subscribe to individual setter events."
+        />
+      </dl>
+
+      <H3>Factory (owner surface)</H3>
+      <P>
+        The Factory is UUPS-upgradeable. Its owner (a single address —
+        use a Safe) controls which canonical impl new proxies ship with.
+        Existing proxies are not affected — each keeps its own registry.
+      </P>
+      <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
+        <Primitive
+          term="createProxy(ethMultiVault, fixedFee, pctFee, admins[], name, channel) → address"
+          desc="Permissionless. Clones a fresh VersionedFeeProxy + delegatecalls init on the channel's current canonical impl. channel = 0 (standard) or 1 (sponsored)."
+        />
+        <Primitive
+          term="setImplementation(newImpl, newLabel)"
+          desc="Owner-only. Bumps the standard canonical impl used by future createProxy calls. Labels it so the new proxies record the version that shipped them."
+        />
+        <Primitive
+          term="setSponsoredImplementation(newImpl, newLabel)"
+          desc="Owner-only. Same as above, sponsored channel."
+        />
+        <Primitive
+          term="currentImplementation() / sponsoredImplementation() → address"
+          desc="Public views. The two impls a fresh proxy will be wired to, depending on channel."
         />
       </dl>
     </div>
@@ -1251,14 +1354,19 @@ function Workflow() {
         />
         <Step
           n="07"
-          title="Each admin registers + optionally sets as default"
+          title="Each admin promotes the new version (1 click = 2 sigs)"
           body={
             <>
-              On their proxy detail page, an admin pastes the canonical
-              address into <b>Register new version</b> and signs with
-              their Safe. They can set it as default to migrate all
-              non-pinned users, or leave it registered but inactive for
-              users to opt in via <Code>executeAtVersion</Code>.
+              On their ProxyDetail page, the new version shows up in the{' '}
+              <b>Versions (ERC-7936)</b> directory with an{' '}
+              <b>Available</b> status. Clicking <b>Promote</b> fires{' '}
+              <Code>registerVersion</Code> then chains{' '}
+              <Code>setDefaultVersion</Code> automatically once the first
+              receipt mines — two Safe signatures, one user action. If
+              the admin wants to keep the old default and just make the
+              new impl reachable for pinned users, they can use the{' '}
+              <b>Advanced</b> paste form; if already registered, a{' '}
+              <b>Make default</b> button flips it in a single tx.
             </>
           }
         />
@@ -1311,7 +1419,20 @@ function GoldenRules() {
         <Rule title="Emit a version marker">
           Expose a <Code>version()</Code> pure function returning a
           string so dashboards and diff tools can introspect without
-          guessing from the address.
+          guessing from the address. Emit a <Code>VersionUsed</Code>{' '}
+          event on every write path too — lets indexers prove which
+          impl actually executed a given tx without relying on
+          <Code>eth_getStorageAt</Code> guesswork.
+        </Rule>
+        <Rule title="Never raise the fee cap silently">
+          <Code>MAX_FEE_PERCENTAGE = 1000</Code> (10%) is hard-coded.
+          An admin cannot push <Code>depositPercentageFee</Code> past
+          it — the inverse-formula path in <Code>deposit()</Code>{' '}
+          would otherwise let an admin drain user deposits by flipping
+          the fee to 100%. A new impl MAY raise the cap, but only by
+          registering explicitly via <Code>registerVersion</Code>;
+          existing proxies stay bounded by their pinned impl&apos;s
+          constant forever.
         </Rule>
         <Rule title="Preserve the public interface">
           Existing function selectors must keep the same signatures and
