@@ -15,7 +15,11 @@ type SectionId =
   | 'proxy-vs-impl'
   | 'pinning'
   | 'sponsoring'
+  | 'admin-rotation'
+  | 'governance'
   | 'primitives'
+  | 'events'
+  | 'factory'
   | 'integration'
   | 'workflow'
   | 'golden-rules'
@@ -38,9 +42,18 @@ const GROUPS = [
     ],
   },
   {
+    label: 'Security',
+    items: [
+      { id: 'admin-rotation' as SectionId, label: 'Admin rotation' },
+      { id: 'governance' as SectionId, label: 'Governance' },
+    ],
+  },
+  {
     label: 'Reference',
     items: [
       { id: 'primitives' as SectionId, label: 'Primitives' },
+      { id: 'events' as SectionId, label: 'Events' },
+      { id: 'factory' as SectionId, label: 'Factory' },
       { id: 'integration' as SectionId, label: 'SDK integration' },
     ],
   },
@@ -121,8 +134,16 @@ function SectionContent({ id }: { id: SectionId }) {
       return <Pinning />
     case 'sponsoring':
       return <Sponsoring />
+    case 'admin-rotation':
+      return <AdminRotation />
+    case 'governance':
+      return <Governance />
     case 'primitives':
       return <Primitives />
+    case 'events':
+      return <Events />
+    case 'factory':
+      return <FactoryReference />
     case 'integration':
       return <Integration />
     case 'workflow':
@@ -464,120 +485,11 @@ function Architecture() {
         />
       </dl>
 
-      <H3>Admin rotation — two flows</H3>
-      <P>
-        Both roles are rotatable but the mechanics differ on purpose —
-        the slower path covers the higher-impact role.
-      </P>
-      <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
-        <Actor
-          term="Role 1 — proxyAdmin (2-step)"
-          desc={
-            <>
-              Current admin calls <Code>transferProxyAdmin(newAdmin)</Code>,
-              which only sets <Code>pendingProxyAdmin</Code> — no powers
-              move. The target must then sign{' '}
-              <Code>acceptProxyAdmin()</Code> from their own wallet to
-              finalise. Until then the outgoing admin keeps full powers
-              and can overwrite the pending candidate. Defends against
-              fat-fingered transfers to dead or wrong addresses.
-            </>
-          }
-        />
-        <Actor
-          term="Role 2 — fee admins (instant, N addresses)"
-          desc={
-            <>
-              Whitelist-style. <Code>setWhitelistedAdmin(addr, true/false)</Code>{' '}
-              adds or removes in a single tx. Any fee admin can grant or
-              revoke any other — except the last one cannot self-revoke
-              (guards against stranding the proxy). Multiple fee admins
-              can coexist; all share the same powers.
-            </>
-          }
-        />
-        <Actor
-          term="Convenience — Grant both roles"
-          desc={
-            <>
-              When a single wallet holds both roles and wants to hand the
-              whole proxy off, the webapp exposes a combined flow that
-              fires <Code>setWhitelistedAdmin(new, true)</Code> then{' '}
-              <Code>transferProxyAdmin(new)</Code> back-to-back (2 sigs,
-              1 click). The target still has to{' '}
-              <Code>acceptProxyAdmin()</Code> from their side; acceptance
-              is auto-detected via the on-chain state poll. The outgoing
-              admin optionally revokes themselves as fee admin from the
-              new owner&apos;s wallet afterwards.
-            </>
-          }
-        />
-      </dl>
-
-      <H3>Governance — who can push what</H3>
-      <P>
-        Three distinct levels of &ldquo;pushing&rdquo; an implementation.
-        Mixing them up is the single most common source of confusion; worth
-        reading carefully.
-      </P>
-      <div className="overflow-x-auto rounded-xl border border-line bg-surface">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-[11px] font-medium uppercase tracking-wider text-subtle bg-canvas/60">
-              <th className="px-4 py-2.5">Level</th>
-              <th className="px-4 py-2.5">Who can do it</th>
-              <th className="px-4 py-2.5">Effect</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            <tr>
-              <td className="px-4 py-3 font-medium text-ink align-top">
-                Deploy an impl on-chain
-              </td>
-              <td className="px-4 py-3 text-muted align-top">Anyone</td>
-              <td className="px-4 py-3 text-muted align-top leading-relaxed">
-                Just a contract address with bytecode. Nobody runs it until
-                a proxy admin explicitly registers it. Permissionless,
-                inert by itself.
-              </td>
-            </tr>
-            <tr>
-              <td className="px-4 py-3 font-medium text-ink align-top">
-                Register an impl on a proxy
-              </td>
-              <td className="px-4 py-3 text-muted align-top">
-                The <Code>proxyAdmin</Code> of that specific proxy
-              </td>
-              <td className="px-4 py-3 text-muted align-top leading-relaxed">
-                Only that proxy gains access to the new impl — via{' '}
-                <Code>executeAtVersion</Code> once registered, or as the
-                runtime target after <Code>setDefaultVersion</Code>. All
-                other proxies are unaffected. No cross-proxy push possible.
-              </td>
-            </tr>
-            <tr>
-              <td className="px-4 py-3 font-medium text-ink align-top">
-                Publish in the canonical directory (<Code>CANONICAL_VERSIONS</Code>)
-              </td>
-              <td className="px-4 py-3 text-muted align-top">
-                Whoever has write access to the SDK repo (the team)
-              </td>
-              <td className="px-4 py-3 text-muted align-top leading-relaxed">
-                The impl shows up in the <Code>Register new version</Code>{' '}
-                dropdown of every hosted webapp running that SDK version.
-                <b className="text-ink"> Nothing on-chain changes.</b> Each
-                proxy admin still has to manually register + promote on
-                their own proxy for it to take effect.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <Callout title="No unilateral upgrades">
-        The team can ship and suggest a new version; it cannot force-push
-        it to anyone. This is the core decentralisation guarantee — a
-        compromised team key cannot cascade into a mass proxy upgrade.
-        Adoption is per-proxy, admin-driven, and opt-in.
+      <Callout title="Admin rotation + governance live in their own pages">
+        Role 1 / Role 2 rotation mechanics and the 3-level "who can push
+        an impl" model each have a dedicated page under{' '}
+        <b>Security</b> in the sidebar — kept here as pointers so
+        Architecture stays focused on runtime mechanics.
       </Callout>
 
       <H3>{isFee ? 'Fee economics' : 'Pool economics'}</H3>
@@ -1006,7 +918,158 @@ function Primitives() {
         />
       </dl>
 
-      <H3>Events (observable markers)</H3>
+    </div>
+  )
+}
+
+// ---- Admin rotation (Security) ----
+
+function AdminRotation() {
+  return (
+    <div className="space-y-5">
+      <PageHeader kicker="Security" title="Admin rotation" />
+      <P>
+        Both admin roles are rotatable, but the mechanics differ on
+        purpose — the slower path covers the higher-impact role.
+      </P>
+      <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
+        <Actor
+          term="Role 1 — proxyAdmin (2-step)"
+          desc={
+            <>
+              Current admin calls <Code>transferProxyAdmin(newAdmin)</Code>,
+              which only sets <Code>pendingProxyAdmin</Code> — no powers
+              move. The target must then sign{' '}
+              <Code>acceptProxyAdmin()</Code> from their own wallet to
+              finalise. Until then the outgoing admin keeps full powers
+              and can overwrite the pending candidate. Defends against
+              fat-fingered transfers to dead or wrong addresses.
+            </>
+          }
+        />
+        <Actor
+          term="Role 2 — fee admins (instant, N addresses)"
+          desc={
+            <>
+              Whitelist-style. <Code>setWhitelistedAdmin(addr, true/false)</Code>{' '}
+              adds or removes in a single tx. Any fee admin can grant or
+              revoke any other — except the last one cannot self-revoke
+              (guards against stranding the proxy). Multiple fee admins
+              can coexist; all share the same powers.
+            </>
+          }
+        />
+        <Actor
+          term="Convenience — Grant both roles"
+          desc={
+            <>
+              When a single wallet holds both roles and wants to hand the
+              whole proxy off, the webapp exposes a combined flow that
+              fires <Code>setWhitelistedAdmin(new, true)</Code> then{' '}
+              <Code>transferProxyAdmin(new)</Code> back-to-back (2 sigs,
+              1 click). The target still has to{' '}
+              <Code>acceptProxyAdmin()</Code> from their side; acceptance
+              is auto-detected via the on-chain state poll. The outgoing
+              admin optionally revokes themselves as fee admin from the
+              new owner&apos;s wallet afterwards.
+            </>
+          }
+        />
+      </dl>
+      <Callout title="Disjoint roles by design">
+        A compromise of one role does not cascade into the other. Keep
+        fee admins (money flow) and the proxyAdmin (logic upgrades) on
+        different wallets / Safes whenever possible.
+      </Callout>
+    </div>
+  )
+}
+
+// ---- Governance (Security) ----
+
+function Governance() {
+  return (
+    <div className="space-y-5">
+      <PageHeader kicker="Security" title="Governance — who can push what" />
+      <P>
+        Three distinct levels of &ldquo;pushing&rdquo; an implementation.
+        Mixing them up is the single most common source of confusion —
+        worth reading carefully.
+      </P>
+      <div className="overflow-x-auto rounded-xl border border-line bg-surface">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] font-medium uppercase tracking-wider text-subtle bg-canvas/60">
+              <th className="px-4 py-2.5">Level</th>
+              <th className="px-4 py-2.5">Who can do it</th>
+              <th className="px-4 py-2.5">Effect</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-line">
+            <tr>
+              <td className="px-4 py-3 font-medium text-ink align-top">
+                Deploy an impl on-chain
+              </td>
+              <td className="px-4 py-3 text-muted align-top">Anyone</td>
+              <td className="px-4 py-3 text-muted align-top leading-relaxed">
+                Just a contract address with bytecode. Nobody runs it until
+                a proxy admin explicitly registers it. Permissionless,
+                inert by itself.
+              </td>
+            </tr>
+            <tr>
+              <td className="px-4 py-3 font-medium text-ink align-top">
+                Register an impl on a proxy
+              </td>
+              <td className="px-4 py-3 text-muted align-top">
+                The <Code>proxyAdmin</Code> of that specific proxy
+              </td>
+              <td className="px-4 py-3 text-muted align-top leading-relaxed">
+                Only that proxy gains access to the new impl — via{' '}
+                <Code>executeAtVersion</Code> once registered, or as the
+                runtime target after <Code>setDefaultVersion</Code>. All
+                other proxies are unaffected. No cross-proxy push possible.
+              </td>
+            </tr>
+            <tr>
+              <td className="px-4 py-3 font-medium text-ink align-top">
+                Publish in the canonical directory (<Code>CANONICAL_VERSIONS</Code>)
+              </td>
+              <td className="px-4 py-3 text-muted align-top">
+                Whoever has write access to the SDK repo (the team)
+              </td>
+              <td className="px-4 py-3 text-muted align-top leading-relaxed">
+                The impl shows up in the <Code>Register new version</Code>{' '}
+                dropdown of every hosted webapp running that SDK version.
+                <b className="text-ink"> Nothing on-chain changes.</b> Each
+                proxy admin still has to manually register + promote on
+                their own proxy for it to take effect.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <Callout title="No unilateral upgrades">
+        The team can ship and suggest a new version; it cannot force-push
+        it to anyone. This is the core decentralisation guarantee — a
+        compromised team key cannot cascade into a mass proxy upgrade.
+        Adoption is per-proxy, admin-driven, and opt-in.
+      </Callout>
+    </div>
+  )
+}
+
+// ---- Events (Reference) ----
+
+function Events() {
+  return (
+    <div className="space-y-5">
+      <PageHeader kicker="Reference" title="Events" />
+      <P>
+        Observable markers emitted by the proxy on every write path.
+        Subscribe to these instead of polling view functions when
+        building indexers or dashboards.
+      </P>
       <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
         <Primitive
           term="VersionUsed(bytes32 indexed version, address indexed user) — V2.1+ only"
@@ -1016,13 +1079,30 @@ function Primitives() {
           term="MetricsUpdated(atoms, triples, deposits, volume, uniqueUsers, lastActivityBlock)"
           desc="Emitted on every write-path call with the post-update counters. Single source of truth for dashboards — no need to subscribe to individual setter events."
         />
+        <Primitive
+          term="FeesCollected(user, amount, operation)"
+          desc="Per-call fee attribution. Useful to reconstruct 'fees per user' time series off-chain."
+        />
+        <Primitive
+          term="AdminWhitelistUpdated(admin, status)"
+          desc="Used by the webapp's AdminsPanel to reconstruct the fee-admin list from logs. Status = true (granted) / false (revoked)."
+        />
       </dl>
+    </div>
+  )
+}
 
-      <H3>Factory (owner surface)</H3>
+// ---- Factory reference ----
+
+function FactoryReference() {
+  return (
+    <div className="space-y-5">
+      <PageHeader kicker="Reference" title="Factory (owner surface)" />
       <P>
         The Factory is UUPS-upgradeable. Its owner (a single address —
-        use a Safe) controls which canonical impl new proxies ship with.
-        Existing proxies are not affected — each keeps its own registry.
+        use a Safe for production) controls which canonical impl new
+        proxies ship with. Existing proxies are not affected — each
+        keeps its own registry and versions.
       </P>
       <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
         <Primitive
@@ -1041,7 +1121,18 @@ function Primitives() {
           term="currentImplementation() / sponsoredImplementation() → address"
           desc="Public views. The two impls a fresh proxy will be wired to, depending on channel."
         />
+        <Primitive
+          term="getAllProxies() → address[]"
+          desc="Public view. Full list of proxies ever deployed through this Factory, in deployment order. Backs the Explore page."
+        />
       </dl>
+      <Callout title="Owner power is bounded">
+        The owner can only change what a <em>future</em>{' '}
+        <Code>createProxy</Code> call will wire up. It cannot touch any
+        already-deployed proxy&apos;s registry, default version, fees,
+        admins, or pool. That authority stays with each proxy&apos;s own
+        admins.
+      </Callout>
     </div>
   )
 }
