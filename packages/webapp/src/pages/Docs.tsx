@@ -53,7 +53,10 @@ const GROUPS = [
   },
 ] as const
 
-const ALL_IDS = GROUPS.flatMap((g) => g.items.map((i) => i.id))
+const ALL_ITEMS: ReadonlyArray<{ id: SectionId; label: string }> =
+  GROUPS.flatMap((g) => g.items.map((i) => ({ id: i.id, label: i.label })))
+
+const ALL_IDS: ReadonlyArray<SectionId> = ALL_ITEMS.map((i) => i.id)
 
 export default function DocsPage() {
   const params = useParams<{ section?: SectionId }>()
@@ -136,7 +139,7 @@ function SectionFooter({ id }: { id: SectionId }) {
   if (!prev && !next) return null
 
   const labelOf = (sectionId: SectionId): string =>
-    GROUPS.flatMap((g) => g.items).find((i) => i.id === sectionId)?.label ?? ''
+    ALL_ITEMS.find((i) => i.id === sectionId)?.label ?? ''
 
   return (
     <div className="mt-16 flex items-center justify-between gap-4 border-t border-line pt-6 text-sm">

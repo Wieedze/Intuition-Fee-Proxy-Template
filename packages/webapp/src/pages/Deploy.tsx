@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { isAddress, parseEther, type Address } from 'viem'
 import { useAccount, useChainId, useWaitForTransactionReceipt } from 'wagmi'
 import { Link, useNavigate } from 'react-router-dom'
@@ -74,6 +74,15 @@ export default function DeployPage() {
     return (`0x${topic.slice(26)}` as Address)
   })()
 
+  // When the deploy settles, snap to top so the success card (above the
+  // form) is immediately visible — users clicking Deploy tend to be
+  // scrolled down at the submit button.
+  useEffect(() => {
+    if (receipt.isSuccess && newProxyAddress) {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }, [receipt.isSuccess, newProxyAddress])
+
   return (
     <div className="space-y-8 max-w-2xl mx-auto">
       <div className="space-y-2">
@@ -84,6 +93,30 @@ export default function DeployPage() {
           Configure fees and admins. The proxy is upgradeable via version registry.
         </p>
       </div>
+
+      {receipt.isSuccess && newProxyAddress && (
+        <div className="rounded-xl border border-brand/30 bg-brand/10 p-5 space-y-3">
+          <div className="text-sm font-medium text-brand">Proxy deployed</div>
+          <div className="font-mono text-xs text-ink break-all">
+            {newProxyAddress}
+          </div>
+          <div className="flex gap-4 pt-1 text-sm">
+            <Link
+              to={`/proxy/${newProxyAddress}`}
+              className="text-brand hover:opacity-80 transition-opacity"
+            >
+              Open detail →
+            </Link>
+            <button
+              type="button"
+              onClick={() => navigate('/my-proxies')}
+              className="text-muted hover:text-ink"
+            >
+              See all my proxies
+            </button>
+          </div>
+        </div>
+      )}
 
       {!factory && (
         <div className="rounded-lg border-l-4 border-l-brand border border-line bg-surface p-4 text-sm text-ink">
@@ -214,30 +247,6 @@ export default function DeployPage() {
           </p>
         )}
       </form>
-
-      {receipt.isSuccess && newProxyAddress && (
-        <div className="rounded-xl border border-brand/30 bg-brand/10 p-5 space-y-3">
-          <div className="text-sm font-medium text-brand">Proxy deployed</div>
-          <div className="font-mono text-xs text-ink break-all">
-            {newProxyAddress}
-          </div>
-          <div className="flex gap-4 pt-1 text-sm">
-            <Link
-              to={`/proxy/${newProxyAddress}`}
-              className="text-brand hover:opacity-80 transition-opacity"
-            >
-              Open detail →
-            </Link>
-            <button
-              type="button"
-              onClick={() => navigate('/my-proxies')}
-              className="text-muted hover:text-ink"
-            >
-              See all my proxies
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
