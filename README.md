@@ -97,9 +97,9 @@ The [.claude/](./.claude/) directory holds the planning, architecture, rules, an
 
 ## Security
 
-**The codebase has not been audited.** An external professional audit is a hard prerequisite before any mainnet launch.
+**The codebase has not been audited.** 
 
-What has been done is **two internal security-review passes** (self-review guided by Trail of Bits' [Building Secure Contracts](https://github.com/crytic/building-secure-contracts) checklist, plus static analysis). 25 items were flagged and addressed — most LOW/INFO defensive hardening. This is not a substitute for an external audit; it's documented here for transparency.
+What has been done is **two internal security-review passes** (self-review guided by Trail of Bits' [Building Secure Contracts](https://github.com/crytic/building-secure-contracts) checklist, plus static analysis) it's documented here for transparency.
 
 ### Trust model (what the admin can and can't do)
 
