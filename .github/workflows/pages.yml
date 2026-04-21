@@ -31,6 +31,15 @@ jobs:
       - name: Install workspace deps
         run: bun install --frozen-lockfile
 
+      - name: Compile contracts (produces artifacts + ABIs)
+        # ABIs are .gitignore'd — the SDK imports `./abis/*.json`, which
+        # only exist after hardhat compile + sync-abis. Without this step
+        # the next job fails with TS2307 "Cannot find module './abis/...'".
+        run: bun contracts:compile
+
+      - name: Sync compiled ABIs into the SDK
+        run: bun sdk:sync
+
       - name: Build SDK (generates dist/ consumed by the webapp)
         run: bun sdk:build
 
