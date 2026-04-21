@@ -59,8 +59,26 @@ export const CANONICAL_VERSIONS: Record<NetworkName, CanonicalRegistry> = {
     latest: {},
   },
   testnet: {
-    versions: {},
-    latest: {},
+    versions: {
+      'v2.0.0': {
+        label: 'v2.0.0',
+        impl: '0x26F81d723Ad1648194FAA4b7E235105Fd1212c6c',
+        family: 'standard',
+        review: { url: 'https://github.com/intuition/fee-proxy-review', date: '2026-04-21' },
+        summary: 'Initial canonical standard impl shipped with the Factory.',
+      },
+      'v2.0.0-sponsored': {
+        label: 'v2.0.0-sponsored',
+        impl: '0x4E20279EeE9f77673A4f1605E58607cD9A597d70',
+        family: 'sponsored',
+        review: { url: 'https://github.com/intuition/fee-proxy-review', date: '2026-04-21' },
+        summary: 'Initial canonical sponsored impl shipped with the Factory.',
+      },
+    },
+    latest: {
+      standard: 'v2.0.0',
+      sponsored: 'v2.0.0-sponsored',
+    },
   },
 }
 
