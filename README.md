@@ -109,11 +109,6 @@ What has been done is **two internal security-review passes** (self-review guide
 | Factory `owner` | Project Safe multisig | Update the default impl used for FUTURE deployments, UUPS-upgrade the Factory, rotate ownership (2-step via `Ownable2Step`) | Existing proxies untouched — each carries its own `proxyAdmin`. |
 | `whitelistedAdmin` | Per-proxy operator | Adjust fees (bounded 0–10%), add/remove admins, withdraw accumulated fees, fund/reclaim sponsor pool | Cannot mint shares on behalf of users (no `depositFor`). Cannot drain the sponsor pool past the credit-invariant (`balance ≥ sponsorPool + accumulatedFees`). |
 
-### Out of scope
-
-- **MultiVault core** — audited by the Intuition team, treated as a trusted dependency.
-- **Frontend key management** — users bring their own wallet (MetaMask, Rabby, Safe).
-- **Indexers and off-chain infra** — events are the source of truth.
 
 ### Defensive guarantees in the code
 
