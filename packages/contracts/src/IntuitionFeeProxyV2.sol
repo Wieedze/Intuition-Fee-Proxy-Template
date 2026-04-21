@@ -503,7 +503,7 @@ contract IntuitionFeeProxyV2 is
 
     // ============ Internal ============
 
-    function _accrueFee(uint256 fee, string memory operation, uint256 mvValue) internal {
+    function _accrueFee(uint256 fee, string memory operation, uint256 mvValue) internal virtual {
         if (fee > 0) {
             accumulatedFees += fee;
             totalFeesCollectedAllTime += fee;
