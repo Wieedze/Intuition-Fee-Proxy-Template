@@ -4,7 +4,6 @@ import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 import {
   IntuitionFeeProxyV2,
-  IntuitionFeeProxyV3Mock,
   MockMultiVault,
 } from "../typechain-types";
 
@@ -12,6 +11,8 @@ describe("IntuitionFeeProxyV2", function () {
   const DEPOSIT_FEE = ethers.parseEther("0.1"); // 0.1 TRUST fixed
   const DEPOSIT_PERCENTAGE = 500n; // 5%
   const FEE_DENOMINATOR = 10000n;
+
+  const INITIAL_VERSION = ethers.encodeBytes32String("v2.0.0");
 
   async function deployFixture() {
     const [deployer, admin1, admin2, admin3, user, nonAdmin, withdrawTo] =
@@ -32,8 +33,16 @@ describe("IntuitionFeeProxyV2", function () {
       [admin1.address, admin2.address, admin3.address],
     ]);
 
-    const ERC1967ProxyFactory = await ethers.getContractFactory("ERC1967Proxy");
-    const proxyDeployment = await ERC1967ProxyFactory.deploy(await impl.getAddress(), initData);
+    // Deploy the versioned proxy (ERC-7936) pointing at the V2 impl and
+    // delegating the initializer call on deployment.
+    const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
+    const proxyDeployment = await VersionedFactory.deploy(
+      admin1.address,          // proxy-admin = first admin in V2 admins list
+      INITIAL_VERSION,
+      await impl.getAddress(),
+      initData,
+      ethers.ZeroHash,
+    );
     await proxyDeployment.waitForDeployment();
 
     const proxy = (await ethers.getContractAt(
@@ -52,6 +61,7 @@ describe("IntuitionFeeProxyV2", function () {
       impl,
       mockMultiVault,
       proxy,
+      proxyAddress: await proxyDeployment.getAddress(),
     };
   }
 
@@ -107,9 +117,9 @@ describe("IntuitionFeeProxyV2", function () {
         DEPOSIT_PERCENTAGE,
         [admin1.address],
       ]);
-      const ERC1967ProxyFactory = await ethers.getContractFactory("ERC1967Proxy");
+      const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       await expect(
-        ERC1967ProxyFactory.deploy(await impl.getAddress(), initData)
+        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData, ethers.ZeroHash)
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_InvalidMultiVaultAddress");
     });
 
@@ -123,14 +133,14 @@ describe("IntuitionFeeProxyV2", function () {
         10001n,
         [admin1.address],
       ]);
-      const ERC1967ProxyFactory = await ethers.getContractFactory("ERC1967Proxy");
+      const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       await expect(
-        ERC1967ProxyFactory.deploy(await impl.getAddress(), initData)
+        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData, ethers.ZeroHash)
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_FeePercentageTooHigh");
     });
 
     it("reverts on empty admin list", async function () {
-      const { mockMultiVault } = await loadFixture(deployFixture);
+      const { admin1, mockMultiVault } = await loadFixture(deployFixture);
       const ImplFactory = await ethers.getContractFactory("IntuitionFeeProxyV2");
       const impl = await ImplFactory.deploy();
       const initData = impl.interface.encodeFunctionData("initialize", [
@@ -139,14 +149,14 @@ describe("IntuitionFeeProxyV2", function () {
         DEPOSIT_PERCENTAGE,
         [],
       ]);
-      const ERC1967ProxyFactory = await ethers.getContractFactory("ERC1967Proxy");
+      const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       await expect(
-        ERC1967ProxyFactory.deploy(await impl.getAddress(), initData)
+        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData, ethers.ZeroHash)
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_NoAdminsProvided");
     });
 
     it("reverts when every admin entry is zero", async function () {
-      const { mockMultiVault } = await loadFixture(deployFixture);
+      const { admin1, mockMultiVault } = await loadFixture(deployFixture);
       const ImplFactory = await ethers.getContractFactory("IntuitionFeeProxyV2");
       const impl = await ImplFactory.deploy();
       const initData = impl.interface.encodeFunctionData("initialize", [
@@ -155,9 +165,9 @@ describe("IntuitionFeeProxyV2", function () {
         DEPOSIT_PERCENTAGE,
         [ethers.ZeroAddress, ethers.ZeroAddress],
       ]);
-      const ERC1967ProxyFactory = await ethers.getContractFactory("ERC1967Proxy");
+      const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
       await expect(
-        ERC1967ProxyFactory.deploy(await impl.getAddress(), initData)
+        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData, ethers.ZeroHash)
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_NoAdminsProvided");
     });
 
@@ -172,8 +182,14 @@ describe("IntuitionFeeProxyV2", function () {
         DEPOSIT_PERCENTAGE,
         [alice.address, ethers.ZeroAddress, alice.address],
       ]);
-      const ERC1967ProxyFactory = await ethers.getContractFactory("ERC1967Proxy");
-      const p = await ERC1967ProxyFactory.deploy(await impl.getAddress(), initData);
+      const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
+      const p = await VersionedFactory.deploy(
+        alice.address,
+        INITIAL_VERSION,
+        await impl.getAddress(),
+        initData,
+        ethers.ZeroHash,
+      );
       const typed = (await ethers.getContractAt(
         "IntuitionFeeProxyV2",
         await p.getAddress()
@@ -494,65 +510,6 @@ describe("IntuitionFeeProxyV2", function () {
     });
   });
 
-  // ============ UUPS upgrade ============
-
-  describe("UUPS upgrade", function () {
-    async function deployV3(): Promise<string> {
-      const V3Factory = await ethers.getContractFactory("IntuitionFeeProxyV3Mock");
-      const v3 = await V3Factory.deploy();
-      await v3.waitForDeployment();
-      return await v3.getAddress();
-    }
-
-    it("lets an admin upgrade the implementation", async function () {
-      const { proxy, admin1 } = await loadFixture(deployFixture);
-      const v3Addr = await deployV3();
-
-      await proxy.connect(admin1).upgradeToAndCall(v3Addr, "0x");
-
-      const upgraded = (await ethers.getContractAt(
-        "IntuitionFeeProxyV3Mock",
-        await proxy.getAddress()
-      )) as unknown as IntuitionFeeProxyV3Mock;
-      expect(await upgraded.version()).to.equal("v3-mock");
-    });
-
-    it("blocks non-admins from upgrading", async function () {
-      const { proxy, nonAdmin } = await loadFixture(deployFixture);
-      const v3Addr = await deployV3();
-
-      await expect(
-        proxy.connect(nonAdmin).upgradeToAndCall(v3Addr, "0x")
-      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_NotWhitelistedAdmin");
-    });
-
-    it("preserves storage across upgrade", async function () {
-      const { proxy, admin1, user, mockMultiVault } = await loadFixture(deployFixture);
-
-      const termId = ethers.zeroPadValue("0x01", 32);
-      const total = await proxy.getTotalDepositCost(ethers.parseEther("1"));
-      await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
-      const accBefore = await proxy.accumulatedFees();
-      const totBefore = await proxy.totalFeesCollectedAllTime();
-
-      const v3Addr = await deployV3();
-      await proxy.connect(admin1).upgradeToAndCall(v3Addr, "0x");
-
-      const upgraded = (await ethers.getContractAt(
-        "IntuitionFeeProxyV3Mock",
-        await proxy.getAddress()
-      )) as unknown as IntuitionFeeProxyV3Mock;
-
-      expect(await upgraded.accumulatedFees()).to.equal(accBefore);
-      expect(await upgraded.totalFeesCollectedAllTime()).to.equal(totBefore);
-      expect(await upgraded.ethMultiVault()).to.equal(await mockMultiVault.getAddress());
-      expect(await upgraded.depositFixedFee()).to.equal(DEPOSIT_FEE);
-      expect(await upgraded.depositPercentageFee()).to.equal(DEPOSIT_PERCENTAGE);
-      expect(await upgraded.adminCount()).to.equal(3n);
-      expect(await upgraded.whitelistedAdmins(admin1.address)).to.be.true;
-    });
-  });
-
   // ============ No receive() ============
 
   describe("No receive()", function () {
@@ -624,6 +581,237 @@ describe("IntuitionFeeProxyV2", function () {
           { value: ethers.parseEther("2") }
         )
       ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_WrongArrayLengths");
+    });
+  });
+
+  // ============ Excess msg.value refund (H-01) ============
+
+  describe("Excess msg.value refund (H-01)", function () {
+    it("createAtoms refunds excess so contract balance == accumulatedFees", async function () {
+      const { proxy, user, mockMultiVault } = await loadFixture(deployFixture);
+      const atomCost = await mockMultiVault.getAtomCost();
+      const data = [ethers.toUtf8Bytes("a")];
+      const assets = [ethers.parseEther("1")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = atomCost + assets[0] + fee;
+      const overpay = ethers.parseEther("0.5");
+
+      await proxy.connect(user).createAtoms(data, assets, 1n, {
+        value: totalRequired + overpay,
+      });
+
+      const accumulated = await proxy.accumulatedFees();
+      const balance = await ethers.provider.getBalance(await proxy.getAddress());
+      expect(balance).to.equal(accumulated);
+      expect(accumulated).to.equal(fee);
+    });
+
+    it("createTriples refunds excess so contract balance == accumulatedFees", async function () {
+      const { proxy, user, mockMultiVault } = await loadFixture(deployFixture);
+      const tripleCost = await mockMultiVault.getTripleCost();
+      const s = ethers.zeroPadValue("0x01", 32);
+      const p = ethers.zeroPadValue("0x02", 32);
+      const o = ethers.zeroPadValue("0x03", 32);
+      const assets = [ethers.parseEther("0.5")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = tripleCost + assets[0] + fee;
+      const overpay = ethers.parseEther("1");
+
+      await proxy.connect(user).createTriples([s], [p], [o], assets, 1n, {
+        value: totalRequired + overpay,
+      });
+
+      const accumulated = await proxy.accumulatedFees();
+      const balance = await ethers.provider.getBalance(await proxy.getAddress());
+      expect(balance).to.equal(accumulated);
+      expect(accumulated).to.equal(fee);
+    });
+
+    it("depositBatch refunds excess so contract balance == accumulatedFees", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termId = ethers.zeroPadValue("0x01", 32);
+      const assets = [ethers.parseEther("1"), ethers.parseEther("2")];
+      const totalDeposit = assets[0] + assets[1];
+      const fee = DEPOSIT_FEE * 2n + (totalDeposit * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = totalDeposit + fee;
+      const overpay = ethers.parseEther("0.75");
+
+      await proxy
+        .connect(user)
+        .depositBatch([termId, termId], [1n, 1n], assets, [0n, 0n], {
+          value: totalRequired + overpay,
+        });
+
+      const accumulated = await proxy.accumulatedFees();
+      const balance = await ethers.provider.getBalance(await proxy.getAddress());
+      expect(balance).to.equal(accumulated);
+    });
+
+    it("proxy balance only grows by fee (excess credited back, not retained)", async function () {
+      const { proxy, user, mockMultiVault } = await loadFixture(deployFixture);
+      const atomCost = await mockMultiVault.getAtomCost();
+      const data = [ethers.toUtf8Bytes("a")];
+      const assets = [ethers.parseEther("1")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = atomCost + assets[0] + fee;
+      const overpay = ethers.parseEther("0.5");
+
+      await expect(
+        proxy.connect(user).createAtoms(data, assets, 1n, {
+          value: totalRequired + overpay,
+        })
+      ).to.changeEtherBalance(proxy, fee);
+    });
+
+    it("exact msg.value produces no refund and no stuck ETH", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termId = ethers.zeroPadValue("0x01", 32);
+      const assets = [ethers.parseEther("1")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = assets[0] + fee;
+
+      await proxy
+        .connect(user)
+        .depositBatch([termId], [1n], assets, [0n], { value: totalRequired });
+
+      expect(await ethers.provider.getBalance(await proxy.getAddress())).to.equal(
+        await proxy.accumulatedFees()
+      );
+    });
+  });
+
+  // ============ Metrics ============
+
+  describe("Metrics", function () {
+    it("initial state is all-zero", async function () {
+      const { proxy } = await loadFixture(deployFixture);
+      expect(await proxy.totalAtomsCreated()).to.equal(0n);
+      expect(await proxy.totalTriplesCreated()).to.equal(0n);
+      expect(await proxy.totalDeposits()).to.equal(0n);
+      expect(await proxy.totalVolume()).to.equal(0n);
+      expect(await proxy.totalUniqueUsers()).to.equal(0n);
+      expect(await proxy.lastActivityBlock()).to.equal(0n);
+    });
+
+    it("deposit increments totalDeposits / totalVolume / uniqueUsers and sets lastActivityBlock", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termId = ethers.encodeBytes32String("term1");
+      const total = ethers.parseEther("1");
+
+      const tx = await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      const rc = await tx.wait();
+
+      const multiVaultAmount = (total - DEPOSIT_FEE) * FEE_DENOMINATOR / (FEE_DENOMINATOR + DEPOSIT_PERCENTAGE);
+      expect(await proxy.totalDeposits()).to.equal(1n);
+      expect(await proxy.totalVolume()).to.equal(multiVaultAmount);
+      expect(await proxy.totalUniqueUsers()).to.equal(1n);
+      expect(await proxy.totalAtomsCreated()).to.equal(0n);
+      expect(await proxy.totalTriplesCreated()).to.equal(0n);
+      expect(await proxy.lastActivityBlock()).to.equal(BigInt(rc!.blockNumber));
+    });
+
+    it("createAtoms increments totalAtomsCreated + totalDeposits (non-zero assets only)", async function () {
+      const { proxy, mockMultiVault, user } = await loadFixture(deployFixture);
+      const atomCost = await mockMultiVault.getAtomCost();
+
+      // 3 atoms, 2 with non-zero deposit
+      const data = [
+        ethers.toUtf8Bytes("atom-a"),
+        ethers.toUtf8Bytes("atom-b"),
+        ethers.toUtf8Bytes("atom-c"),
+      ];
+      const assets = [ethers.parseEther("0.5"), 0n, ethers.parseEther("0.3")];
+      const totalAssets = assets[0] + assets[1] + assets[2];
+      const nonZeroCount = 2n;
+      const fee = DEPOSIT_FEE * nonZeroCount + (totalAssets * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const value = fee + atomCost * 3n + totalAssets;
+
+      await proxy.connect(user).createAtoms(data, assets, 1n, { value });
+
+      expect(await proxy.totalAtomsCreated()).to.equal(3n);
+      expect(await proxy.totalDeposits()).to.equal(nonZeroCount);
+      expect(await proxy.totalVolume()).to.equal(totalAssets);
+      expect(await proxy.totalUniqueUsers()).to.equal(1n);
+    });
+
+    it("createTriples increments totalTriplesCreated", async function () {
+      const { proxy, mockMultiVault, user } = await loadFixture(deployFixture);
+      const tripleCost = await mockMultiVault.getTripleCost();
+
+      const subjectIds = [ethers.encodeBytes32String("s1"), ethers.encodeBytes32String("s2")];
+      const predicateIds = [ethers.encodeBytes32String("p1"), ethers.encodeBytes32String("p2")];
+      const objectIds = [ethers.encodeBytes32String("o1"), ethers.encodeBytes32String("o2")];
+      const assets = [0n, 0n];
+      const value = tripleCost * 2n;
+
+      await proxy.connect(user).createTriples(subjectIds, predicateIds, objectIds, assets, 1n, { value });
+
+      expect(await proxy.totalTriplesCreated()).to.equal(2n);
+      expect(await proxy.totalDeposits()).to.equal(0n); // all assets zero
+      expect(await proxy.totalUniqueUsers()).to.equal(1n);
+    });
+
+    it("depositBatch counts each term as a deposit and sums the volume", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termIds = [ethers.encodeBytes32String("t1"), ethers.encodeBytes32String("t2")];
+      const curveIds = [1n, 1n];
+      const assets = [ethers.parseEther("0.5"), ethers.parseEther("0.5")];
+      const minShares = [0n, 0n];
+      const totalDeposit = assets[0] + assets[1];
+      const fee = DEPOSIT_FEE * 2n + (totalDeposit * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+
+      await proxy.connect(user).depositBatch(termIds, curveIds, assets, minShares, {
+        value: totalDeposit + fee,
+      });
+
+      expect(await proxy.totalDeposits()).to.equal(2n);
+      expect(await proxy.totalVolume()).to.equal(totalDeposit);
+    });
+
+    it("uniqueUsers counts each address only once across multiple calls", async function () {
+      const { proxy, user, admin1 } = await loadFixture(deployFixture);
+      const termId = ethers.encodeBytes32String("term1");
+      const total = ethers.parseEther("1");
+
+      await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      expect(await proxy.totalUniqueUsers()).to.equal(1n);
+
+      await proxy.connect(admin1).deposit(termId, 1n, 0n, { value: total });
+      expect(await proxy.totalUniqueUsers()).to.equal(2n);
+    });
+
+    it("hasInteracted reflects first-touch status", async function () {
+      const { proxy, user, admin1 } = await loadFixture(deployFixture);
+      expect(await proxy.hasInteracted(user.address)).to.be.false;
+
+      const termId = ethers.encodeBytes32String("term1");
+      await proxy.connect(user).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") });
+
+      expect(await proxy.hasInteracted(user.address)).to.be.true;
+      expect(await proxy.hasInteracted(admin1.address)).to.be.false;
+    });
+
+    it("getMetrics returns the full aggregate tuple", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termId = ethers.encodeBytes32String("term1");
+      await proxy.connect(user).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") });
+
+      const m = await proxy.getMetrics();
+      expect(m.totalAtomsCreated).to.equal(0n);
+      expect(m.totalTriplesCreated).to.equal(0n);
+      expect(m.totalDeposits).to.equal(1n);
+      expect(m.totalVolume).to.be.gt(0n);
+      expect(m.totalUniqueUsers).to.equal(1n);
+      expect(m.lastActivityBlock).to.be.gt(0n);
+    });
+
+    it("emits MetricsUpdated on every write-path call", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termId = ethers.encodeBytes32String("term1");
+      await expect(
+        proxy.connect(user).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") })
+      ).to.emit(proxy, "MetricsUpdated");
     });
   });
 });

@@ -10,17 +10,18 @@ import { useDeployProxy } from '../hooks/useFactory'
 const FEE_DENOMINATOR = 10_000n
 
 export default function DeployPage() {
-  const { address: account, isConnected } = useAccount()
+  const { isConnected } = useAccount()
   const chainId = useChainId()
   const network = networkFor(chainId)
   const navigate = useNavigate()
 
   const defaultMV = MULTIVAULT_ADDRESSES[network]
 
+  const [name, setName] = useState<string>('')
   const [ethMultiVault, setEthMultiVault] = useState<string>(defaultMV)
   const [fixedFeeEth, setFixedFeeEth] = useState<string>('0.1')
   const [percentageBps, setPercentageBps] = useState<string>('500')
-  const [adminsRaw, setAdminsRaw] = useState<string>(account ?? '')
+  const [adminsRaw, setAdminsRaw] = useState<string>('')
 
   const { deploy, hash, isPending, error, factory } = useDeployProxy()
   const receipt = useWaitForTransactionReceipt({ hash })
@@ -37,8 +38,10 @@ export default function DeployPage() {
     return Number.isInteger(n) && n >= 0 && n <= Number(FEE_DENOMINATOR)
   })()
   const fixedValid = Number(fixedFeeEth) >= 0
+  const nameValid = new Blob([name]).size <= 32
 
-  const canSubmit = isConnected && factory && adminsValid && mvValid && pctValid && fixedValid
+  const canSubmit =
+    isConnected && factory && adminsValid && mvValid && pctValid && fixedValid && nameValid
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -49,6 +52,7 @@ export default function DeployPage() {
         depositFixedFee: parseEther(fixedFeeEth),
         depositPercentageFee: BigInt(percentageBps),
         admins: admins as Address[],
+        name: name.trim(),
       })
     } catch (err) {
       console.error(err)
@@ -70,19 +74,47 @@ export default function DeployPage() {
   })()
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <h1 className="text-3xl font-bold">Deploy a new Fee Proxy</h1>
+    <div className="space-y-8 max-w-2xl mx-auto">
+      <div className="space-y-2">
+        <h1 className="text-3xl font-semibold tracking-tight text-ink">
+          Deploy a fee proxy
+        </h1>
+        <p className="text-sm text-muted">
+          Configure fees and admins. The proxy is upgradeable via version registry.
+        </p>
+      </div>
 
       {!factory && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-          Factory address is not configured for <b>{network}</b>. Set{' '}
-          <code>VITE_FACTORY_ADDRESS</code> (and <code>VITE_IMPLEMENTATION_ADDRESS</code>)
-          in <code>packages/webapp/.env.local</code> or deploy the contracts and update
-          <code> V2_ADDRESSES</code> in the SDK.
+        <div className="rounded-lg border-l-4 border-l-brand border border-line bg-surface p-4 text-sm text-ink">
+          <b>No factory address for <code className="font-mono text-muted">{network}</code>.</b>{' '}
+          <span className="text-muted">
+            Set <code className="font-mono text-brand">VITE_FACTORY_ADDRESS</code> and{' '}
+            <code className="font-mono text-brand">VITE_IMPLEMENTATION_ADDRESS</code> in{' '}
+            <code className="font-mono">packages/webapp/.env.local</code>, or deploy the contracts and
+            update <code className="font-mono">V2_ADDRESSES</code> in the SDK.
+          </span>
         </div>
       )}
 
       <form onSubmit={onSubmit} className="space-y-5">
+        <Field
+          label="Name (optional)"
+          hint="Human-readable label — max 32 bytes. Editable later by the proxy admin. Leave empty for an unnamed proxy."
+        >
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="input"
+            placeholder="My DAO Fees"
+            maxLength={32}
+          />
+          {!nameValid && (
+            <p className="text-xs text-rose-400 mt-1">
+              Name too long — max 32 bytes (≈ 32 ASCII chars).
+            </p>
+          )}
+        </Field>
+
         <Field
           label="MultiVault address"
           hint="Intuition MultiVault contract this proxy will wrap."
@@ -94,7 +126,7 @@ export default function DeployPage() {
             placeholder="0x…"
           />
           {!mvValid && ethMultiVault && (
-            <p className="text-xs text-red-600 mt-1">Invalid address.</p>
+            <p className="text-xs text-rose-400 mt-1">Invalid address.</p>
           )}
         </Field>
 
@@ -122,7 +154,7 @@ export default function DeployPage() {
               placeholder="500"
             />
             {!pctValid && (
-              <p className="text-xs text-red-600 mt-1">
+              <p className="text-xs text-rose-400 mt-1">
                 Integer in [0, 10000] (500 = 5%).
               </p>
             )}
@@ -140,18 +172,23 @@ export default function DeployPage() {
             className="input font-mono text-xs"
             placeholder="0x…&#10;0x…"
           />
+          <div className="mt-2 rounded-md border border-brand/30 bg-brand/10 px-3 py-2 text-xs text-ink">
+            <span className="font-medium text-brand">Heads up — </span>
+            use a multisig (e.g. a Safe) as admin. A single EOA is a single
+            point of failure for fee withdrawals and version upgrades.
+          </div>
           {adminsRaw && !adminsValid && (
-            <p className="text-xs text-red-600 mt-1">
+            <p className="text-xs text-rose-400 mt-1">
               Every line must be a valid address.
             </p>
           )}
         </Field>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 pt-1">
           <button
             type="submit"
             disabled={!canSubmit || isPending || receipt.isLoading}
-            className="rounded-md bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-400"
+            className="btn-primary text-base px-5 py-3"
           >
             {isPending
               ? 'Confirm in wallet…'
@@ -160,29 +197,34 @@ export default function DeployPage() {
                 : 'Deploy'}
           </button>
           {!isConnected && (
-            <span className="text-sm text-gray-600">Connect wallet first.</span>
+            <span className="text-sm text-subtle">Connect wallet first.</span>
           )}
         </div>
 
         {error && (
-          <p className="text-sm text-red-700">
+          <p className="text-sm text-rose-400 font-mono">
             {error.message.split('\n')[0]}
           </p>
         )}
       </form>
 
       {receipt.isSuccess && newProxyAddress && (
-        <div className="rounded-md border border-green-300 bg-green-50 p-4 space-y-2 text-sm">
-          <div className="font-semibold text-green-900">Proxy deployed!</div>
-          <div className="font-mono break-all">{newProxyAddress}</div>
-          <div className="flex gap-3 pt-1">
-            <Link to={`/proxy/${newProxyAddress}`} className="underline">
+        <div className="rounded-xl border border-brand/30 bg-brand/10 p-5 space-y-3">
+          <div className="text-sm font-medium text-brand">Proxy deployed</div>
+          <div className="font-mono text-xs text-ink break-all">
+            {newProxyAddress}
+          </div>
+          <div className="flex gap-4 pt-1 text-sm">
+            <Link
+              to={`/proxy/${newProxyAddress}`}
+              className="text-brand hover:opacity-80 transition-opacity"
+            >
               Open detail →
             </Link>
             <button
               type="button"
               onClick={() => navigate('/my-proxies')}
-              className="underline text-left"
+              className="text-muted hover:text-ink"
             >
               See all my proxies
             </button>
@@ -203,9 +245,9 @@ function Field({
   children: ReactNode
 }) {
   return (
-    <label className="block space-y-1">
-      <div className="text-sm font-medium">{label}</div>
-      {hint && <div className="text-xs text-gray-500">{hint}</div>}
+    <label className="block space-y-1.5">
+      <div className="text-sm font-medium text-ink">{label}</div>
+      {hint && <div className="text-xs text-subtle">{hint}</div>}
       {children}
     </label>
   )

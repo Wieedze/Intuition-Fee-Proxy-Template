@@ -53,8 +53,60 @@ library Errors {
     /// @notice Direct ETH transfer rejected (no `receive()` in V2) — kept for documentation
     error IntuitionFeeProxy_DirectTransferNotAllowed();
 
+    /// @notice Refund of excess `msg.value` to the caller failed
+    error IntuitionFeeProxy_RefundFailed();
+
     // ============ Factory errors ============
 
     /// @notice Factory received an invalid implementation (zero address or not a contract)
     error IntuitionFeeProxyFactory_InvalidImplementation();
+
+    /// @notice Factory received an invalid version identifier (bytes32(0))
+    error IntuitionFeeProxyFactory_InvalidVersion();
+
+    // ============ VersionedFeeProxy (ERC-7936) errors ============
+
+    /// @notice Caller is not the proxy-admin (the address gated for registerVersion / setDefaultVersion / removeVersion)
+    error VersionedFeeProxy_NotProxyAdmin();
+
+    /// @notice Implementation address is zero or not a contract
+    error VersionedFeeProxy_InvalidImplementation();
+
+    /// @notice Version identifier is zero (reserved as "none")
+    error VersionedFeeProxy_InvalidVersion();
+
+    /// @notice Version already registered — use a new identifier
+    error VersionedFeeProxy_VersionExists();
+
+    /// @notice No implementation registered for this version
+    error VersionedFeeProxy_VersionNotFound();
+
+    /// @notice Cannot remove the current default version — switch default first
+    error VersionedFeeProxy_CannotRemoveDefault();
+
+    /// @notice Delegatecall into the versioned implementation failed without returndata
+    error VersionedFeeProxy_DelegateCallFailed();
+
+    // ============ Sponsored-proxy errors ============
+
+    /// @notice Admin tried to credit / uncredit zero amount
+    error Sponsored_NothingToCredit();
+
+    /// @notice Admin tried to reclaim more credit than the user currently holds
+    error Sponsored_InsufficientClaim();
+
+    /// @notice Refund of unspent credit failed
+    error Sponsored_RefundFailed();
+
+    /// @notice Withdraw would breach the totalSponsoredCredit invariant (balance - amount < totalSponsoredCredit)
+    error Sponsored_WithdrawBreachesCreditInvariant();
+
+    /// @notice `receiver` for a *For function is zero
+    error Sponsored_ZeroReceiver();
+
+    /// @notice User has hit `maxClaimsPerDay` in the current 24h window
+    error Sponsored_RateLimited();
+
+    /// @notice setClaimLimits called with zero max — zero is never "unlimited", it's zero
+    error Sponsored_InvalidLimit();
 }

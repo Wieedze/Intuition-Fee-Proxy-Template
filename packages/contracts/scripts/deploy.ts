@@ -1,126 +1,153 @@
-import { ethers } from "hardhat";
+import { ethers, network } from "hardhat";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
-// ============ MultiVault Addresses ============
-const MULTIVAULT_INTUITION = "0x6E35cF57A41fA15eA0EaE9C33e751b01A784Fe7e";  // Intuition Mainnet (chain ID: 1155)
-const MULTIVAULT_TESTNET = "0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91";    // Intuition Testnet (chain ID: 13579)
+// Known MultiVault addresses. On chainId 31337 we deploy a MockMultiVault.
+const MULTIVAULT_INTUITION = "0x6E35cF57A41fA15eA0EaE9C33e751b01A784Fe7e";
+const MULTIVAULT_TESTNET = "0x2Ece8D4dEdcB9918A398528f3fa4688b1d2CAB91";
+
+const DEFAULT_VERSION_LABEL = process.env.INITIAL_VERSION || "v2.0.0";
 
 async function main() {
   const [deployer] = await ethers.getSigners();
-  console.log("Deploying contracts with account:", deployer.address);
-  console.log("Account balance:", ethers.formatEther(await ethers.provider.getBalance(deployer.address)));
+  const { chainId } = await ethers.provider.getNetwork();
+  const balance = await ethers.provider.getBalance(deployer.address);
 
-  // ============ CONFIGURATION - EDIT THESE VALUES ============
+  console.log("─".repeat(60));
+  console.log(`Network:     ${network.name} (chainId ${chainId})`);
+  console.log(`Deployer:    ${deployer.address}`);
+  console.log(`Balance:     ${ethers.formatEther(balance)} ETH/TRUST`);
+  console.log("─".repeat(60));
 
-  // Fee recipient address (receives all collected fees)
-  // IMPORTANT: Use an address on the SAME CHAIN you're deploying to
-  const FEE_RECIPIENT = process.env.FEE_RECIPIENT;
-  if (!FEE_RECIPIENT) {
-    throw new Error("Missing FEE_RECIPIENT environment variable");
-  }
-
-  // Admin addresses (can modify fees and settings)
-  const admin1 = process.env.ADMIN_1;
-  const admin2 = process.env.ADMIN_2;
-  if (!admin1) {
-    throw new Error("Missing ADMIN_1 environment variable");
-  }
-  const admins = admin2 ? [admin1, admin2] : [admin1];
-
-  // Fee configuration - FEES ARE ONLY APPLIED ON DEPOSITS
-  const DEPOSIT_FIXED_FEE = ethers.parseEther(process.env.DEPOSIT_FEE || "0.1");   // Fixed fee per deposit (default: 0.1 TRUST)
-  const DEPOSIT_PERCENTAGE = BigInt(process.env.DEPOSIT_PERCENTAGE || "500");      // Percentage fee (500 = 5%, base 10000)
-
-  // ============ END CONFIGURATION ============
-
-  // Select MultiVault address based on network
+  // ── 1. Resolve or deploy MultiVault ──────────────────────────────
   let multiVault: string;
-  const chainId = (await ethers.provider.getNetwork()).chainId;
-
-  if (chainId === 1155n) {
-    multiVault = MULTIVAULT_INTUITION;
-    console.log("Deploying to Intuition Mainnet");
+  if (chainId === 31337n) {
+    console.log("\n① Deploying MockMultiVault (local network)…");
+    const Mock = await ethers.getContractFactory("MockMultiVault");
+    const mock = await Mock.deploy();
+    await mock.waitForDeployment();
+    multiVault = await mock.getAddress();
+    console.log(`   MockMultiVault → ${multiVault}`);
   } else if (chainId === 13579n) {
     multiVault = MULTIVAULT_TESTNET;
-    console.log("Deploying to Intuition Testnet");
-  } else if (chainId === 31337n) {
-    multiVault = MULTIVAULT_TESTNET;
-    console.log("Deploying to local network");
+    console.log(`\n① Using Intuition Testnet MultiVault: ${multiVault}`);
+  } else if (chainId === 1155n) {
+    multiVault = MULTIVAULT_INTUITION;
+    console.log(`\n① Using Intuition Mainnet MultiVault: ${multiVault}`);
   } else {
-    throw new Error(`Unsupported chain ID: ${chainId}. Supported: 1155 (Mainnet), 13579 (Testnet)`);
+    throw new Error(
+      `Unsupported chainId ${chainId}. Supported: 31337 (local), 13579 (testnet), 1155 (mainnet).`,
+    );
   }
 
-  console.log("\nConfiguration:");
-  console.log("- MultiVault address:", multiVault);
-  console.log("- Fee recipient:", FEE_RECIPIENT);
-  console.log("- Admins:", admins.join(", "));
-  console.log("- Deposit fixed fee:", ethers.formatEther(DEPOSIT_FIXED_FEE), "TRUST");
-  console.log("- Deposit percentage:", Number(DEPOSIT_PERCENTAGE) / 100, "%");
+  // ── 2. Deploy V2 logic implementation ────────────────────────────
+  console.log("\n② Deploying IntuitionFeeProxyV2 (logic impl)…");
+  const V2Factory = await ethers.getContractFactory("IntuitionFeeProxyV2");
+  const v2Impl = await V2Factory.deploy();
+  await v2Impl.waitForDeployment();
+  const v2Addr = await v2Impl.getAddress();
+  console.log(`   IntuitionFeeProxyV2          → ${v2Addr}`);
 
-  // Deploy IntuitionFeeProxy
-  console.log("\nDeploying IntuitionFeeProxy...");
-  const IntuitionFeeProxy = await ethers.getContractFactory("IntuitionFeeProxy");
-  const proxy = await IntuitionFeeProxy.deploy(
-    multiVault,
-    FEE_RECIPIENT,
-    DEPOSIT_FIXED_FEE,
-    DEPOSIT_PERCENTAGE,
-    admins
-  );
+  // ── 2b. Deploy V2 Sponsored logic implementation ─────────────────
+  console.log("\n② Deploying IntuitionFeeProxyV2Sponsored (sponsored channel)…");
+  const V2SFactory = await ethers.getContractFactory("IntuitionFeeProxyV2Sponsored");
+  const v2sImpl = await V2SFactory.deploy();
+  await v2sImpl.waitForDeployment();
+  const v2sAddr = await v2sImpl.getAddress();
+  console.log(`   IntuitionFeeProxyV2Sponsored → ${v2sAddr}`);
 
-  await proxy.waitForDeployment();
-  const proxyAddress = await proxy.getAddress();
+  // ── 3. Deploy Factory implementation (UUPS) ──────────────────────
+  console.log("\n③ Deploying IntuitionFeeProxyFactory implementation…");
+  const FactoryFactory = await ethers.getContractFactory("IntuitionFeeProxyFactory");
+  const factoryImpl = await FactoryFactory.deploy();
+  await factoryImpl.waitForDeployment();
+  const factoryImplAddr = await factoryImpl.getAddress();
+  console.log(`   Factory impl                 → ${factoryImplAddr}`);
 
-  console.log("\n========================================");
-  console.log("IntuitionFeeProxy deployed successfully!");
-  console.log("Contract address:", proxyAddress);
-  console.log("========================================");
+  // ── 4. Deploy ERC1967 proxy for Factory + initialize ─────────────
+  console.log("\n④ Deploying ERC1967Proxy for the Factory + initialize…");
+  const initialVersion = ethers.encodeBytes32String(DEFAULT_VERSION_LABEL);
+  const sponsoredVersion = ethers.encodeBytes32String(DEFAULT_VERSION_LABEL + "-sponsored");
+  const initData = factoryImpl.interface.encodeFunctionData("initialize", [
+    v2Addr,
+    initialVersion,
+    deployer.address, // factory owner — swap to Safe for mainnet
+  ]);
 
-  // Verify contract on explorer (if not local)
-  if (chainId !== 31337n) {
-    console.log("\nWaiting for block confirmations...");
-    const deployTx = proxy.deploymentTransaction();
-    if (deployTx) {
-      await deployTx.wait(5);
-    }
+  const ERC1967ProxyFactory = await ethers.getContractFactory("ERC1967Proxy");
+  const factoryProxy = await ERC1967ProxyFactory.deploy(factoryImplAddr, initData);
+  await factoryProxy.waitForDeployment();
+  const factoryAddr = await factoryProxy.getAddress();
+  console.log(`   Factory (proxy)              → ${factoryAddr}  ← use this in the webapp`);
 
-    console.log("Verifying contract on explorer...");
-    try {
-      const { run } = await import("hardhat");
-      await run("verify:verify", {
-        address: proxyAddress,
-        constructorArguments: [
-          multiVault,
-          FEE_RECIPIENT,
-          DEPOSIT_FIXED_FEE,
-          DEPOSIT_PERCENTAGE,
-          admins,
-        ],
-      });
-      console.log("Contract verified successfully!");
-    } catch (error: any) {
-      if (error.message.includes("Already Verified")) {
-        console.log("Contract already verified");
-      } else {
-        console.error("Verification failed:", error.message);
-      }
-    }
+  // ── 4b. Register the sponsored channel on the factory ────────────
+  console.log("\n④ Registering sponsored channel on the factory…");
+  const factoryContract = await ethers.getContractAt("IntuitionFeeProxyFactory", factoryAddr);
+  const setSponsoredTx = await factoryContract.setSponsoredImplementation(v2sAddr, sponsoredVersion);
+  await setSponsoredTx.wait();
+  console.log(`   sponsoredImplementation      → ${v2sAddr}`);
+  console.log(`   sponsoredVersion             → ${DEFAULT_VERSION_LABEL}-sponsored`);
+
+  // ── 5. Write to webapp .env.local ────────────────────────────────
+  const envPath = path.resolve(__dirname, "../../webapp/.env.local");
+  const envBlock = [
+    `# Generated by packages/contracts/scripts/deploy.ts on chainId ${chainId}`,
+    `# (overwrite freely — safe to commit as .env.example only)`,
+    `VITE_FACTORY_ADDRESS=${factoryAddr}`,
+    `VITE_IMPLEMENTATION_ADDRESS=${v2Addr}`,
+    `VITE_SPONSORED_IMPLEMENTATION_ADDRESS=${v2sAddr}`,
+    "",
+  ].join("\n");
+
+  let finalEnv = envBlock;
+  if (fs.existsSync(envPath)) {
+    // Preserve other keys (e.g. VITE_WALLETCONNECT_PROJECT_ID)
+    const existing = fs.readFileSync(envPath, "utf-8");
+    const filtered = existing
+      .split("\n")
+      .filter(
+        (line) =>
+          !line.startsWith("VITE_FACTORY_ADDRESS=") &&
+          !line.startsWith("VITE_IMPLEMENTATION_ADDRESS=") &&
+          !line.startsWith("VITE_SPONSORED_IMPLEMENTATION_ADDRESS=") &&
+          !line.startsWith("# Generated by packages/contracts/scripts/deploy.ts"),
+      )
+      .join("\n")
+      .trim();
+    finalEnv = (filtered ? filtered + "\n\n" : "") + envBlock;
   }
+  fs.writeFileSync(envPath, finalEnv);
+  console.log(`\n⑤ Updated ${envPath}`);
 
-  console.log("\nNext steps:");
-  console.log("1. Save this contract address in your frontend config");
-  console.log("2. Users must approve the proxy on MultiVault before using it:");
-  console.log(`   multiVault.approve("${proxyAddress}", 1) // 1 = DEPOSIT approval`);
-  console.log("3. Update your frontend to call proxy functions instead of MultiVault directly");
+  // ── Summary ──────────────────────────────────────────────────────
+  console.log("\n" + "═".repeat(60));
+  console.log(" DEPLOYMENT SUMMARY");
+  console.log("═".repeat(60));
+  console.log(` MultiVault               ${multiVault}`);
+  console.log(` V2 standard impl         ${v2Addr}`);
+  console.log(` V2 sponsored impl        ${v2sAddr}`);
+  console.log(` Factory impl             ${factoryImplAddr}`);
+  console.log(` Factory (proxy)          ${factoryAddr}`);
+  console.log(` Standard version         ${DEFAULT_VERSION_LABEL}`);
+  console.log(` Sponsored version        ${DEFAULT_VERSION_LABEL}-sponsored`);
+  console.log("═".repeat(60));
 
-  return proxyAddress;
+  if (chainId === 31337n) {
+    console.log("\nNext steps:");
+    console.log("  1. Keep the hardhat node running (terminal 1).");
+    console.log("  2. MetaMask → Add network → RPC http://127.0.0.1:8545 · chainId 31337 · symbol ETH.");
+    console.log("  3. Import one of the hardhat test private keys printed by `run node` (account #0 has 10k ETH).");
+    console.log("  4. `bun webapp:dev` (terminal 3) → open http://localhost:3000/deploy.");
+  } else {
+    console.log("\nNext steps:");
+    console.log("  1. `bun webapp:dev` — the webapp will pick up the new addresses via .env.local.");
+    console.log("  2. Connect the appropriate wallet (deployer/admin).");
+  }
 }
 
 main()
-  .then((address) => {
-    console.log("\nDeployment complete!");
-    process.exit(0);
-  })
+  .then(() => process.exit(0))
   .catch((error) => {
-    console.error("Deployment failed:", error);
+    console.error("\nDeployment failed:\n", error);
     process.exit(1);
   });

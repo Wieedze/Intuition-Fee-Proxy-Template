@@ -5,6 +5,20 @@ pragma solidity ^0.8.21;
 /// @notice Public signatures of IntuitionFeeProxyV2 — used by the Factory and external tooling.
 /// @dev Internal / admin-only functions are also exposed here for typechain consumption by the webapp.
 interface IIntuitionFeeProxyV2 {
+    // ============ Types ============
+
+    /// @notice Aggregate on-chain metrics, exposed for dashboards / indexers.
+    /// @dev All counters are cumulative. `totalVolume` is the sum of amounts
+    ///      forwarded to the MultiVault (fees excluded).
+    struct ProxyMetrics {
+        uint256 totalAtomsCreated;
+        uint256 totalTriplesCreated;
+        uint256 totalDeposits;
+        uint256 totalVolume;
+        uint256 totalUniqueUsers;
+        uint256 lastActivityBlock;
+    }
+
     // ============ Initializer ============
 
     /// @notice Initialize a freshly-deployed ERC1967 proxy instance
@@ -74,4 +88,15 @@ interface IIntuitionFeeProxyV2 {
     function adminCount() external view returns (uint256);
     function accumulatedFees() external view returns (uint256);
     function totalFeesCollectedAllTime() external view returns (uint256);
+
+    // ============ Metrics ============
+
+    function totalAtomsCreated() external view returns (uint256);
+    function totalTriplesCreated() external view returns (uint256);
+    function totalDeposits() external view returns (uint256);
+    function totalVolume() external view returns (uint256);
+    function totalUniqueUsers() external view returns (uint256);
+    function lastActivityBlock() external view returns (uint256);
+    function hasInteracted(address user) external view returns (bool);
+    function getMetrics() external view returns (ProxyMetrics memory);
 }

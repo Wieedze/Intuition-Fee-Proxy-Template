@@ -14,7 +14,9 @@ const SDK_ABIS = join(ROOT, 'packages/sdk/src/abis')
 const CONTRACTS_TO_EXPORT = [
   'IntuitionFeeProxy',
   'IntuitionFeeProxyV2',
+  'IntuitionFeeProxyV2Sponsored',
   'IntuitionFeeProxyFactory',
+  'IntuitionVersionedFeeProxy',
 ]
 
 async function main() {

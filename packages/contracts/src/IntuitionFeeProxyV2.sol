@@ -2,7 +2,6 @@
 pragma solidity ^0.8.21;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 // OZ v5.5+ removed `ReentrancyGuardUpgradeable` because `ReentrancyGuard` now uses
 // ERC-7201 namespaced storage and is proxy-safe out of the box.
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -12,17 +11,20 @@ import {IIntuitionFeeProxyV2} from "./interfaces/IIntuitionFeeProxyV2.sol";
 import {Errors} from "./libraries/Errors.sol";
 
 /// @title IntuitionFeeProxyV2
-/// @notice Upgradeable fee layer on top of the Intuition MultiVault.
+/// @notice Fee-layer logic contract on top of the Intuition MultiVault.
 /// @dev
-///  - UUPS (ERC-1967). Upgrade authorization: `onlyWhitelistedAdmin`.
-///  - Fees accumulate in the contract (`accumulatedFees`) and are pulled by admins via `withdraw`/`withdrawAll`.
-///    No recipient forwarding, no `receive()` — direct ETH transfers revert.
-///  - `receiver` is implicit: always `msg.sender`. The proxy is a pure fee layer, not a sponsor.
-///  - MultiVault target is fixed at `initialize()` (no setter). Upgrade UUPS if MultiVault ever migrates.
+///  - Pure logic: no self-upgrade mechanism. The contract is deployed as an
+///    implementation behind an ERC-7936 `IntuitionVersionedFeeProxy` which
+///    manages version routing and upgrades.
+///  - Fees accumulate in the proxy's storage (`accumulatedFees`) and are pulled
+///    by admins via `withdraw`/`withdrawAll`. No recipient forwarding.
+///  - `receiver` is implicit: always `msg.sender`. The contract is a pure fee
+///    layer, not a sponsor.
+///  - MultiVault target is fixed at `initialize()` (no setter). Ship a new
+///    logic version and register it on the versioned proxy if MultiVault migrates.
 contract IntuitionFeeProxyV2 is
     IIntuitionFeeProxyV2,
     Initializable,
-    UUPSUpgradeable,
     ReentrancyGuard
 {
     // ============ Constants ============
@@ -53,8 +55,33 @@ contract IntuitionFeeProxyV2 is
     /// @dev slot 6 — guards against revoking the last admin
     uint256 public adminCount;
 
-    /// @dev 7 slots used — 43 left to reserve for future upgrades (total 50)
-    uint256[43] private __gap;
+    // ============ Metrics storage (slots 7–13) ============
+    // Aggregate counters for dashboards / indexers. Cheap SSTOREs on every
+    // entry point. Append-only so existing upgradeable proxies stay safe.
+
+    /// @dev slot 7 — cumulative count of atoms ever created through this proxy
+    uint256 public totalAtomsCreated;
+
+    /// @dev slot 8 — cumulative count of triples ever created
+    uint256 public totalTriplesCreated;
+
+    /// @dev slot 9 — cumulative count of deposit operations (batch entries count individually)
+    uint256 public totalDeposits;
+
+    /// @dev slot 10 — cumulative TRUST/ETH forwarded to the MultiVault (fees excluded)
+    uint256 public totalVolume;
+
+    /// @dev slot 11 — unique addresses that have interacted with the proxy
+    uint256 public totalUniqueUsers;
+
+    /// @dev slot 12 — block of the last write-path call
+    uint256 public lastActivityBlock;
+
+    /// @dev slot 13 — tracks first-time interaction per user (for uniqueUsers)
+    mapping(address => bool) private _hasInteracted;
+
+    /// @dev 14 slots used — 36 left to reserve for future upgrades (total 50)
+    uint256[36] private __gap;
 
     // ============ Events ============
 
@@ -73,6 +100,16 @@ contract IntuitionFeeProxyV2 is
     event MultiVaultSuccess(string operation, uint256 resultCount);
 
     event FeesWithdrawn(address indexed to, uint256 amount, address indexed by);
+
+    /// @notice Emitted on every write-path call with a snapshot of the aggregate metrics.
+    event MetricsUpdated(
+        uint256 totalAtomsCreated,
+        uint256 totalTriplesCreated,
+        uint256 totalDeposits,
+        uint256 totalVolume,
+        uint256 totalUniqueUsers,
+        uint256 lastActivityBlock
+    );
 
     // ============ Modifiers ============
 
@@ -96,7 +133,20 @@ contract IntuitionFeeProxyV2 is
         uint256 depositFixedFee_,
         uint256 depositPercentageFee_,
         address[] calldata initialAdmins_
-    ) external initializer {
+    ) external virtual initializer {
+        _initializeV2(ethMultiVault_, depositFixedFee_, depositPercentageFee_, initialAdmins_);
+    }
+
+    /// @dev Core initialization body, extracted so a child contract can override
+    ///      `initialize`, chain this, and then run its own setup under a single
+    ///      `initializer` modifier. Must only be called from within a function
+    ///      already guarded by `initializer`.
+    function _initializeV2(
+        address ethMultiVault_,
+        uint256 depositFixedFee_,
+        uint256 depositPercentageFee_,
+        address[] calldata initialAdmins_
+    ) internal {
         if (ethMultiVault_ == address(0)) {
             revert Errors.IntuitionFeeProxy_InvalidMultiVaultAddress();
         }
@@ -107,8 +157,7 @@ contract IntuitionFeeProxyV2 is
             revert Errors.IntuitionFeeProxy_NoAdminsProvided();
         }
 
-        // OZ v5: UUPSUpgradeable is stateless (uses immutable __self) and
-        // ReentrancyGuard uses ERC-7201 namespaced storage — no initializers needed.
+        // ReentrancyGuard uses ERC-7201 namespaced storage — no initializer needed.
 
         _ethMultiVault = IEthMultiVault(ethMultiVault_);
         depositFixedFee = depositFixedFee_;
@@ -129,11 +178,6 @@ contract IntuitionFeeProxyV2 is
         }
         adminCount = added;
     }
-
-    // ============ UUPS ============
-
-    /// @inheritdoc UUPSUpgradeable
-    function _authorizeUpgrade(address) internal override onlyWhitelistedAdmin {}
 
     // ============ Fee calculation ============
 
@@ -208,7 +252,7 @@ contract IntuitionFeeProxyV2 is
     // ============ Admin: withdraw ============
 
     /// @inheritdoc IIntuitionFeeProxyV2
-    function withdraw(address to, uint256 amount) external onlyWhitelistedAdmin nonReentrant {
+    function withdraw(address to, uint256 amount) external virtual onlyWhitelistedAdmin nonReentrant {
         if (to == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
         if (amount == 0) revert Errors.IntuitionFeeProxy_NothingToWithdraw();
         if (amount > accumulatedFees) revert Errors.IntuitionFeeProxy_InsufficientAccumulatedFees();
@@ -222,7 +266,7 @@ contract IntuitionFeeProxyV2 is
     }
 
     /// @inheritdoc IIntuitionFeeProxyV2
-    function withdrawAll(address to) external onlyWhitelistedAdmin nonReentrant {
+    function withdrawAll(address to) external virtual onlyWhitelistedAdmin nonReentrant {
         if (to == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
         uint256 amount = accumulatedFees;
         if (amount == 0) revert Errors.IntuitionFeeProxy_NothingToWithdraw();
@@ -242,7 +286,7 @@ contract IntuitionFeeProxyV2 is
         bytes[] calldata data,
         uint256[] calldata assets,
         uint256 curveId
-    ) external payable returns (bytes32[] memory atomIds) {
+    ) external payable virtual nonReentrant returns (bytes32[] memory atomIds) {
         if (data.length != assets.length) {
             revert Errors.IntuitionFeeProxy_WrongArrayLengths();
         }
@@ -273,7 +317,9 @@ contract IntuitionFeeProxyV2 is
             }
         }
 
+        _trackActivity(count, 0, depositCount, totalDeposit);
         emit MultiVaultSuccess("createAtoms", count);
+        _refundExcess(totalRequired);
         return atomIds;
     }
 
@@ -284,7 +330,7 @@ contract IntuitionFeeProxyV2 is
         bytes32[] calldata objectIds,
         uint256[] calldata assets,
         uint256 curveId
-    ) external payable returns (bytes32[] memory tripleIds) {
+    ) external payable virtual nonReentrant returns (bytes32[] memory tripleIds) {
         if (
             subjectIds.length != predicateIds.length ||
             predicateIds.length != objectIds.length ||
@@ -321,7 +367,9 @@ contract IntuitionFeeProxyV2 is
             }
         }
 
+        _trackActivity(0, count, depositCount, totalDeposit);
         emit MultiVaultSuccess("createTriples", count);
+        _refundExcess(totalRequired);
         return tripleIds;
     }
 
@@ -330,7 +378,7 @@ contract IntuitionFeeProxyV2 is
         bytes32 termId,
         uint256 curveId,
         uint256 minShares
-    ) external payable returns (uint256 shares) {
+    ) external payable virtual nonReentrant returns (uint256 shares) {
         if (msg.value <= depositFixedFee) {
             revert Errors.IntuitionFeeProxy_InsufficientValue();
         }
@@ -342,6 +390,7 @@ contract IntuitionFeeProxyV2 is
         _accrueFee(fee, "deposit", multiVaultAmount);
 
         shares = _ethMultiVault.deposit{value: multiVaultAmount}(msg.sender, termId, curveId, minShares);
+        _trackActivity(0, 0, 1, multiVaultAmount);
         emit MultiVaultSuccess("deposit", 1);
     }
 
@@ -351,7 +400,7 @@ contract IntuitionFeeProxyV2 is
         uint256[] calldata curveIds,
         uint256[] calldata assets,
         uint256[] calldata minShares
-    ) external payable returns (uint256[] memory shares) {
+    ) external payable virtual nonReentrant returns (uint256[] memory shares) {
         if (
             termIds.length != curveIds.length ||
             curveIds.length != assets.length ||
@@ -372,7 +421,9 @@ contract IntuitionFeeProxyV2 is
         shares = _ethMultiVault.depositBatch{value: totalDeposit}(
             msg.sender, termIds, curveIds, assets, minShares
         );
+        _trackActivity(0, 0, termIds.length, totalDeposit);
         emit MultiVaultSuccess("depositBatch", shares.length);
+        _refundExcess(totalRequired);
     }
 
     // ============ View: passthrough MultiVault ============
@@ -389,8 +440,8 @@ contract IntuitionFeeProxyV2 is
         return _ethMultiVault.getTripleCost();
     }
 
-    function calculateAtomId(bytes calldata data) external pure returns (bytes32) {
-        return keccak256(data);
+    function calculateAtomId(bytes calldata data) external view returns (bytes32) {
+        return _ethMultiVault.calculateAtomId(data);
     }
 
     function calculateTripleId(
@@ -425,6 +476,25 @@ contract IntuitionFeeProxyV2 is
         return _ethMultiVault.previewDeposit(termId, curveId, assets);
     }
 
+    // ============ Metrics views ============
+
+    /// @inheritdoc IIntuitionFeeProxyV2
+    function hasInteracted(address user) external view returns (bool) {
+        return _hasInteracted[user];
+    }
+
+    /// @inheritdoc IIntuitionFeeProxyV2
+    function getMetrics() external view returns (ProxyMetrics memory) {
+        return ProxyMetrics({
+            totalAtomsCreated: totalAtomsCreated,
+            totalTriplesCreated: totalTriplesCreated,
+            totalDeposits: totalDeposits,
+            totalVolume: totalVolume,
+            totalUniqueUsers: totalUniqueUsers,
+            lastActivityBlock: lastActivityBlock
+        });
+    }
+
     // ============ Internal ============
 
     function _accrueFee(uint256 fee, string memory operation, uint256 mvValue) internal {
@@ -436,6 +506,32 @@ contract IntuitionFeeProxyV2 is
         emit TransactionForwarded(operation, msg.sender, fee, mvValue, msg.value);
     }
 
+    function _trackActivity(
+        uint256 atomsDelta,
+        uint256 triplesDelta,
+        uint256 depositsDelta,
+        uint256 volumeDelta
+    ) internal {
+        if (!_hasInteracted[msg.sender]) {
+            _hasInteracted[msg.sender] = true;
+            unchecked { ++totalUniqueUsers; }
+        }
+        if (atomsDelta > 0) totalAtomsCreated += atomsDelta;
+        if (triplesDelta > 0) totalTriplesCreated += triplesDelta;
+        if (depositsDelta > 0) totalDeposits += depositsDelta;
+        if (volumeDelta > 0) totalVolume += volumeDelta;
+        lastActivityBlock = block.number;
+
+        emit MetricsUpdated(
+            totalAtomsCreated,
+            totalTriplesCreated,
+            totalDeposits,
+            totalVolume,
+            totalUniqueUsers,
+            lastActivityBlock
+        );
+    }
+
     function _sumArray(uint256[] calldata arr) internal pure returns (uint256 sum) {
         for (uint256 i = 0; i < arr.length; i++) {
             sum += arr[i];
@@ -445,6 +541,20 @@ contract IntuitionFeeProxyV2 is
     function _countNonZero(uint256[] calldata arr) internal pure returns (uint256 count) {
         for (uint256 i = 0; i < arr.length; i++) {
             if (arr[i] > 0) count++;
+        }
+    }
+
+    /// @dev Refunds `msg.value - ethSpent` back to the caller. `ethSpent` is the
+    ///      portion of the call budget that came from `msg.value` (in the V2 flow
+    ///      that equals `totalRequired`; in the Sponsored flow it is
+    ///      `totalRequired - consumedCredit`). Called at the tail of payable entry
+    ///      points, after MV forwards + metrics. Must be guarded by
+    ///      `nonReentrant` on the caller.
+    function _refundExcess(uint256 ethSpent) internal {
+        uint256 excess = msg.value - ethSpent;
+        if (excess > 0) {
+            (bool ok, ) = msg.sender.call{value: excess}("");
+            if (!ok) revert Errors.IntuitionFeeProxy_RefundFailed();
         }
     }
 

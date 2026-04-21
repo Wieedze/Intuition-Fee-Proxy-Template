@@ -2,16 +2,149 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    /* RGB triplets so Tailwind can apply /<alpha> modifiers */
+    --canvas: 251 250 246;
+    --surface: 255 255 255;
+    --surface-hover: 246 244 238;
+    --surface-elevated: 255 255 255;
+    --line: 232 228 219;
+    --line-strong: 212 207 194;
+    --ink: 20 17 14;
+    --muted: 85 81 74;
+    --subtle: 138 132 122;
+    --brand: 217 87 47;
+    --brand-hover: 194 78 41;
+
+    --shadow-xs: 0 1px 2px rgba(20, 17, 14, 0.04);
+    --shadow-sm: 0 1px 2px rgba(20, 17, 14, 0.05), 0 2px 4px rgba(20, 17, 14, 0.04);
+    --shadow-md: 0 4px 12px -2px rgba(20, 17, 14, 0.06), 0 2px 4px rgba(20, 17, 14, 0.04);
+    --shadow-lg: 0 12px 32px -8px rgba(20, 17, 14, 0.10), 0 4px 8px rgba(20, 17, 14, 0.05);
+    color-scheme: light;
+  }
+
+  .dark {
+    --canvas: 10 9 8;
+    --surface: 19 18 16;
+    --surface-hover: 26 25 21;
+    --surface-elevated: 26 25 21;
+    --line: 38 36 32;
+    --line-strong: 59 56 51;
+    --ink: 245 242 236;
+    --muted: 165 160 154;
+    --subtle: 117 113 107;
+    --brand: 240 122 63;
+    --brand-hover: 242 138 84;
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 12px 32px -8px rgba(0, 0, 0, 0.6), 0 4px 8px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100vh;
+  }
+
+  body {
+    font-family: 'Geist', 'Inter', system-ui, sans-serif;
+    font-feature-settings: 'ss01', 'ss02', 'cv11';
+    background-color: rgb(var(--canvas));
+    color: rgb(var(--ink));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: rgb(var(--brand) / 0.18);
+    color: rgb(var(--ink));
+  }
+
+  * {
+    scrollbar-color: rgb(var(--line-strong)) rgb(var(--canvas));
+    scrollbar-width: thin;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: rgb(var(--canvas));
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgb(var(--line-strong));
+    border-radius: 10px;
+    border: 2px solid rgb(var(--canvas));
+  }
+}
+
+@layer base {
+  [data-rk] button {
+    font-family: 'Geist', 'Inter', system-ui, sans-serif !important;
+    font-weight: 500 !important;
+    letter-spacing: -0.01em;
+  }
+}
+
 @layer components {
   .input {
-    @apply block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black;
+    @apply block w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-subtle transition-colors
+      focus:border-brand/60 focus:outline-none focus:ring-1 focus:ring-brand/40;
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:bg-gray-400;
+    @apply inline-flex items-center justify-center rounded-md bg-brand px-4 py-2 text-sm font-medium text-white transition
+      hover:bg-brand-hover
+      disabled:cursor-not-allowed disabled:opacity-50 shadow-sm;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-400;
+    @apply inline-flex items-center justify-center rounded-md border border-line bg-surface px-4 py-2 text-sm font-medium text-ink transition
+      hover:border-line-strong hover:bg-surface-hover
+      disabled:cursor-not-allowed disabled:text-subtle;
+  }
+
+  .card {
+    @apply rounded-xl border border-line bg-surface p-5 transition-colors shadow-xs;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-0.5 text-xs font-medium text-muted;
+  }
+
+  .mono {
+    @apply font-mono text-xs text-muted;
+  }
+
+  .app-bg {
+    position: relative;
+    isolation: isolate;
+    background-color: rgb(var(--canvas));
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-surface-hover;
+  }
+  .skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(127, 127, 127, 0.08) 50%,
+      transparent 100%
+    );
+    animation: shimmer 1.6s infinite;
+  }
+
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
   }
 }

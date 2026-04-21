@@ -1,5 +1,12 @@
-import { useReadContracts, useWriteContract } from 'wagmi'
-import type { Address } from 'viem'
+import { useEffect, useState } from 'react'
+import {
+  useBlockNumber,
+  usePublicClient,
+  useReadContract,
+  useReadContracts,
+  useWriteContract,
+} from 'wagmi'
+import { getAddress, type Address } from 'viem'
 
 import { IntuitionFeeProxyV2ABI } from '@intuition-fee-proxy/sdk'
 
@@ -44,6 +51,54 @@ export function useProxyStats(proxy: Address | undefined) {
   return { ...result, stats }
 }
 
+export type ProxyMetrics = {
+  totalAtomsCreated: bigint
+  totalTriplesCreated: bigint
+  totalDeposits: bigint
+  totalVolume: bigint
+  totalUniqueUsers: bigint
+  lastActivityBlock: bigint
+}
+
+/** Read the aggregate on-chain metrics from the proxy. */
+export function useProxyMetrics(proxy: Address | undefined) {
+  const result = useReadContracts({
+    contracts: [
+      { abi, address: proxy, functionName: 'getMetrics' },
+    ],
+    allowFailure: true,
+    query: { enabled: Boolean(proxy) },
+  })
+
+  const entry = result.data?.[0]
+  const ok = entry && entry.status === 'success'
+  const raw = ok
+    ? (entry.result as {
+        totalAtomsCreated: bigint
+        totalTriplesCreated: bigint
+        totalDeposits: bigint
+        totalVolume: bigint
+        totalUniqueUsers: bigint
+        lastActivityBlock: bigint
+      })
+    : undefined
+
+  const metrics: ProxyMetrics | undefined = raw
+    ? {
+        totalAtomsCreated: raw.totalAtomsCreated,
+        totalTriplesCreated: raw.totalTriplesCreated,
+        totalDeposits: raw.totalDeposits,
+        totalVolume: raw.totalVolume,
+        totalUniqueUsers: raw.totalUniqueUsers,
+        lastActivityBlock: raw.lastActivityBlock,
+      }
+    : undefined
+
+  const unsupported = entry && entry.status === 'failure'
+
+  return { ...result, metrics, unsupported }
+}
+
 /** Check whether an address is a whitelisted admin on the given proxy. */
 export function useIsAdmin(proxy: Address | undefined, account: Address | undefined) {
   const result = useReadContracts({
@@ -62,6 +117,123 @@ export function useIsAdmin(proxy: Address | undefined, account: Address | undefi
     ...result,
     isAdmin: Boolean(result.data?.[0]),
   }
+}
+
+/**
+ * Reconstruct the current set of whitelisted admins for a proxy by replaying
+ * `AdminWhitelistUpdated(address,bool)` events. V2 doesn't store an enumerable
+ * admin list on-chain (only a `mapping(address => bool)` + `adminCount`), so
+ * we walk past logs and compute the net set client-side.
+ */
+export function useAdmins(proxy: Address | undefined) {
+  const publicClient = usePublicClient()
+  const { data: currentBlock } = useBlockNumber({ watch: true })
+  const [admins, setAdmins] = useState<Address[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    if (!publicClient || !proxy || !currentBlock) return
+    let cancelled = false
+    setIsLoading(true)
+    setError(null)
+    publicClient
+      .getLogs({
+        address: proxy,
+        event: {
+          type: 'event',
+          name: 'AdminWhitelistUpdated',
+          inputs: [
+            { type: 'address', name: 'admin', indexed: true },
+            { type: 'bool', name: 'status', indexed: false },
+          ],
+        },
+        fromBlock: 0n,
+        toBlock: currentBlock,
+      })
+      .then((logs) => {
+        if (cancelled) return
+        const set = new Set<string>()
+        for (const log of logs) {
+          const { admin, status } = (log as any).args as {
+            admin: Address
+            status: boolean
+          }
+          const a = getAddress(admin)
+          if (status) set.add(a)
+          else set.delete(a)
+        }
+        setAdmins(Array.from(set) as Address[])
+        setIsLoading(false)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setError(e as Error)
+        setIsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [publicClient, proxy, currentBlock ? Number(currentBlock) : 0, refreshKey])
+
+  return { admins, isLoading, error, refetch: () => setRefreshKey((k) => k + 1) }
+}
+
+/** Write admin add/revoke. */
+export function useSetWhitelistedAdmin(proxy: Address | undefined) {
+  const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
+
+  function setAdmin(addr: Address, status: boolean) {
+    if (!proxy) throw new Error('Proxy address missing')
+    return writeContractAsync({
+      abi,
+      address: proxy,
+      functionName: 'setWhitelistedAdmin',
+      args: [addr, status],
+    })
+  }
+
+  return { setAdmin, hash: data, isPending, error, reset }
+}
+
+/**
+ * Detect which implementation family the proxy is currently pointed at.
+ * Calls `version()` — present on V2Sponsored (returns e.g. "v2.0.0-sponsored"),
+ * absent on V2 standard (call reverts). Revert → standard. String containing
+ * "-sponsored" → sponsored. Anything else → unknown (future families).
+ */
+export type ProxyChannel = 'standard' | 'sponsored' | 'unknown'
+
+export function useProxyChannel(proxy: Address | undefined): {
+  channel: ProxyChannel
+  version: string | null
+  isLoading: boolean
+} {
+  const result = useReadContract({
+    abi: [
+      {
+        type: 'function',
+        name: 'version',
+        stateMutability: 'pure',
+        inputs: [],
+        outputs: [{ type: 'string' }],
+      },
+    ],
+    address: proxy,
+    functionName: 'version',
+    query: { enabled: Boolean(proxy), retry: false },
+  })
+
+  const version = (result.data as string | undefined) ?? null
+
+  let channel: ProxyChannel
+  if (result.isLoading) channel = 'standard' // optimistic placeholder while loading
+  else if (result.error) channel = 'standard' // version() reverted → V2 standard
+  else if (version && version.includes('-sponsored')) channel = 'sponsored'
+  else channel = 'unknown'
+
+  return { channel, version, isLoading: result.isLoading }
 }
 
 export function useWithdraw(proxy: Address | undefined) {
