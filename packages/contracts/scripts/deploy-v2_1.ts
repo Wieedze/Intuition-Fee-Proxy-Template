@@ -25,27 +25,34 @@ async function main() {
   console.log(`Balance:     ${ethers.formatEther(balance)} ETH/TRUST`);
   console.log("─".repeat(60));
 
-  console.log("\n① Deploying IntuitionFeeProxyV2_1 (logic impl)…");
+  console.log("\n① Deploying IntuitionFeeProxyV2_1 (standard impl)…");
   const V2_1 = await ethers.getContractFactory("IntuitionFeeProxyV2_1");
-  const impl = await V2_1.deploy();
-  await impl.waitForDeployment();
-  const addr = await impl.getAddress();
+  const standardImpl = await V2_1.deploy();
+  await standardImpl.waitForDeployment();
+  const standardAddr = await standardImpl.getAddress();
+
+  console.log("\n② Deploying IntuitionFeeProxyV2_1Sponsored (sponsored impl)…");
+  const V2_1S = await ethers.getContractFactory("IntuitionFeeProxyV2_1Sponsored");
+  const sponsoredImpl = await V2_1S.deploy();
+  await sponsoredImpl.waitForDeployment();
+  const sponsoredAddr = await sponsoredImpl.getAddress();
 
   console.log("\n" + "═".repeat(60));
   console.log(" V2.1 DEPLOYMENT");
   console.log("═".repeat(60));
-  console.log(` impl address   ${addr}`);
-  console.log(` label          v2.1.0`);
-  console.log(` family         standard`);
+  console.log(` standard impl       ${standardAddr}`);
+  console.log(` sponsored impl      ${sponsoredAddr}`);
+  console.log(` labels              v2.1.0  +  v2.1.0-sponsored`);
   console.log("═".repeat(60));
 
   console.log("\nNext steps:");
-  console.log("  1. Verify the impl on the block explorer (optional).");
-  console.log("  2. Paste the address above into packages/sdk/src/versions.ts");
-  console.log("     under CANONICAL_VERSIONS[<network>].versions['v2.1.0'].");
+  console.log("  1. Verify the impls on the block explorer (optional).");
+  console.log("  2. Paste both addresses into packages/sdk/src/versions.ts");
+  console.log("     under CANONICAL_VERSIONS[<network>].versions.");
   console.log("  3. Rebuild the SDK (`bun sdk:build`) + reload the webapp —");
-  console.log("     v2.1.0 will appear in the ProxyDetail 'Register new version'");
-  console.log("     dropdown for any proxy admin on this network.");
+  console.log("     both versions appear in the ProxyDetail 'Register new version'");
+  console.log("     dropdown (family-filtered: standard proxies see v2.1.0 only,");
+  console.log("     sponsored proxies see v2.1.0-sponsored only).");
 }
 
 main()

@@ -136,7 +136,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Identification ============
 
-    function version() external pure returns (string memory) {
+    function version() external pure virtual returns (string memory) {
         return "v2.0.0-sponsored";
     }
 

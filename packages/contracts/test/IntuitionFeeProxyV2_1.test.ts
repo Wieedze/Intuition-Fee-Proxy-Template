@@ -235,3 +235,70 @@ describe("IntuitionFeeProxyV2_1 — canonical versioning demo", function () {
   // Silence "unused" warnings for the fee-denominator constant.
   void FEE_DENOMINATOR;
 });
+
+describe("IntuitionFeeProxyV2_1Sponsored — sponsored versioning demo", function () {
+  const DEPOSIT_FEE = ethers.parseEther("0.1");
+  const DEPOSIT_PERCENTAGE = 500n;
+
+  const V2_SPONSORED_LABEL = ethers.encodeBytes32String("v2.0.0-sponsored");
+
+  it("version() returns v2.1.0-sponsored when that impl is the default", async function () {
+    const [deployer, admin] = await ethers.getSigners();
+
+    const MV = await ethers.getContractFactory("MockMultiVault");
+    const mv = await MV.deploy();
+    await mv.waitForDeployment();
+
+    // Deploy V2Sponsored impl as the initial pin.
+    const V2S = await ethers.getContractFactory("IntuitionFeeProxyV2Sponsored");
+    const v2sImpl = await V2S.deploy();
+    await v2sImpl.waitForDeployment();
+
+    // Deploy V2_1Sponsored for later registration.
+    const V2_1S = await ethers.getContractFactory("IntuitionFeeProxyV2_1Sponsored");
+    const v2_1sImpl = await V2_1S.deploy();
+    await v2_1sImpl.waitForDeployment();
+
+    const initData = v2sImpl.interface.encodeFunctionData("initialize", [
+      await mv.getAddress(),
+      DEPOSIT_FEE,
+      DEPOSIT_PERCENTAGE,
+      [admin.address],
+    ]);
+
+    const Versioned = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
+    const proxyDeployment = await Versioned.deploy(
+      admin.address,
+      V2_SPONSORED_LABEL,
+      await v2sImpl.getAddress(),
+      initData,
+      ethers.ZeroHash,
+    );
+    await proxyDeployment.waitForDeployment();
+
+    const proxyAddress = await proxyDeployment.getAddress();
+
+    // Initially pinned to v2.0.0-sponsored — version() reflects it.
+    const asV2S = await ethers.getContractAt(
+      "IntuitionFeeProxyV2Sponsored",
+      proxyAddress,
+    );
+    expect(await asV2S.version()).to.equal("v2.0.0-sponsored");
+
+    // Register + promote v2.1.0-sponsored.
+    const versioned = await ethers.getContractAt(
+      "IntuitionVersionedFeeProxy",
+      proxyAddress,
+    );
+    const V2_1_SPONSORED_LABEL = ethers.encodeBytes32String("v2.1.0-sponsored");
+    await versioned
+      .connect(admin)
+      .registerVersion(V2_1_SPONSORED_LABEL, await v2_1sImpl.getAddress());
+    await versioned.connect(admin).setDefaultVersion(V2_1_SPONSORED_LABEL);
+
+    // After promotion, version() returns the new label — proof the routing
+    // honours `setDefaultVersion` on sponsored proxies too.
+    expect(await asV2S.version()).to.equal("v2.1.0-sponsored");
+    void deployer;
+  });
+});
