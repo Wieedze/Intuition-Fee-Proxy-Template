@@ -444,8 +444,8 @@ function Architecture() {
           }
         />
         <Actor
-          term="Proxy admin (single / Safe)"
-          desc="Owns the version registry. Can registerVersion(label, impl) to add a new canonical implementation, setDefaultVersion(label) to promote it for all non-pinned users, and transferProxyAdmin to rotate ownership. Intentionally disjoint from fee admins."
+          term="Proxy admin (single address — use a Safe)"
+          desc="Single-slot role (one address at a time). For production, put a Gnosis Safe multisig here — the Safe handles N signers / threshold / signer rotation internally, so you get 'multi-human proxyAdmin' without the contract knowing anything about it. Owns the version registry: registerVersion / setDefaultVersion / 2-step grant via transferProxyAdmin → pending target calls acceptProxyAdmin. Intentionally disjoint from fee admins — compromise of one does not cascade to the other."
         />
         <Actor
           term="Implementation"
@@ -810,7 +810,15 @@ function Primitives() {
         />
         <Primitive
           term="transferProxyAdmin(newAdmin)"
-          desc="Hand proxy-admin rights to another address (ideally a rotation-aware multisig)."
+          desc="Step 1 of a 2-step rotation. Sets pendingProxyAdmin but does NOT transfer powers. Calling again overwrites the pending candidate. Passing address(0) reverts."
+        />
+        <Primitive
+          term="acceptProxyAdmin()"
+          desc="Step 2 of the rotation. Must be called by the address currently set as pendingProxyAdmin — it promotes the caller to proxyAdmin. Prevents fat-fingered transfers to wrong / lost addresses."
+        />
+        <Primitive
+          term="pendingProxyAdmin() view"
+          desc="Returns the candidate awaiting acceptance, or address(0) if no transfer is pending."
         />
         <Primitive
           term="setName(newName) / getName()"

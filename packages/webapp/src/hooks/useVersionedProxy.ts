@@ -11,9 +11,16 @@ export function useProxyVersions(proxy: Address | undefined) {
       { abi, address: proxy, functionName: 'getVersions' },
       { abi, address: proxy, functionName: 'getDefaultVersion' },
       { abi, address: proxy, functionName: 'proxyAdmin' },
+      { abi, address: proxy, functionName: 'pendingProxyAdmin' },
     ],
     allowFailure: false,
-    query: { enabled: Boolean(proxy) },
+    query: {
+      enabled: Boolean(proxy),
+      // Auto-poll so `proxyAdmin` / `pendingProxyAdmin` reflect
+      // acceptance that happens from another wallet or tab without
+      // forcing the user to refresh.
+      refetchInterval: 10_000,
+    },
   })
 
   return {
@@ -21,6 +28,7 @@ export function useProxyVersions(proxy: Address | undefined) {
     versions: (result.data?.[0] as Hex[] | undefined) ?? [],
     defaultVersion: result.data?.[1] as Hex | undefined,
     proxyAdmin: result.data?.[2] as Address | undefined,
+    pendingProxyAdmin: result.data?.[3] as Address | undefined,
   }
 }
 
@@ -97,6 +105,47 @@ export function useSetDefaultVersion(proxy: Address | undefined) {
   }
 
   return { setDefault, hash: data, isPending, error, reset }
+}
+
+/**
+ * Step 1 of the 2-step proxy-admin transfer. Only callable by the current
+ * `proxyAdmin`. Sets `pendingProxyAdmin = newAdmin`; the target must then
+ * call `acceptProxyAdmin()` from their own wallet to finalise. Passing a
+ * wrong address is recoverable — just call again with the correct one.
+ */
+export function useTransferProxyAdmin(proxy: Address | undefined) {
+  const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
+
+  function transferAdmin(newAdmin: Address) {
+    if (!proxy) throw new Error('Proxy address missing')
+    return writeContractAsync({
+      abi,
+      address: proxy,
+      functionName: 'transferProxyAdmin',
+      args: [newAdmin],
+    })
+  }
+
+  return { transferAdmin, hash: data, isPending, error, reset }
+}
+
+/**
+ * Step 2 of the 2-step proxy-admin transfer. Must be called by the address
+ * currently set as `pendingProxyAdmin`. Promotes caller to `proxyAdmin`.
+ */
+export function useAcceptProxyAdmin(proxy: Address | undefined) {
+  const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
+
+  function acceptAdmin() {
+    if (!proxy) throw new Error('Proxy address missing')
+    return writeContractAsync({
+      abi,
+      address: proxy,
+      functionName: 'acceptProxyAdmin',
+    })
+  }
+
+  return { acceptAdmin, hash: data, isPending, error, reset }
 }
 
 /** Read the proxy's human-readable name (bytes32, decoded to string). */

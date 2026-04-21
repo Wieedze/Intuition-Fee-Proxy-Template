@@ -28,6 +28,8 @@
   "license": "MIT",
   "devDependencies": {
     "typescript": "^5.3.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "@intuition-fee-proxy/sdk": "workspace:*",
+    "viem": "^2.21.0"
   }
 }

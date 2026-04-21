@@ -1,6 +1,6 @@
 # Intuition Proxy Factory
 
-![tests](https://img.shields.io/badge/tests-170%2B%20passing-green) ![audit](https://img.shields.io/badge/audit-2%20passes%2C%200%20high%2Fcritical%20open-green) ![solidity](https://img.shields.io/badge/solidity-0.8.21-blue) ![oz](https://img.shields.io/badge/openzeppelin-v5%20namespaced-blue)
+![tests](https://img.shields.io/badge/tests-170%2B%20passing-green) ![solidity](https://img.shields.io/badge/solidity-0.8.21-blue) ![oz](https://img.shields.io/badge/openzeppelin-v5%20namespaced-blue)
 
 Monorepo for a versioned, upgradeable fee proxy on top of the [Intuition](https://intuition.systems) MultiVault, with a permissionless Factory for one-click deployment and a web UI to manage individual proxies (fees, admins, versions, metrics).
 
@@ -97,7 +97,9 @@ The [.claude/](./.claude/) directory holds the planning, architecture, rules, an
 
 ## Security
 
-**Two internal audit passes** using Trail of Bits' [Building Secure Contracts](https://github.com/crytic/building-secure-contracts) methodology. **25 findings raised, 0 HIGH/CRITICAL open.** The codebase has not yet undergone an external audit — that is scheduled before mainnet launch.
+**The codebase has not been audited.** An external professional audit is a hard prerequisite before any mainnet launch.
+
+What has been done is **two internal security-review passes** (self-review guided by Trail of Bits' [Building Secure Contracts](https://github.com/crytic/building-secure-contracts) checklist, plus static analysis). 25 items were flagged and addressed — most LOW/INFO defensive hardening. This is not a substitute for an external audit; it's documented here for transparency.
 
 ### Trust model (what the admin can and can't do)
 
@@ -128,7 +130,7 @@ The [.claude/](./.claude/) directory holds the planning, architecture, rules, an
 
 ## Status
 
-V2 (standard) + V2Sponsored (shared-pool) contracts, SDK, Factory, webapp and docs are implemented and tested locally (170+ passing tests, 25 internal-review findings all addressed). The design has been sent to the Intuition team for review. Each canonical implementation version is reviewed by the Intuition team before publication; users remain free to stay on any previous version, or pin to a specific one, indefinitely. Next phases: testnet deploy, external security review, mainnet launch.
+V2 (standard) + V2Sponsored (shared-pool) contracts, SDK, Factory, webapp and docs are implemented and tested locally (170+ passing tests, 25 self-review findings all addressed). The design has been sent to the Intuition team for review. Each canonical implementation version is reviewed by the Intuition team before publication; users remain free to stay on any previous version, or pin to a specific one, indefinitely. Next phases: testnet deploy, **external audit**, mainnet launch.
 
 ## License
 

@@ -43,6 +43,12 @@ export function useDeployProxy() {
         nameBytes,
         params.channel ?? 0,
       ],
+      // `createProxy` deploys a fresh VersionedFeeProxy + delegatecalls
+      // init on the V2 impl — the true cost is ~4–5M gas. We cap at 10M
+      // so MetaMask never falls back to its default (viem otherwise
+      // buffers estimates to ~21M, which MM rejects against its 2^24
+      // per-chain cap).
+      gas: 10_000_000n,
     })
   }
 

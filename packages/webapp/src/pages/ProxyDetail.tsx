@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   formatEther,
@@ -31,11 +31,13 @@ import {
   type ProxyMetrics,
 } from '../hooks/useProxy'
 import {
+  useAcceptProxyAdmin,
   useProxyName,
   useProxyVersions,
   useRegisterVersion,
   useSetDefaultVersion,
   useSetProxyName,
+  useTransferProxyAdmin,
 } from '../hooks/useVersionedProxy'
 import {
   useClaimLimits,
@@ -59,8 +61,13 @@ export default function ProxyDetailPage() {
   const { address: account } = useAccount()
   const { stats, refetch, isLoading } = useProxyStats(proxy)
   const { isAdmin } = useIsAdmin(proxy, account)
-  const { versions, defaultVersion, proxyAdmin, refetch: refetchVersions } =
-    useProxyVersions(proxy)
+  const {
+    versions,
+    defaultVersion,
+    proxyAdmin,
+    pendingProxyAdmin,
+    refetch: refetchVersions,
+  } = useProxyVersions(proxy)
   const { metrics, unsupported: metricsUnsupported, isLoading: metricsLoading } =
     useProxyMetrics(proxy)
   const { name, unsupported: nameUnsupported, refetch: refetchName } =
@@ -207,8 +214,21 @@ export default function ProxyDetailPage() {
       )}
 
       {tab === 'admins' && (
-        <div className="space-y-8">
-          <UpgradeAuthorityPanel proxyAdmin={proxyAdmin} account={account} />
+        <div className="space-y-6">
+          <p className="text-xs text-muted leading-relaxed max-w-3xl">
+            Two independent admin roles — disjoint by design so that a
+            compromise of one cannot be leveraged into the other. Most
+            setups use a single Safe for both; splitting is an option if
+            your dev team and ops team are distinct.
+          </p>
+          <UpgradeAuthorityPanel
+            proxy={proxy}
+            proxyAdmin={proxyAdmin}
+            pendingProxyAdmin={pendingProxyAdmin}
+            account={account}
+            isConnectedFeeAdmin={isAdmin}
+            onTransferred={refetchVersions}
+          />
           <AdminsPanel proxy={proxy} connectedAccount={account} />
         </div>
       )}
@@ -694,28 +714,196 @@ function decodeVersion(v: Hex): string {
 
 
 function UpgradeAuthorityPanel({
+  proxy,
   proxyAdmin,
+  pendingProxyAdmin,
   account,
+  isConnectedFeeAdmin,
+  onTransferred,
 }: {
-  proxyAdmin: Hex | undefined
+  proxy: Address
+  proxyAdmin: Address | undefined
+  pendingProxyAdmin: Address | undefined
   account: Address | undefined
+  isConnectedFeeAdmin: boolean
+  onTransferred: () => void
 }) {
+  const ZERO = '0x0000000000000000000000000000000000000000'
   const isYou =
     account && proxyAdmin && account.toLowerCase() === proxyAdmin.toLowerCase()
+  const hasPending = Boolean(
+    pendingProxyAdmin && pendingProxyAdmin.toLowerCase() !== ZERO,
+  )
+  const isPendingYou =
+    account &&
+    pendingProxyAdmin &&
+    account.toLowerCase() === pendingProxyAdmin.toLowerCase()
+  const hasBothRoles = Boolean(isYou) && isConnectedFeeAdmin
+
+  // Step 1 — current admin initiates proxyAdmin transfer
+  const [newAdminInput, setNewAdminInput] = useState('')
+  const {
+    transferAdmin,
+    hash: transferHash,
+    isPending: transferPending,
+    error: transferError,
+    reset: resetTransfer,
+  } = useTransferProxyAdmin(proxy)
+  const transferReceipt = useWaitForTransactionReceipt({ hash: transferHash })
+
+  // Step 2 — pending admin accepts
+  const {
+    acceptAdmin,
+    hash: acceptHash,
+    isPending: acceptPending,
+    error: acceptError,
+    reset: resetAccept,
+  } = useAcceptProxyAdmin(proxy)
+  const acceptReceipt = useWaitForTransactionReceipt({ hash: acceptHash })
+
+  // "Rotate full admin" convenience — sequences fee-admin-grant then
+  // proxyAdmin-transfer under the same input address.
+  const [rotateInput, setRotateInput] = useState('')
+  const [rotateStage, setRotateStage] = useState<
+    'idle' | 'grant' | 'transfer' | 'done' | 'complete'
+  >('idle')
+  const [rotateError, setRotateError] = useState<string | null>(null)
+  const {
+    setAdmin: grantFeeAdmin,
+    hash: grantHash,
+    isPending: grantPending,
+    reset: resetGrant,
+  } = useSetWhitelistedAdmin(proxy)
+  const grantReceipt = useWaitForTransactionReceipt({ hash: grantHash })
+
+  // Transient success flash after acceptProxyAdmin lands — tells the
+  // new admin visually that they now hold the role. Auto-dismisses.
+  const [acceptedFlash, setAcceptedFlash] = useState(false)
+
+  function resetRotate() {
+    setRotateStage('idle')
+    setRotateInput('')
+    setRotateError(null)
+    resetGrant()
+    resetTransfer()
+  }
+
+  useEffect(() => {
+    if (transferReceipt.isSuccess) {
+      setNewAdminInput('')
+      resetTransfer()
+      onTransferred()
+      if (rotateStage === 'transfer') setRotateStage('done')
+    }
+  }, [transferReceipt.isSuccess, resetTransfer, onTransferred, rotateStage])
+
+  useEffect(() => {
+    if (acceptReceipt.isSuccess) {
+      resetAccept()
+      onTransferred()
+      // If a rotate is in flight in this tab, it's now finalised.
+      setRotateStage((s) => (s === 'done' ? 'complete' : s))
+      setAcceptedFlash(true)
+      const t = setTimeout(() => setAcceptedFlash(false), 6000)
+      return () => clearTimeout(t)
+    }
+  }, [acceptReceipt.isSuccess, resetAccept, onTransferred])
+
+  // Detect acceptance that happened in another tab/wallet: when the
+  // on-chain proxyAdmin flips to the rotate target address, mark the
+  // rotation complete. Polling comes from `useProxyVersions`
+  // (refetchInterval: 10s) so this fires within ~10s of external accept.
+  useEffect(() => {
+    if (rotateStage !== 'done' || !proxyAdmin || !rotateInput) return
+    if (proxyAdmin.toLowerCase() === rotateInput.trim().toLowerCase()) {
+      setRotateStage('complete')
+    }
+  }, [rotateStage, proxyAdmin, rotateInput])
+
+  // Reset rotate state whenever the connected wallet changes — the new
+  // wallet is a different principal and should see a fresh rotate form
+  // if they're also eligible (both roles), not inherit the previous
+  // wallet's in-flight state.
+  const prevAccountRef = useRef(account)
+  useEffect(() => {
+    if (prevAccountRef.current !== account) {
+      resetRotate()
+      prevAccountRef.current = account
+    }
+  }, [account])
+
+  // When the fee-admin grant lands, fire the proxyAdmin transfer automatically.
+  useEffect(() => {
+    if (rotateStage === 'grant' && grantReceipt.isSuccess) {
+      resetGrant()
+      setRotateStage('transfer')
+      transferAdmin(rotateInput.trim() as Address).catch((e) => {
+        setRotateError(e?.message ?? 'transferProxyAdmin failed')
+        setRotateStage('idle')
+      })
+    }
+  }, [rotateStage, grantReceipt.isSuccess, resetGrant, rotateInput, transferAdmin])
+
+  const inputValid = isAddress(newAdminInput.trim())
+  const rotateValid = isAddress(rotateInput.trim())
+
+  async function startRotate() {
+    setRotateError(null)
+    setRotateStage('grant')
+    try {
+      await grantFeeAdmin(rotateInput.trim() as Address, true)
+    } catch (e: any) {
+      setRotateError(e?.message ?? 'setWhitelistedAdmin failed')
+      setRotateStage('idle')
+    }
+  }
 
   return (
-    <section className="card space-y-3">
-      <h2 className="font-semibold">Upgrade authority</h2>
+    <section className="card border-l-4 border-l-brand/70 space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-baseline gap-3">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-brand">
+            Role 1
+          </span>
+          <h2 className="font-semibold">Upgrade authority (proxyAdmin)</h2>
+        </div>
+        <span className="text-[10px] uppercase tracking-wide text-subtle">
+          Single slot · 2-step grant
+        </span>
+      </div>
+
+      <p className="text-[11px] text-muted leading-relaxed -mt-2">
+        Only <strong>one</strong> address can hold this role at a time.
+        For production, put a <strong>Gnosis Safe multisig</strong> here —
+        the Safe itself handles N signers / threshold / signer rotation
+        internally, so you get &ldquo;multi-human proxyAdmin&rdquo;
+        without the contract knowing anything about it.
+      </p>
+
+      {acceptedFlash && (
+        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 flex items-center gap-2 animate-fade-in">
+          <span
+            aria-hidden
+            className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400"
+          >
+            ✓
+          </span>
+          <span className="text-sm text-emerald-300">
+            You are now <strong>proxyAdmin</strong> — the transfer has been
+            finalised on-chain.
+          </span>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[10px] uppercase tracking-wide text-subtle mr-1">
-          proxyAdmin
+          current
         </span>
         {proxyAdmin ? (
           <>
-            <Address value={proxyAdmin as Address} variant="short" />
+            <Address value={proxyAdmin} variant="short" />
             {isYou && (
-              <span className="text-[10px] px-2 py-0.5 rounded bg-accent/10 text-accent uppercase tracking-wide">
+              <span className="text-[10px] px-2 py-0.5 rounded bg-brand/10 text-brand uppercase tracking-wide">
                 you
               </span>
             )}
@@ -725,10 +913,196 @@ function UpgradeAuthorityPanel({
         )}
       </div>
 
-      <p className="text-xs text-subtle leading-relaxed">
-        Can register new implementations and switch the default version at
-        any time. End users interacting with this proxy should keep their
-        MultiVault approval <code className="font-mono text-ink">DEPOSIT</code>-only.
+      {hasPending && (
+        <div className="rounded border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-amber-400 mr-1">
+              pending
+            </span>
+            <Address value={pendingProxyAdmin as Address} variant="short" />
+            {isPendingYou && (
+              <span className="text-[10px] px-2 py-0.5 rounded bg-brand/10 text-brand uppercase tracking-wide">
+                you
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-subtle leading-relaxed">
+            A transfer has been initiated. The pending address must sign{' '}
+            <code className="font-mono text-ink">acceptProxyAdmin()</code> from
+            their wallet to finalise. Until then the current admin keeps all
+            powers and can overwrite the pending candidate.
+          </p>
+          {isPendingYou && (
+            <button
+              type="button"
+              onClick={() => acceptAdmin()}
+              disabled={acceptPending || acceptReceipt.isLoading}
+              className="btn-primary text-xs px-3 py-1.5"
+            >
+              {acceptPending
+                ? 'Sign…'
+                : acceptReceipt.isLoading
+                ? 'Mining…'
+                : 'Accept proxyAdmin role'}
+            </button>
+          )}
+          {acceptError && (
+            <p className="text-xs text-rose-400 font-mono break-words">
+              {acceptError.message.split('\n')[0]}
+            </p>
+          )}
+        </div>
+      )}
+
+      {isYou && (
+        <div className="space-y-2 pt-2 border-t border-line">
+          <label className="block text-[10px] uppercase tracking-wide text-subtle">
+            Grant Role 1 to a new address (2-step)
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <input
+              type="text"
+              spellCheck={false}
+              placeholder="0x…"
+              value={newAdminInput}
+              onChange={(e) => setNewAdminInput(e.target.value)}
+              className="input flex-1 min-w-[18rem] font-mono text-xs"
+            />
+            <button
+              type="button"
+              onClick={() =>
+                inputValid && transferAdmin(newAdminInput.trim() as Address)
+              }
+              disabled={!inputValid || transferPending || transferReceipt.isLoading}
+              className="btn-secondary text-xs px-3 py-1.5"
+            >
+              {transferPending
+                ? 'Sign…'
+                : transferReceipt.isLoading
+                ? 'Mining…'
+                : hasPending
+                ? 'Grant (replace pending)'
+                : 'Grant'}
+            </button>
+          </div>
+          {transferError && (
+            <p className="text-xs text-rose-400 font-mono break-words">
+              {transferError.message.split('\n')[0]}
+            </p>
+          )}
+          <p className="text-[11px] text-subtle leading-relaxed">
+            Grants Role 1 only — the target must then call{' '}
+            <code className="font-mono text-ink">acceptProxyAdmin()</code>.
+            Fee admin rights (Role 2) are untouched. Use the combined
+            grant below if you hold both roles.
+          </p>
+        </div>
+      )}
+
+      {hasBothRoles && (
+        <div className="rounded-md border border-brand/30 bg-brand/5 p-3 space-y-2">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-brand">
+              Convenience
+            </span>
+            <strong className="text-sm">Grant both roles to a single address</strong>
+          </div>
+          <p className="text-[11px] text-subtle leading-relaxed">
+            You currently hold both roles. This runs{' '}
+            <code className="font-mono text-ink">setWhitelistedAdmin(new, true)</code>{' '}
+            then <code className="font-mono text-ink">transferProxyAdmin(new)</code>{' '}
+            back-to-back (2 signatures). After the new admin calls{' '}
+            <code className="font-mono text-ink">acceptProxyAdmin()</code>,
+            they can revoke you as fee admin from their wallet.
+          </p>
+          {rotateStage !== 'complete' && (
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="text"
+                spellCheck={false}
+                placeholder="0x…"
+                value={rotateInput}
+                onChange={(e) => setRotateInput(e.target.value)}
+                disabled={rotateStage !== 'idle' && rotateStage !== 'done'}
+                className="input flex-1 min-w-[18rem] font-mono text-xs"
+              />
+              <button
+                type="button"
+                onClick={startRotate}
+                disabled={
+                  !rotateValid ||
+                  rotateStage === 'grant' ||
+                  rotateStage === 'transfer' ||
+                  rotateStage === 'done' ||
+                  grantPending ||
+                  grantReceipt.isLoading
+                }
+                className="btn-primary text-xs px-3 py-1.5"
+              >
+                {rotateStage === 'grant' && (grantPending ? 'Sign Role 2…' : 'Granting Role 2…')}
+                {rotateStage === 'transfer' &&
+                  (transferPending ? 'Sign Role 1…' : 'Granting Role 1…')}
+                {rotateStage === 'done' && 'Waiting for accept…'}
+                {rotateStage === 'idle' && 'Grant both roles'}
+              </button>
+            </div>
+          )}
+          {rotateStage !== 'idle' && rotateStage !== 'complete' && (
+            <ol className="text-[11px] text-subtle space-y-1 list-decimal list-inside">
+              <li className={rotateStage === 'grant' ? 'text-ink' : ''}>
+                {grantReceipt.isSuccess ? '✓ ' : ''}Grant fee admin to new
+                address (immediate)
+              </li>
+              <li
+                className={
+                  rotateStage === 'transfer' || rotateStage === 'done'
+                    ? 'text-ink'
+                    : ''
+                }
+              >
+                {rotateStage === 'done' ? '✓ ' : ''}Initiate proxyAdmin
+                transfer (pending until accepted)
+              </li>
+              <li className={rotateStage === 'done' ? 'text-ink' : ''}>
+                New admin calls{' '}
+                <code className="font-mono text-ink">acceptProxyAdmin()</code>{' '}
+                <span className="text-subtle">(auto-detected)</span>
+              </li>
+              <li>
+                (optional) Revoke your old fee admin rights from the new
+                admin's wallet
+              </li>
+            </ol>
+          )}
+          {rotateStage === 'complete' && (
+            <div className="space-y-2">
+              <p className="text-xs text-ink">
+                ✓ Rotation complete — the new address is now proxyAdmin +
+                fee admin. You can optionally revoke yourself as fee admin
+                from the new admin's wallet.
+              </p>
+              <button
+                type="button"
+                onClick={resetRotate}
+                className="btn-secondary text-xs px-3 py-1.5"
+              >
+                Start new rotation
+              </button>
+            </div>
+          )}
+          {rotateError && (
+            <p className="text-xs text-rose-400 font-mono break-words">
+              {rotateError.split('\n')[0]}
+            </p>
+          )}
+        </div>
+      )}
+
+      <p className="text-xs text-subtle leading-relaxed pt-1">
+        Role 1 controls <em>which logic</em> the proxy delegates to —
+        register new implementations, change default version, rename.
+        It <strong>cannot</strong> touch fees, withdrawals, or the
+        sponsor pool; those are Role 2 below.
       </p>
     </section>
   )
@@ -1294,17 +1668,25 @@ function AdminsPanel({
   }
 
   return (
-    <section className="space-y-6">
-      <div>
-        <h2 className="text-sm font-medium uppercase tracking-wider text-subtle">
-          Whitelisted admins
-        </h2>
-        <p className="mt-1 text-sm text-muted">
-          Admins can withdraw accumulated fees, change fee settings, add /
-          revoke other admins, and on sponsored proxies fund user credit + set
-          claim limits. Reconstructed from on-chain events.
-        </p>
+    <section className="card border-l-4 border-l-line-strong space-y-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-baseline gap-3">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-muted">
+            Role 2
+          </span>
+          <h2 className="font-semibold">Fee admins (whitelisted)</h2>
+        </div>
+        <span className="text-[10px] uppercase tracking-wide text-subtle">
+          N addresses · instant add/revoke
+        </span>
       </div>
+      <p className="text-xs text-muted leading-relaxed">
+        Controls money flow — withdraw accumulated fees, change fee
+        settings, add / revoke other fee admins, and on sponsored proxies
+        fundPool / reclaim / setClaimLimits. <strong>Cannot</strong>{' '}
+        register new implementation versions. List is reconstructed from
+        on-chain events.
+      </p>
 
       {isLoading && (
         <div className="space-y-2">
@@ -1374,10 +1756,10 @@ function AdminsPanel({
       {connectedIsAdmin ? (
         <div className="rounded-xl border border-line bg-surface p-5 space-y-3">
           <div>
-            <div className="text-sm font-medium text-ink">Add an admin</div>
+            <div className="text-sm font-medium text-ink">Grant Role 2 to a new address</div>
             <div className="text-xs text-subtle">
-              Use a Safe or multisig address for production deployments — adding
-              an EOA concentrates trust.
+              Grants fee admin rights. Use a Safe or multisig address for
+              production deployments — granting to an EOA concentrates trust.
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
@@ -1403,7 +1785,7 @@ function AdminsPanel({
                 ? isPending
                   ? 'Sign…'
                   : 'Mining…'
-                : 'Add admin'}
+                : 'Grant'}
             </button>
           </div>
           {addDraft && !isAddress(addDraft) && (

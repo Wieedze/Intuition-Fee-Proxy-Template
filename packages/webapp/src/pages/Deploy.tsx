@@ -3,8 +3,7 @@ import { isAddress, parseEther, type Address } from 'viem'
 import { useAccount, useChainId, useWaitForTransactionReceipt } from 'wagmi'
 import { Link, useNavigate } from 'react-router-dom'
 
-import { MULTIVAULT_ADDRESSES } from '@intuition-fee-proxy/sdk'
-import { networkFor } from '../lib/addresses'
+import { addressesFor, networkFor } from '../lib/addresses'
 import { useDeployProxy } from '../hooks/useFactory'
 
 const FEE_DENOMINATOR = 10_000n
@@ -15,7 +14,7 @@ export default function DeployPage() {
   const network = networkFor(chainId)
   const navigate = useNavigate()
 
-  const defaultMV = MULTIVAULT_ADDRESSES[network]
+  const defaultMV = addressesFor(network).multiVault
 
   const [name, setName] = useState<string>('')
   const [channel, setChannel] = useState<0 | 1>(0) // 0 = Standard, 1 = Sponsored
@@ -285,7 +284,7 @@ function ChannelRadio({
       value: 1,
       title: 'Sponsored',
       body:
-        'Admins fund a shared TRUST pool. Users call deposit from their own wallet as usual — the proxy transparently tops up from the pool (bounded by per-user rate limits). Pick this when your dApp covers its users’ on-chain cost.',
+        'Admins fund a shared TRUST pool. The proxy tops up user deposits automatically, bounded by per-user rate limits. Pick this when your dApp covers users’ on-chain cost.',
       doc: '/docs/sponsoring',
     },
   ]
@@ -299,7 +298,7 @@ function ChannelRadio({
             key={opt.value}
             type="button"
             onClick={() => onChange(opt.value)}
-            className={`text-left rounded-xl border p-4 transition-colors ${
+            className={`text-left rounded-xl border p-4 transition-colors h-full flex flex-col ${
               active
                 ? 'border-brand bg-brand/10 text-ink'
                 : 'border-line bg-surface text-ink hover:border-line-strong'
@@ -320,7 +319,7 @@ function ChannelRadio({
             <Link
               to={opt.doc}
               onClick={(e) => e.stopPropagation()}
-              className="mt-3 inline-block text-[11px] text-muted hover:text-ink transition-colors"
+              className="mt-auto pt-3 inline-block text-[11px] text-muted hover:text-ink transition-colors self-start"
             >
               Learn more →
             </Link>
