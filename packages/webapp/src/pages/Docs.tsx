@@ -592,7 +592,7 @@ function ArchNode({
   )
 }
 
-function Actor({ term, desc }: { term: string; desc: string }) {
+function Actor({ term, desc }: { term: string; desc: ReactNode }) {
   return (
     <div className="px-5 py-4">
       <dt className="text-sm font-medium text-ink">{term}</dt>
@@ -1783,7 +1783,7 @@ function NavCard({
   )
 }
 
-function Primitive({ term, desc }: { term: string; desc: string }) {
+function Primitive({ term, desc }: { term: string; desc: ReactNode }) {
   return (
     <div className="px-5 py-4">
       <dt className="font-mono text-xs text-ink">{term}</dt>
