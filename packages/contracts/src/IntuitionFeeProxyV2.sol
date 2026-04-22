@@ -375,6 +375,8 @@ contract IntuitionFeeProxyV2 is
     }
 
     /// @inheritdoc IIntuitionFeeProxyV2
+    /// @dev ⚠️ Caller MUST have `multiVault.approve(proxy, DEPOSIT)` beforehand.
+    ///      See contract-level NatSpec for the failure mode when approval is missing.
     function createTriples(
         bytes32[] calldata subjectIds,
         bytes32[] calldata predicateIds,
