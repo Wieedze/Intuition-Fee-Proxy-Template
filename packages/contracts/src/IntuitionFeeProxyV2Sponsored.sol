@@ -79,6 +79,14 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     uint256 private constant DEFAULT_MAX_CLAIM_VOLUME_PER_WINDOW = 10 ether;
     uint256 private constant DEFAULT_CLAIM_WINDOW_SECONDS = 1 days;
 
+    /// @notice Minimum accepted `claimWindowSeconds` (1 hour). Shorter windows
+    ///         let the per-user count / volume caps reset too fast to be
+    ///         meaningful — a 1-second window would let a bot do
+    ///         `maxClaimsPerWindow` calls every single second and drain the
+    ///         pool. 1 hour is the product-level "bot threshold": legitimate
+    ///         users never hit a 10/hour cap in normal usage.
+    uint256 public constant MIN_CLAIM_WINDOW_SECONDS = 1 hours;
+
     // ============ Events ============
 
     event PoolFunded(uint256 amount, address indexed by);
@@ -187,6 +195,9 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 windowSec
     ) external onlyWhitelistedAdmin {
         if (maxPerTx == 0 || maxPerWindow == 0 || maxVolumePerWindow == 0 || windowSec == 0) {
+            revert Errors.Sponsored_InvalidLimit();
+        }
+        if (windowSec < MIN_CLAIM_WINDOW_SECONDS) {
             revert Errors.Sponsored_InvalidLimit();
         }
         if (maxVolumePerWindow > type(uint128).max) {

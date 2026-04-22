@@ -120,6 +120,29 @@ describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
       ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_NotWhitelistedAdmin");
     });
 
+    it("rejects windowSec < MIN_CLAIM_WINDOW_SECONDS (1 hour)", async function () {
+      const { proxy, admin1 } = await loadFixture(deployFixture);
+      const ONE_HOUR = 3600n;
+      // 1 second below the minimum — rejected
+      await expect(
+        proxy.connect(admin1).setClaimLimits(
+          ethers.parseEther("1"),
+          10n,
+          ethers.parseEther("10"),
+          ONE_HOUR - 1n,
+        ),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_InvalidLimit");
+      // Exactly at the minimum — accepted
+      await expect(
+        proxy.connect(admin1).setClaimLimits(
+          ethers.parseEther("1"),
+          10n,
+          ethers.parseEther("10"),
+          ONE_HOUR,
+        ),
+      ).to.emit(proxy, "ClaimLimitsSet");
+    });
+
     it("rejects maxClaimVolumePerWindow > uint128.max", async function () {
       const { proxy, admin1 } = await loadFixture(deployFixture);
       const U128_MAX = (1n << 128n) - 1n;
