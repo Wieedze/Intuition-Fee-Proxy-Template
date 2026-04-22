@@ -181,6 +181,45 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
       ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_InvalidImplementation");
     });
 
+    it("registerVersion rejects a sponsored impl on a standard-family proxy (StorageLayoutMismatch)", async function () {
+      const { versioned, proxyAdmin } = await loadFixture(deployFixture);
+      const SponsoredFactory = await ethers.getContractFactory("IntuitionFeeProxyV2Sponsored");
+      const sponsoredImpl = await SponsoredFactory.deploy();
+      await sponsoredImpl.waitForDeployment();
+      await expect(
+        versioned
+          .connect(proxyAdmin)
+          .registerVersion(
+            ethers.encodeBytes32String("wrong-family"),
+            await sponsoredImpl.getAddress(),
+          ),
+      ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_StorageLayoutMismatch");
+    });
+
+    it("registerVersion rejects an impl without STORAGE_COMPAT_ID getter (legacy)", async function () {
+      const { versioned, proxyAdmin, mv } = await loadFixture(deployFixture);
+      // MockMultiVault has no STORAGE_COMPAT_ID — stands in for any legacy
+      // contract or non-V2-family impl.
+      await expect(
+        versioned
+          .connect(proxyAdmin)
+          .registerVersion(
+            ethers.encodeBytes32String("legacy"),
+            await mv.getAddress(),
+          ),
+      ).to.be.revertedWithCustomError(versioned, "VersionedFeeProxy_StorageLayoutMismatch");
+    });
+
+    it("registerVersion accepts a same-family derivative (V2 → V3Mock)", async function () {
+      const { versioned, proxyAdmin } = await loadFixture(deployFixture);
+      const v3Addr = await deployV3Impl();
+      await expect(
+        versioned
+          .connect(proxyAdmin)
+          .registerVersion(ethers.encodeBytes32String("v3"), v3Addr),
+      ).to.emit(versioned, "VersionRegistered");
+    });
+
     it("setDefaultVersion reverts for unknown version", async function () {
       const { versioned, proxyAdmin } = await loadFixture(deployFixture);
       await expect(

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.21;
 
 import {IIntuitionVersionedFeeProxy} from "./interfaces/IIntuitionVersionedFeeProxy.sol";
+import {IIntuitionFeeProxyV2} from "./interfaces/IIntuitionFeeProxyV2.sol";
 import {Errors} from "./libraries/Errors.sol";
 
 /// @title IntuitionVersionedFeeProxy
@@ -115,10 +116,35 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
         Layout storage s = _layout();
         if (s.versionExists[version]) revert Errors.VersionedFeeProxy_VersionExists();
 
+        // Enforce storage-layout compatibility against the proxy's reference
+        // (the default version's impl). Any mismatch — or an impl missing the
+        // STORAGE_COMPAT_ID getter — reverts. Prevents silent state
+        // corruption at `setDefaultVersion`.
+        _assertStorageCompat(s.implementations[s.defaultVersion], implementation);
+
         s.implementations[version] = implementation;
         s.versionExists[version] = true;
         s.versionList.push(version);
         emit VersionRegistered(version, implementation);
+    }
+
+    /// @dev Reads both impls' `STORAGE_COMPAT_ID` and reverts on mismatch.
+    ///      Catches the missing-getter path (any legacy or non-V2-family
+    ///      impl) via try/catch.
+    function _assertStorageCompat(address current, address candidate) internal view {
+        bytes32 refId;
+        bytes32 candId;
+        try IIntuitionFeeProxyV2(current).STORAGE_COMPAT_ID() returns (bytes32 id) {
+            refId = id;
+        } catch {
+            revert Errors.VersionedFeeProxy_StorageLayoutMismatch();
+        }
+        try IIntuitionFeeProxyV2(candidate).STORAGE_COMPAT_ID() returns (bytes32 id) {
+            candId = id;
+        } catch {
+            revert Errors.VersionedFeeProxy_StorageLayoutMismatch();
+        }
+        if (refId != candId) revert Errors.VersionedFeeProxy_StorageLayoutMismatch();
     }
 
     /// @inheritdoc IIntuitionVersionedFeeProxy

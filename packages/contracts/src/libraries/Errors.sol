@@ -96,6 +96,11 @@ library Errors {
     /// @notice `acceptProxyAdmin` called by an address that is not the pending admin
     error VersionedFeeProxy_NotPendingProxyAdmin();
 
+    /// @notice The new impl's `STORAGE_COMPAT_ID` differs from the proxy's
+    ///         reference (default version's impl). Registering an incompatible
+    ///         layout would silently corrupt state at `setDefaultVersion`.
+    error VersionedFeeProxy_StorageLayoutMismatch();
+
     // ============ Sponsored-proxy errors ============
 
     /// @notice Admin tried to credit / uncredit zero amount

@@ -119,11 +119,19 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         );
     }
 
-    // ============ Channel marker (overrides V2) ============
+    // ============ Channel + storage markers (override V2) ============
 
     /// @inheritdoc IntuitionFeeProxyV2
     function channel() external pure override returns (ProxyChannel) {
         return ProxyChannel.Sponsored;
+    }
+
+    /// @inheritdoc IntuitionFeeProxyV2
+    /// @dev Sponsored family: V2 inline slots + the ERC-7201 namespaced
+    ///      sponsored layout. Distinct from the standard ID so the versioned
+    ///      proxy rejects cross-family registration.
+    function STORAGE_COMPAT_ID() external pure override returns (bytes32) {
+        return keccak256("intuition.feeproxy.v2.sponsored");
     }
 
     // ============ Identification ============

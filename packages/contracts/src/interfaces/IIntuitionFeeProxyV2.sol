@@ -97,6 +97,15 @@ interface IIntuitionFeeProxyV2 {
     ///         `ProxyChannel.Standard`, sponsored impls `ProxyChannel.Sponsored`.
     function channel() external pure returns (ProxyChannel);
 
+    /// @notice On-chain storage-layout fingerprint used by the versioned proxy
+    ///         (`IntuitionVersionedFeeProxy.registerVersion`) to reject impls
+    ///         whose layout is incompatible with the proxy's current default —
+    ///         which would silently corrupt state at `setDefaultVersion`.
+    ///         Impls that share a layout MUST return the same id; any diff
+    ///         (inline slot added at the wrong spot, namespace changed) MUST
+    ///         bump it.
+    function STORAGE_COMPAT_ID() external pure returns (bytes32);
+
     // ============ View / accounting ============
 
     function ethMultiVault() external view returns (address);

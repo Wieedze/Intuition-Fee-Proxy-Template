@@ -47,6 +47,7 @@ contract IntuitionFeeProxyV2 is
     ///      raise it; existing proxies stay bounded forever.
     uint256 public constant MAX_FIXED_FEE = 10 ether;
 
+
     // ============ Storage (50 slots reserved) ============
 
     /// @dev slot 0 — was immutable in V1, now storage (upgradeable requirement)
@@ -202,6 +203,16 @@ contract IntuitionFeeProxyV2 is
     /// @inheritdoc IIntuitionFeeProxyV2
     function channel() external pure virtual returns (ProxyChannel) {
         return ProxyChannel.Standard;
+    }
+
+    /// @inheritdoc IIntuitionFeeProxyV2
+    /// @dev Any V2-family derivative that reuses the inline slot layout
+    ///      (0..13 + __gap[36]) — including V2.1, V3Mock, and future
+    ///      append-only versions — MUST inherit this ID. Any fork that
+    ///      changes the layout (slot relocation, new inline field before
+    ///      __gap, namespace change) MUST bump to a new bytes32.
+    function STORAGE_COMPAT_ID() external pure virtual returns (bytes32) {
+        return keccak256("intuition.feeproxy.v2.standard");
     }
 
     // ============ Fee calculation ============
