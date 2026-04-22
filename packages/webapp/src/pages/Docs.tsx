@@ -942,8 +942,7 @@ function AdminRotation() {
               move. The target must then sign{' '}
               <Code>acceptProxyAdmin()</Code> from their own wallet to
               finalise. Until then the outgoing admin keeps full powers
-              and can overwrite the pending candidate. Defends against
-              fat-fingered transfers to dead or wrong addresses.
+              and can overwrite the pending candidate.
             </>
           }
         />
@@ -953,9 +952,8 @@ function AdminRotation() {
             <>
               Whitelist-style. <Code>setWhitelistedAdmin(addr, true/false)</Code>{' '}
               adds or removes in a single tx. Any fee admin can grant or
-              revoke any other — except the last one cannot self-revoke
-              (guards against stranding the proxy). Multiple fee admins
-              can coexist; all share the same powers.
+              revoke any other — except the last one cannot self-revoke.
+              Multiple fee admins can coexist; all share the same powers.
             </>
           }
         />
@@ -1170,7 +1168,7 @@ const client = createPublicClient({
   transport: http(),
 })`}</Block>
 
-      <H3>Recipe — list every deployed proxy</H3>
+      <H3>List every deployed proxy</H3>
       <P>
         Reads <Code>factory.getAllProxies()</Code>. Same data the Explore
         tab renders.
@@ -1185,14 +1183,14 @@ const proxies = await fetchAllProxies(
   V2_ADDRESSES.testnet.factory,
 )`}</Block>
 
-      <H3>Recipe — read a proxy&apos;s headline stats</H3>
+      <H3>Read a proxy&apos;s headline stats</H3>
       <Block>{`import { readProxyStats } from '@intuition-fee-proxy/sdk'
 
 const stats = await readProxyStats(client, proxies[0])
 // { ethMultiVault, depositFixedFee, depositPercentageFee,
 //   accumulatedFees, totalFeesCollectedAllTime, adminCount }`}</Block>
 
-      <H3>Recipe — register a canonical version on your proxy</H3>
+      <H3>Register a canonical version on your proxy</H3>
       <P>
         As the proxy admin, adopt a new canonical implementation without
         pasting its address by hand — pull it straight from the SDK.
@@ -1213,7 +1211,7 @@ await walletClient.writeContract({
   args: [stringToHex(latest.label, { size: 32 }), latest.impl],
 })`}</Block>
 
-      <H3>Recipe — fund a sponsor pool</H3>
+      <H3>Fund a sponsor pool</H3>
       <Block>{`import { parseEther } from 'viem'
 import { IntuitionFeeProxyV2SponsoredABI } from '@intuition-fee-proxy/sdk'
 
