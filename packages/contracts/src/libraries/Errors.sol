@@ -109,4 +109,17 @@ library Errors {
 
     /// @notice setClaimLimits called with zero max — zero is never "unlimited", it's zero
     error Sponsored_InvalidLimit();
+
+    /// @notice The inverse-formula `deposit(3 args)` is disabled on the sponsored
+    ///         channel — use `depositSponsored(4 args)` with an explicit `assets`
+    ///         so the pool can finance the full tx cost (full-sponsorship).
+    error Sponsored_UseDepositSponsored();
+
+    /// @notice The tx's `totalRequired` cost exceeds `maxClaimPerTx` — admin must
+    ///         raise the cap or the caller must request a smaller operation.
+    error Sponsored_ExceedsMaxPerTx();
+
+    /// @notice The shared pool holds less than `totalRequired` — admin must
+    ///         top up via `fundPool` before this tx can go through.
+    error Sponsored_InsufficientPool();
 }

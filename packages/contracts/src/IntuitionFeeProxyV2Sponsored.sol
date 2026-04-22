@@ -7,13 +7,9 @@ import {IntuitionFeeProxyV2} from "./IntuitionFeeProxyV2.sol";
 import {Errors} from "./libraries/Errors.sol";
 
 /// @title IntuitionFeeProxyV2Sponsored
-/// @notice V2 + shared sponsorship pool. The proxy itself acts as the sponsor:
-///         whitelisted admins top up the shared `sponsorPool` slot whenever
-///         they need to, and any user interacting with the proxy draws from
-///         it transparently on their regular `deposit` / `createAtoms` /
-///         `createTriples` / `depositBatch` calls (reduced or zero
-///         `msg.value`). Four admin-configurable knobs bound the drain per
-///         user per configurable window:
+/// @notice V2 + shared sponsorship pool. The pool funds the FULL tx cost for
+///         every user, regardless of wallet balance — "sponsor everyone equally".
+///         Admins top up `sponsorPool` and bound the spend via four knobs:
 ///           - `maxClaimPerTx`              — max TRUST drawn in a single call
 ///           - `maxClaimsPerWindow`         — max pool-drawing calls / user / window
 ///           - `maxClaimVolumePerWindow`    — max cumulative TRUST / user / window
@@ -21,22 +17,23 @@ import {Errors} from "./libraries/Errors.sol";
 ///         Defaults: 1 TRUST per call, 10 pool-drawing calls per day per user,
 ///         10 TRUST cumulative per day per user, window = 1 day.
 /// @dev
+///  - Sponsorship model is **full-coverage** (B1): pool pays `totalRequired`
+///    (no Sofia fee on sponsored — fees would be bookkeeping from admin's
+///    pool back to admin's own address). Any `msg.value` a caller may send is
+///    refunded at the end of the call (tolerant UX, `nonReentrant`-protected).
+///  - The inverse-formula `deposit(3 args)` is **disabled** on this channel —
+///    the pool cannot finance an intent that is only implicit in `msg.value`.
+///    Callers must use `depositSponsored(4 args)` with an explicit `assets`.
 ///  - All sponsored state lives in an ERC-7201 namespaced slot
 ///    (`keccak256("intuition.feeproxy.sponsored.v1")`) so V2's and future V3's
 ///    inline storage layouts stay independent.
-///  - Admin surface is minimal by design: `fundPool` / `reclaimFromPool` /
-///    `setClaimLimits` + the inherited V2 admin actions (fees, whitelist,
-///    withdraw). The admin cannot mint on behalf of users — no `depositFor`
-///    family. Every on-chain action that touches the MultiVault originates
+///  - Admin surface: `fundPool` / `reclaimFromPool` / `setClaimLimits` +
+///    inherited V2 admin actions (whitelist). The admin cannot mint on behalf
+///    of users — every on-chain action that touches the MultiVault originates
 ///    from the user's own wallet (msg.sender = receiver), guaranteeing that
-///    the admin can never force shares onto an unwilling address. If a dApp
-///    needs custodial onboarding (user without wallet), it is a frontend
-///    concern: use an embedded-AA kit (Privy, Thirdweb, Turnkey) that signs
-///    for the user. The wallet still belongs to the user conceptually.
+///    the admin can never force shares onto an unwilling address.
 ///  - For tiered-subscription scenarios (free / pro / premium), deploy one
-///    sponsored proxy per tier rather than encoding tiers on-chain. Each
-///    proxy has its own pool, limits and admins — isolation is cleaner and
-///    keeps this contract simple.
+///    sponsored proxy per tier rather than encoding tiers on-chain.
 ///  - NEVER `registerVersion` a V2-standard impl on a sponsored proxy (or vice
 ///    versa). Storage layouts differ, cross-family switching orphans the pool.
 ///    The Factory enforces the split via its two-channel design.
@@ -44,38 +41,27 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     // ============ Namespaced storage ============
 
     /// @dev ERC-7201 namespaced storage slot for the sponsored-credit layout.
-    /// Matches the canonical formula — tooling (Slither, OZ upgrades plugin)
-    /// recognises this shape and verifies layout neighbourhood.
     bytes32 private constant SPONSORED_STORAGE_LOCATION = keccak256(
         abi.encode(uint256(keccak256("intuition.feeproxy.sponsored.v1")) - 1)
     ) & ~bytes32(uint256(0xff));
 
     struct ClaimWindow {
-        // Packed into a single storage slot: 8 + 8 + 16 = 32 bytes.
-        uint64 windowStart;  // unix timestamp of the current window's start
-        uint64 count;        // pool-drawing calls so far in the current window
-        uint128 volume;      // cumulative TRUST drawn from the pool in this window (wei)
+        uint64 windowStart;
+        uint64 count;
+        uint128 volume;
     }
 
     struct SponsoredLayout {
-        // ── Shared sponsorship pool ──
-        // A single pool admins top up whenever they need to. Any user
-        // interacting with the proxy can draw from it transparently via the
-        // normal entry points (reduced msg.value). Rate limits below keep any
-        // one user from draining the whole pool at once.
         uint256 sponsorPool;
-        // ── Rate limits (all must be > 0 after init; never "unlimited") ──
-        uint256 maxClaimPerTx;              // cap per call — default 1 ether
-        uint256 maxClaimsPerWindow;         // cap on pool-drawing calls / user / window — default 10
+        uint256 maxClaimPerTx;
+        uint256 maxClaimsPerWindow;
         mapping(address user => ClaimWindow) claimWindows;
-        // ── Sponsored metrics (additive to V2's base metrics) ──
         uint256 totalSponsoredDeposits;
         uint256 totalSponsoredVolume;
         uint256 totalSponsoredUniqueReceivers;
         mapping(address => bool) hasReceivedSponsored;
-        // ── Appended in the same ERC-7201 layout (append-only) ──
-        uint256 maxClaimVolumePerWindow;    // cap on cumulative TRUST / user / window — default 10 ether
-        uint256 claimWindowSeconds;         // window length in seconds — default 86400 (1 day)
+        uint256 maxClaimVolumePerWindow;
+        uint256 claimWindowSeconds;
     }
 
     function _s() private pure returns (SponsoredLayout storage $) {
@@ -111,8 +97,6 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Init override ============
 
-    /// @dev Override V2's public initializer to chain base init + set default
-    ///      claim limits under the same `initializer` guard.
     function initialize(
         address ethMultiVault_,
         uint256 depositFixedFee_,
@@ -142,31 +126,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Views ============
 
-    /// @notice Current balance of the shared sponsorship pool.
-    function sponsorPool() external view returns (uint256) {
-        return _s().sponsorPool;
-    }
+    function sponsorPool() external view returns (uint256) { return _s().sponsorPool; }
+    function maxClaimPerTx() external view returns (uint256) { return _s().maxClaimPerTx; }
+    function maxClaimsPerWindow() external view returns (uint256) { return _s().maxClaimsPerWindow; }
+    function maxClaimVolumePerWindow() external view returns (uint256) { return _s().maxClaimVolumePerWindow; }
+    function claimWindowSeconds() external view returns (uint256) { return _s().claimWindowSeconds; }
 
-    function maxClaimPerTx() external view returns (uint256) {
-        return _s().maxClaimPerTx;
-    }
-
-    function maxClaimsPerWindow() external view returns (uint256) {
-        return _s().maxClaimsPerWindow;
-    }
-
-    function maxClaimVolumePerWindow() external view returns (uint256) {
-        return _s().maxClaimVolumePerWindow;
-    }
-
-    function claimWindowSeconds() external view returns (uint256) {
-        return _s().claimWindowSeconds;
-    }
-
-    /// @notice Returns the live claim state for a given user.
-    /// @return claimsUsed How many pool-drawing calls have fired in the current window.
-    /// @return volumeUsed Cumulative TRUST (wei) drawn from the pool in the current window.
-    /// @return windowResetsAt Unix timestamp when the window will roll over.
     function getClaimStatus(address user)
         external
         view
@@ -175,26 +140,14 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         SponsoredLayout storage $ = _s();
         ClaimWindow storage w = $.claimWindows[user];
         if (uint256(w.windowStart) == 0) return (0, 0, 0);
-        // If the window already expired, effectively reset.
         if (block.timestamp >= uint256(w.windowStart) + $.claimWindowSeconds) return (0, 0, 0);
         return (uint256(w.count), uint256(w.volume), uint256(w.windowStart) + $.claimWindowSeconds);
     }
 
-    function totalSponsoredDeposits() external view returns (uint256) {
-        return _s().totalSponsoredDeposits;
-    }
-
-    function totalSponsoredVolume() external view returns (uint256) {
-        return _s().totalSponsoredVolume;
-    }
-
-    function totalSponsoredUniqueReceivers() external view returns (uint256) {
-        return _s().totalSponsoredUniqueReceivers;
-    }
-
-    function hasReceivedSponsored(address user) external view returns (bool) {
-        return _s().hasReceivedSponsored[user];
-    }
+    function totalSponsoredDeposits() external view returns (uint256) { return _s().totalSponsoredDeposits; }
+    function totalSponsoredVolume() external view returns (uint256) { return _s().totalSponsoredVolume; }
+    function totalSponsoredUniqueReceivers() external view returns (uint256) { return _s().totalSponsoredUniqueReceivers; }
+    function hasReceivedSponsored(address user) external view returns (bool) { return _s().hasReceivedSponsored[user]; }
 
     function getSponsoredMetrics()
         external
@@ -211,13 +164,6 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Admin: claim limits ============
 
-    /// @notice Update all four per-user rate-limit knobs atomically.
-    /// @param maxPerTx           Cap on TRUST drawn from the pool in a single call (wei).
-    /// @param maxPerWindow       Cap on pool-drawing calls per user per window.
-    /// @param maxVolumePerWindow Cap on cumulative TRUST per user per window (wei).
-    /// @param windowSec          Window length in seconds (e.g. 86400 = 1 day, 604800 = 1 week).
-    /// @dev All four values must be strictly > 0. Zero is never "unlimited"; to lift a cap
-    ///      in practice, set it high (e.g. `type(uint128).max` for volume).
     function setClaimLimits(
         uint256 maxPerTx,
         uint256 maxPerWindow,
@@ -227,10 +173,6 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         if (maxPerTx == 0 || maxPerWindow == 0 || maxVolumePerWindow == 0 || windowSec == 0) {
             revert Errors.Sponsored_InvalidLimit();
         }
-        // ClaimWindow.volume is packed as uint128. Capping the per-window
-        // volume at uint128.max prevents silent truncation on `w.volume =
-        // uint128(currentVolume + consumed)` if an admin sets an absurdly
-        // high cap. uint128.max wei ≈ 3.4e20 ETH — far beyond any real pool.
         if (maxVolumePerWindow > type(uint128).max) {
             revert Errors.Sponsored_InvalidLimit();
         }
@@ -244,13 +186,6 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Admin: pool top-up / reclaim ============
 
-    /// @notice Fund the shared sponsorship pool with `msg.value` TRUST.
-    /// @dev Single-pool model: all users of this proxy draw from the same
-    ///      bucket. Admins manage fairness via the per-user rate limits
-    ///      (`maxClaimPerTx`, `maxClaimsPerWindow`, `maxClaimVolumePerWindow`,
-    ///      `claimWindowSeconds`), not per-user allocations. For tiered
-    ///      sponsorship (free / pro / premium), deploy one proxy per tier
-    ///      rather than encoding tiers on-chain.
     function fundPool() external payable onlyWhitelistedAdmin {
         if (msg.value == 0) revert Errors.Sponsored_NothingToCredit();
 
@@ -259,7 +194,6 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         emit PoolFunded(msg.value, msg.sender);
     }
 
-    /// @notice Admin reclaims `amount` from the pool, sending it to `to`.
     function reclaimFromPool(uint256 amount, address to)
         external
         onlyWhitelistedAdmin
@@ -272,10 +206,8 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 remaining = $.sponsorPool;
         if (amount > remaining) revert Errors.Sponsored_InsufficientClaim();
 
-        // Effects
         $.sponsorPool = remaining - amount;
 
-        // Interaction
         (bool ok, ) = to.call{value: amount}("");
         if (!ok) revert Errors.Sponsored_RefundFailed();
 
@@ -284,27 +216,43 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ User entry points (override V2) ============
 
+    /// @notice Disabled on the sponsored channel — the inverse-formula
+    ///         `deposit(3 args)` cannot convey an explicit `assets` intent to
+    ///         the pool. Callers MUST use `depositSponsored(4 args)` instead.
     function deposit(
+        bytes32 /* termId */,
+        uint256 /* curveId */,
+        uint256 /* minShares */
+    ) external payable override nonReentrant returns (uint256) {
+        revert Errors.Sponsored_UseDepositSponsored();
+    }
+
+    /// @notice Full-sponsorship deposit. User declares `assets` as their
+    ///         claim intent; the pool covers the entire cost (`totalRequired
+    ///         = assets`, no Sofia fee on sponsored). Any `msg.value` is
+    ///         refunded tolerantly at the tail of the call.
+    /// @dev    Reverts:
+    ///         - `Sponsored_ExceedsMaxPerTx`  if `assets > maxClaimPerTx`
+    ///         - `Sponsored_InsufficientPool` if `sponsorPool < assets`
+    ///         - `Sponsored_RateLimited` / `Sponsored_VolumeLimited` on per-user caps
+    function depositSponsored(
         bytes32 termId,
         uint256 curveId,
-        uint256 minShares
-    ) external payable override nonReentrant returns (uint256 shares) {
-        uint256 consumed = _consumeCredit(0);
-        uint256 effective = msg.value + consumed;
+        uint256 minShares,
+        uint256 assets
+    ) external payable nonReentrant returns (uint256 shares) {
+        if (assets == 0) revert Errors.IntuitionFeeProxy_InsufficientValue();
+        _claimFull(assets);
 
-        if (effective <= depositFixedFee) revert Errors.IntuitionFeeProxy_InsufficientValue();
+        // Fee=0 on sponsored, but keep the hook call so V2.1 can emit VersionUsed.
+        _accrueFee(0, "deposit", assets);
+        _finaliseCredit(assets);
 
-        uint256 multiVaultAmount = (effective - depositFixedFee) * FEE_DENOMINATOR
-                                   / (FEE_DENOMINATOR + depositPercentageFee);
-        uint256 fee = effective - multiVaultAmount;
-
-        _accrueFee(fee, "deposit", multiVaultAmount);
-        _finaliseCredit(consumed);
-
-        shares = _ethMultiVault.deposit{value: multiVaultAmount}(msg.sender, termId, curveId, minShares);
-        _trackActivity(0, 0, 1, multiVaultAmount);
+        shares = _ethMultiVault.deposit{value: assets}(msg.sender, termId, curveId, minShares);
+        _trackActivity(0, 0, 1, assets);
         emit MultiVaultSuccess("deposit", 1);
-        // No refund: the inverse-formula path splits `effective` entirely between fee and MV forward.
+
+        _refundMsgValue();
     }
 
     function createAtoms(
@@ -318,17 +266,13 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 atomCost = _ethMultiVault.getAtomCost();
         uint256 totalDeposit = _sumArray(assets);
         uint256 nonZero = _countNonZero(assets);
-        uint256 fee = calculateDepositFee(nonZero, totalDeposit);
 
-        uint256 multiVaultCost = (atomCost * count) + totalDeposit;
-        uint256 totalRequired = fee + multiVaultCost;
+        // totalRequired = MV cost only — no Sofia fee on sponsored.
+        uint256 totalRequired = (atomCost * count) + totalDeposit;
+        _claimFull(totalRequired);
 
-        uint256 consumed = _consumeCredit(totalRequired);
-        uint256 effective = msg.value + consumed;
-        if (effective < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
-
-        _accrueFee(fee, "createAtoms", multiVaultCost);
-        _finaliseCredit(consumed);
+        _accrueFee(0, "createAtoms", totalRequired);
+        _finaliseCredit(totalRequired);
 
         uint256[] memory minAssets = new uint256[](count);
         for (uint256 i = 0; i < count; i++) minAssets[i] = atomCost;
@@ -342,9 +286,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
         _trackActivity(count, 0, nonZero, totalDeposit);
         emit MultiVaultSuccess("createAtoms", count);
-        // ETH actually spent = totalRequired - consumed (the rest came from credit pool).
-        // `_refundExcess` returns msg.value minus that — 0 if credit covered the gap.
-        _refundExcess(totalRequired - consumed);
+        _refundMsgValue();
     }
 
     function createTriples(
@@ -364,17 +306,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 tripleCost = _ethMultiVault.getTripleCost();
         uint256 totalDeposit = _sumArray(assets);
         uint256 nonZero = _countNonZero(assets);
-        uint256 fee = calculateDepositFee(nonZero, totalDeposit);
 
-        uint256 multiVaultCost = (tripleCost * count) + totalDeposit;
-        uint256 totalRequired = fee + multiVaultCost;
+        uint256 totalRequired = (tripleCost * count) + totalDeposit;
+        _claimFull(totalRequired);
 
-        uint256 consumed = _consumeCredit(totalRequired);
-        uint256 effective = msg.value + consumed;
-        if (effective < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
-
-        _accrueFee(fee, "createTriples", multiVaultCost);
-        _finaliseCredit(consumed);
+        _accrueFee(0, "createTriples", totalRequired);
+        _finaliseCredit(totalRequired);
 
         uint256[] memory minAssets = new uint256[](count);
         for (uint256 i = 0; i < count; i++) minAssets[i] = tripleCost;
@@ -390,7 +327,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
         _trackActivity(0, count, nonZero, totalDeposit);
         emit MultiVaultSuccess("createTriples", count);
-        _refundExcess(totalRequired - consumed);
+        _refundMsgValue();
     }
 
     function depositBatch(
@@ -406,85 +343,44 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         ) revert Errors.IntuitionFeeProxy_WrongArrayLengths();
 
         uint256 totalDeposit = _sumArray(assets);
-        uint256 fee = calculateDepositFee(termIds.length, totalDeposit);
-        uint256 totalRequired = totalDeposit + fee;
+        if (totalDeposit == 0) revert Errors.IntuitionFeeProxy_InsufficientValue();
+        _claimFull(totalDeposit);
 
-        uint256 consumed = _consumeCredit(totalRequired);
-        uint256 effective = msg.value + consumed;
-        if (effective < totalRequired) revert Errors.IntuitionFeeProxy_InsufficientValue();
-
-        _accrueFee(fee, "depositBatch", totalDeposit);
-        _finaliseCredit(consumed);
+        _accrueFee(0, "depositBatch", totalDeposit);
+        _finaliseCredit(totalDeposit);
 
         shares = _ethMultiVault.depositBatch{value: totalDeposit}(
             msg.sender, termIds, curveIds, assets, minShares
         );
         _trackActivity(0, 0, termIds.length, totalDeposit);
         emit MultiVaultSuccess("depositBatch", shares.length);
-        _refundExcess(totalRequired - consumed);
+        _refundMsgValue();
     }
 
-    // ============ Admin: withdraw with credit-invariant protection ============
+    // ============ Internal: pool claim + rate limiting ============
 
-    function withdraw(address to, uint256 amount) external override onlyWhitelistedAdmin nonReentrant {
-        if (to == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
-        if (amount == 0) revert Errors.IntuitionFeeProxy_NothingToWithdraw();
-        if (amount > accumulatedFees) revert Errors.IntuitionFeeProxy_InsufficientAccumulatedFees();
-
-        accumulatedFees -= amount;
-        _assertCreditInvariant(amount);
-
-        (bool ok, ) = to.call{value: amount}("");
-        if (!ok) revert Errors.IntuitionFeeProxy_WithdrawFailed();
-
-        emit FeesWithdrawn(to, amount, msg.sender);
-    }
-
-    function withdrawAll(address to) external override onlyWhitelistedAdmin nonReentrant {
-        if (to == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
-        uint256 amount = accumulatedFees;
-        if (amount == 0) revert Errors.IntuitionFeeProxy_NothingToWithdraw();
-
-        accumulatedFees = 0;
-        _assertCreditInvariant(amount);
-
-        (bool ok, ) = to.call{value: amount}("");
-        if (!ok) revert Errors.IntuitionFeeProxy_WithdrawFailed();
-
-        emit FeesWithdrawn(to, amount, msg.sender);
-    }
-
-    function _assertCreditInvariant(uint256 amount) internal view {
-        uint256 bal = address(this).balance;
-        uint256 locked = _s().sponsorPool;
-        if (bal < amount || bal - amount < locked) {
-            revert Errors.Sponsored_WithdrawBreachesCreditInvariant();
-        }
-    }
-
-    // ============ Internal: pool consumption + rate limiting ============
-
-    /// @dev Read-only: returns how much would be drawn from the shared sponsor
-    ///      pool to cover the caller's `required` amount. The cap is
-    ///      `maxClaimPerTx` — a caller asking for more than the cap will still
-    ///      only get `cap` from the pool and must top up the rest via
-    ///      `msg.value`. If `msg.value >= required`, no pool draw.
-    function _consumeCredit(uint256 required) internal view returns (uint256) {
+    /// @dev Full-sponsorship claim: pool must cover the entire `required`.
+    ///      Reverts if the cap or pool balance cannot accommodate. Does NOT
+    ///      mutate state — pool deduction happens in `_finaliseCredit`.
+    function _claimFull(uint256 required) internal view {
         SponsoredLayout storage $ = _s();
-        uint256 avail = $.sponsorPool;
-        if (avail == 0) return 0;
-        uint256 cap = $.maxClaimPerTx;
-        uint256 usable = avail > cap ? cap : avail;
-        if (required == 0) return usable;
-        if (msg.value >= required) return 0;
-        uint256 missing = required - msg.value;
-        return missing >= usable ? usable : missing;
+        if (required > $.maxClaimPerTx) revert Errors.Sponsored_ExceedsMaxPerTx();
+        if ($.sponsorPool < required) revert Errors.Sponsored_InsufficientPool();
+    }
+
+    /// @dev Refunds the entire `msg.value` if any was sent. Tolerant UX —
+    ///      on sponsored paths the pool pays everything, so any ETH the
+    ///      caller attached is returned. Guarded by outer `nonReentrant`.
+    function _refundMsgValue() internal {
+        if (msg.value == 0) return;
+        (bool ok, ) = msg.sender.call{value: msg.value}("");
+        if (!ok) revert Errors.IntuitionFeeProxy_RefundFailed();
     }
 
     /// @dev Commits a pool draw + enforces the per-user rate limits (count +
     ///      cumulative volume, both over the configurable window) on
-    ///      msg.sender + bumps the sponsored metrics. No-op if `consumed == 0`
-    ///      (the user paid fully from msg.value, pool untouched).
+    ///      msg.sender + bumps the sponsored metrics. Assumes `_claimFull`
+    ///      was already called upstream (cap + pool balance validated).
     function _finaliseCredit(uint256 consumed) internal {
         if (consumed == 0) return;
         SponsoredLayout storage $ = _s();
@@ -497,11 +393,9 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
             consumed
         );
 
-        // Pool accounting.
         $.sponsorPool -= consumed;
         emit CreditConsumed(msg.sender, consumed);
 
-        // Sponsored metrics: every pool-funded call is a sponsored deposit.
         if (!$.hasReceivedSponsored[msg.sender]) {
             $.hasReceivedSponsored[msg.sender] = true;
             unchecked { ++$.totalSponsoredUniqueReceivers; }
@@ -516,8 +410,6 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         );
     }
 
-    /// @dev Enforces both per-user caps over a sliding window and bumps the
-    ///      per-user counters atomically. Called only when `consumed > 0`.
     function _applyRateLimit(
         address user,
         uint256 capCount,
@@ -528,11 +420,6 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         ClaimWindow storage w = _s().claimWindows[user];
         uint256 start = uint256(w.windowStart);
         if (start == 0 || block.timestamp >= start + windowSec) {
-            // Fresh window. Count always starts at 1 and capCount > 0 is
-            // enforced by setClaimLimits / initialize, so the count check is
-            // trivially satisfied. The single `consumed` draw must itself
-            // respect the volume cap — otherwise a single fat call could
-            // silently bypass it on a cold user.
             if (consumed > capVolume) revert Errors.Sponsored_VolumeLimited();
             w.windowStart = uint64(block.timestamp);
             w.count = 1;

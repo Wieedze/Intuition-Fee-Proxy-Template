@@ -6,10 +6,9 @@ import {
   MockMultiVault,
 } from "../typechain-types";
 
-describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
+describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
   const DEPOSIT_FEE = ethers.parseEther("0.1");
-  const DEPOSIT_PCT = 500n;               // 5%
-  const FEE_DENOMINATOR = 10000n;
+  const DEPOSIT_PCT = 500n;               // 5% — kept on storage but unused on sponsored paths
 
   const INITIAL_VERSION = ethers.encodeBytes32String("v2.0.0-sponsored");
   const ONE_DAY = 86400;
@@ -85,7 +84,7 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
       const newPerTx = ethers.parseEther("5");
       const newPerWindow = 20n;
       const newVolume = ethers.parseEther("50");
-      const newWindow = BigInt(ONE_DAY * 7); // 1 week
+      const newWindow = BigInt(ONE_DAY * 7);
       await expect(
         proxy.connect(admin1).setClaimLimits(newPerTx, newPerWindow, newVolume, newWindow),
       )
@@ -121,14 +120,12 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
       ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_NotWhitelistedAdmin");
     });
 
-    it("rejects maxClaimVolumePerWindow > uint128.max (prevents silent truncation in ClaimWindow.volume)", async function () {
+    it("rejects maxClaimVolumePerWindow > uint128.max", async function () {
       const { proxy, admin1 } = await loadFixture(deployFixture);
       const U128_MAX = (1n << 128n) - 1n;
-      // Exactly uint128.max is allowed
       await expect(
         proxy.connect(admin1).setClaimLimits(ethers.parseEther("1"), 10n, U128_MAX, BigInt(ONE_DAY)),
       ).to.emit(proxy, "ClaimLimitsSet");
-      // One wei over reverts
       await expect(
         proxy.connect(admin1).setClaimLimits(ethers.parseEther("1"), 10n, U128_MAX + 1n, BigInt(ONE_DAY)),
       ).to.be.revertedWithCustomError(proxy, "Sponsored_InvalidLimit");
@@ -199,109 +196,148 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
     });
   });
 
-  // ============ deposit consumes pool (D1) ============
+  // ============ deposit(3 args) is disabled ============
 
-  describe("deposit consumes the shared pool", function () {
-    it("user with msg.value=0 and funded pool drains pool up to cap", async function () {
+  describe("deposit(3 args) is disabled on sponsored", function () {
+    it("reverts with Sponsored_UseDepositSponsored", async function () {
+      const { proxy, user1 } = await loadFixture(deployFixture);
+      const termId = ethers.encodeBytes32String("t");
+      await expect(
+        proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_UseDepositSponsored");
+    });
+
+    it("reverts even when msg.value == 0", async function () {
+      const { proxy, user1 } = await loadFixture(deployFixture);
+      const termId = ethers.encodeBytes32String("t");
+      await expect(
+        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_UseDepositSponsored");
+    });
+  });
+
+  // ============ depositSponsored (full-sponsorship, no fees) ============
+
+  describe("depositSponsored (full-sponsorship)", function () {
+    it("walletless user: pool drained by exactly assets, MV receives assets", async function () {
       const { proxy, mv, admin1, user1 } = await loadFixture(deployFixture);
       const fund = ethers.parseEther("1");
       await proxy.connect(admin1).fundPool({ value: fund });
-
       const termId = ethers.encodeBytes32String("t");
-      const multiVault = ((fund - DEPOSIT_FEE) * FEE_DENOMINATOR) / (FEE_DENOMINATOR + DEPOSIT_PCT);
-      const fee = fund - multiVault;
+      const assets = ethers.parseEther("0.5");
 
-      await expect(proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }))
-        .to.emit(proxy, "CreditConsumed").withArgs(user1.address, fund);
+      await expect(proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 }))
+        .to.emit(proxy, "CreditConsumed").withArgs(user1.address, assets);
 
-      expect(await proxy.sponsorPool()).to.equal(0n);
-      expect(await proxy.accumulatedFees()).to.equal(fee);
-      expect(await mv.lastDepositAmount()).to.equal(multiVault);
+      expect(await proxy.sponsorPool()).to.equal(fund - assets);
+      expect(await proxy.accumulatedFees()).to.equal(0n);
+      expect(await mv.lastDepositAmount()).to.equal(assets);
       expect(await mv.lastDepositReceiver()).to.equal(user1.address);
     });
 
-    it("multiple users share the same pool (first come, first served)", async function () {
-      const { proxy, admin1, user1, user2 } = await loadFixture(deployFixture);
-      // Fund pool with 2 TRUST; default cap 1 TRUST per call.
-      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("2") });
-      const termId = ethers.encodeBytes32String("t");
-
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
-      // Pool down to 1 TRUST.
-      expect(await proxy.sponsorPool()).to.equal(ethers.parseEther("1"));
-
-      await proxy.connect(user2).deposit(termId, 1n, 0n, { value: 0 });
-      expect(await proxy.sponsorPool()).to.equal(0n);
-    });
-
-    it("user tops up via msg.value when pool is short", async function () {
+    it("rich user: msg.value fully refunded, pool still pays full assets", async function () {
       const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      const fund = ethers.parseEther("0.3");
+      const fund = ethers.parseEther("1");
       await proxy.connect(admin1).fundPool({ value: fund });
-
       const termId = ethers.encodeBytes32String("t");
-      const own = ethers.parseEther("0.7");
-      const effective = fund + own;
-      const multiVault = ((effective - DEPOSIT_FEE) * FEE_DENOMINATOR) / (FEE_DENOMINATOR + DEPOSIT_PCT);
+      const assets = ethers.parseEther("0.5");
+      const sent = ethers.parseEther("3");
 
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: own });
-      expect(await proxy.sponsorPool()).to.equal(0n);
-      expect(await proxy.totalVolume()).to.equal(multiVault);
+      const balBefore = await ethers.provider.getBalance(user1.address);
+      const tx = await proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: sent });
+      const receipt = await tx.wait();
+      const gasCost = receipt!.gasUsed * receipt!.gasPrice;
+      const balAfter = await ethers.provider.getBalance(user1.address);
+
+      // Net cost to user = gas only (msg.value fully refunded)
+      expect(balBefore - balAfter).to.equal(gasCost);
+      // Pool drained by exactly assets (ignores msg.value)
+      expect(await proxy.sponsorPool()).to.equal(fund - assets);
     });
 
-    it("user without pool funding — parent V2 semantics still apply", async function () {
-      const { proxy, user1 } = await loadFixture(deployFixture);
+    it("reverts Sponsored_ExceedsMaxPerTx when assets > maxClaimPerTx", async function () {
+      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("10") });
       const termId = ethers.encodeBytes32String("t");
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") });
-      expect(await proxy.totalDeposits()).to.equal(1n);
+      const assets = ethers.parseEther("2"); // > default cap of 1
+
+      await expect(
+        proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_ExceedsMaxPerTx");
+    });
+
+    it("reverts Sponsored_InsufficientPool when pool < assets", async function () {
+      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("0.3") });
+      const termId = ethers.encodeBytes32String("t");
+      const assets = ethers.parseEther("0.5");
+
+      await expect(
+        proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_InsufficientPool");
+    });
+
+    it("reverts on assets == 0", async function () {
+      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
+      const termId = ethers.encodeBytes32String("t");
+
+      await expect(
+        proxy.connect(user1).depositSponsored(termId, 1n, 0n, 0n, { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_InsufficientValue");
+    });
+
+    it("accumulatedFees stays at 0 after multiple sponsored deposits", async function () {
+      const { proxy, admin1, user1, user2 } = await loadFixture(deployFixture);
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
+      const termId = ethers.encodeBytes32String("t");
+
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("0.5"), { value: 0 });
+      await proxy.connect(user2).depositSponsored(termId, 1n, 0n, ethers.parseEther("0.3"), { value: 0 });
+
+      expect(await proxy.accumulatedFees()).to.equal(0n);
+      expect(await proxy.totalFeesCollectedAllTime()).to.equal(0n);
+    });
+
+    it("multiple users share the pool in first-come order", async function () {
+      const { proxy, admin1, user1, user2 } = await loadFixture(deployFixture);
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
+      const termId = ethers.encodeBytes32String("t");
+
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("0.6"), { value: 0 });
+      expect(await proxy.sponsorPool()).to.equal(ethers.parseEther("0.4"));
+
+      // user2 asks 0.5 — pool has 0.4, not enough
+      await expect(
+        proxy.connect(user2).depositSponsored(termId, 1n, 0n, ethers.parseEther("0.5"), { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_InsufficientPool");
+
+      // user2 asks 0.4 — exactly enough
+      await proxy.connect(user2).depositSponsored(termId, 1n, 0n, ethers.parseEther("0.4"), { value: 0 });
       expect(await proxy.sponsorPool()).to.equal(0n);
     });
   });
 
   // ============ Rate limits ============
 
-  describe("maxClaimPerTx cap (per-tx claim limit)", function () {
-    it("caps consumption at maxClaimPerTx; pool remainder stays for later", async function () {
-      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      // Default maxClaimPerTx = 1 TRUST. Fund pool with 2 TRUST.
-      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("2") });
-      const termId = ethers.encodeBytes32String("t");
-      // Deposit pulls only 1 TRUST (the cap), pool stays at 1 TRUST.
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
-      expect(await proxy.sponsorPool()).to.equal(ethers.parseEther("1"));
-    });
-
-    it("raising the cap allows larger single-tx claims", async function () {
-      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("2") });
-      await proxy
-        .connect(admin1)
-        .setClaimLimits(ethers.parseEther("3"), 10n, ethers.parseEther("10"), BigInt(ONE_DAY));
-      const termId = ethers.encodeBytes32String("t");
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
-      expect(await proxy.sponsorPool()).to.equal(0n);
-    });
-  });
-
-  describe("maxClaimsPerWindow rate limit (per-user count cap)", function () {
-    it("blocks a user after N claims in the same window", async function () {
+  describe("maxClaimsPerWindow rate limit", function () {
+    it("blocks a user after N sponsored claims in the same window", async function () {
       const { proxy, admin1, user1, user2 } = await loadFixture(deployFixture);
-      // Cap 1 TRUST per tx, 2 claims per window, plenty of volume headroom.
       await proxy
         .connect(admin1)
         .setClaimLimits(ethers.parseEther("1"), 2n, ethers.parseEther("100"), BigInt(ONE_DAY));
-      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("6") });
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("10") });
       const termId = ethers.encodeBytes32String("t");
+      const assets = ethers.parseEther("0.2");
 
-      // user1 hits the count cap after 2 claims.
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.2") });
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.2") });
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 });
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 });
       await expect(
-        proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.2") }),
+        proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 }),
       ).to.be.revertedWithCustomError(proxy, "Sponsored_RateLimited");
 
-      // user2 has their own independent counter — still works.
-      await proxy.connect(user2).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.2") });
+      // user2 has their own independent counter
+      await proxy.connect(user2).depositSponsored(termId, 1n, 0n, assets, { value: 0 });
     });
 
     it("resets after the configured window elapses", async function () {
@@ -311,50 +347,37 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
         .setClaimLimits(ethers.parseEther("1"), 1n, ethers.parseEther("100"), BigInt(ONE_DAY));
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("3") });
       const termId = ethers.encodeBytes32String("t");
+      const assets = ethers.parseEther("0.3");
 
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.15") });
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 });
       await expect(
-        proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.15") }),
+        proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 }),
       ).to.be.revertedWithCustomError(proxy, "Sponsored_RateLimited");
 
       await time.increase(ONE_DAY + 1);
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.15") });
-    });
-
-    it("does not count toward the window if consumed == 0 (user pays everything)", async function () {
-      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      await proxy
-        .connect(admin1)
-        .setClaimLimits(ethers.parseEther("1"), 1n, ethers.parseEther("100"), BigInt(ONE_DAY));
-      const termId = ethers.encodeBytes32String("t");
-      // No pool; user pays full. Should NOT trip the rate limit.
-      for (let i = 0; i < 3; i++) {
-        await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.5") });
-      }
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 });
     });
   });
 
-  describe("maxClaimVolumePerWindow rate limit (per-user cumulative TRUST)", function () {
-    it("blocks the user when cumulative volume hits the cap, before the count cap", async function () {
+  describe("maxClaimVolumePerWindow rate limit", function () {
+    it("blocks the user when cumulative volume hits the cap", async function () {
       const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      // 1 TRUST per tx, 10 claims / window (headroom), BUT only 1.5 TRUST cumulative.
       await proxy
         .connect(admin1)
         .setClaimLimits(ethers.parseEther("1"), 10n, ethers.parseEther("1.5"), BigInt(ONE_DAY));
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
       const termId = ethers.encodeBytes32String("t");
 
-      // First claim: draws full cap (1 TRUST) — cumulative = 1 TRUST.
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
-      // Second claim would bring cumulative to 2 TRUST, exceeds 1.5 cap → revert.
+      // First claim: 1 TRUST cumulative
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("1"), { value: 0 });
+      // Second claim would bring cumulative to 2 > 1.5 cap → revert
       await expect(
-        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+        proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("1"), { value: 0 }),
       ).to.be.revertedWithCustomError(proxy, "Sponsored_VolumeLimited");
     });
 
     it("a single fresh-window call whose draw exceeds the volume cap reverts", async function () {
       const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      // Per-tx cap 1 TRUST, but volume cap only 0.3 TRUST.
       await proxy
         .connect(admin1)
         .setClaimLimits(
@@ -365,10 +388,10 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
         );
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
       const termId = ethers.encodeBytes32String("t");
-      // deposit() calls _consumeCredit(0) which returns maxClaimPerTx = 1 TRUST
-      // → exceeds the 0.3 TRUST volume cap on a cold user → revert.
+
+      // Single call draw of 1 TRUST exceeds volume cap 0.3
       await expect(
-        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+        proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("1"), { value: 0 }),
       ).to.be.revertedWithCustomError(proxy, "Sponsored_VolumeLimited");
     });
 
@@ -380,15 +403,13 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
       const termId = ethers.encodeBytes32String("t");
 
-      // Exhaust the 1-TRUST volume cap in a single claim.
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("1"), { value: 0 });
       await expect(
-        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+        proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("1"), { value: 0 }),
       ).to.be.revertedWithCustomError(proxy, "Sponsored_VolumeLimited");
 
-      // Roll the window forward → reset.
       await time.increase(ONE_DAY + 1);
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("1"), { value: 0 });
     });
   });
 
@@ -402,105 +423,76 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
       const termId = ethers.encodeBytes32String("t");
 
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("0.5"), { value: 0 });
       await expect(
-        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+        proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("0.5"), { value: 0 }),
       ).to.be.revertedWithCustomError(proxy, "Sponsored_RateLimited");
 
-      // 30 minutes — still in the window.
       await time.increase(1800);
       await expect(
-        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+        proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("0.5"), { value: 0 }),
       ).to.be.revertedWithCustomError(proxy, "Sponsored_RateLimited");
 
-      // +31 minutes → past the 1-hour window → reset.
       await time.increase(1860);
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
-    });
-
-    it("a 1-week window does NOT reset after 1 day", async function () {
-      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      const ONE_WEEK = ONE_DAY * 7;
-      await proxy
-        .connect(admin1)
-        .setClaimLimits(ethers.parseEther("1"), 1n, ethers.parseEther("10"), BigInt(ONE_WEEK));
-      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
-      const termId = ethers.encodeBytes32String("t");
-
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
-      await time.increase(ONE_DAY + 1);
-      await expect(
-        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
-      ).to.be.revertedWithCustomError(proxy, "Sponsored_RateLimited");
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, ethers.parseEther("0.5"), { value: 0 });
     });
   });
 
-  // ============ Sponsored metrics bumping on D1 pool draws ============
+  // ============ Sponsored metrics ============
 
-  describe("sponsored metrics track pool-funded draws", function () {
-    it("bumps totalSponsoredDeposits / Volume / UniqueReceivers when the user consumes credit", async function () {
+  describe("sponsored metrics", function () {
+    it("bumps on every pool-funded draw", async function () {
       const { proxy, admin1, user1, user2 } = await loadFixture(deployFixture);
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("3") });
       const termId = ethers.encodeBytes32String("t");
+      const assets = ethers.parseEther("0.5");
 
-      // user1 first draw
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 });
       const m1 = await proxy.getSponsoredMetrics();
       expect(m1.sponsoredDeposits).to.equal(1n);
       expect(m1.uniqueSponsoredReceivers).to.equal(1n);
-      expect(m1.sponsoredVolume).to.equal(ethers.parseEther("1")); // drained exactly the cap
+      expect(m1.sponsoredVolume).to.equal(assets);
 
-      // user2 first draw — receivers +1, deposits +1
-      await proxy.connect(user2).deposit(termId, 1n, 0n, { value: 0 });
+      await proxy.connect(user2).depositSponsored(termId, 1n, 0n, assets, { value: 0 });
       const m2 = await proxy.getSponsoredMetrics();
       expect(m2.sponsoredDeposits).to.equal(2n);
       expect(m2.uniqueSponsoredReceivers).to.equal(2n);
 
-      // user1 second draw — deposits +1, receivers unchanged
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 });
+      await proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 });
       const m3 = await proxy.getSponsoredMetrics();
       expect(m3.sponsoredDeposits).to.equal(3n);
-      expect(m3.uniqueSponsoredReceivers).to.equal(2n);
+      expect(m3.uniqueSponsoredReceivers).to.equal(2n); // user1 repeat
     });
 
-    it("does NOT bump sponsored metrics when the user pays fully from msg.value", async function () {
-      const { proxy, user1 } = await loadFixture(deployFixture);
-      const termId = ethers.encodeBytes32String("t");
-      // no pool funded; user pays out of their own wallet
-      await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") });
-      const m = await proxy.getSponsoredMetrics();
-      expect(m.sponsoredDeposits).to.equal(0n);
-      expect(m.sponsoredVolume).to.equal(0n);
-      expect(m.uniqueSponsoredReceivers).to.equal(0n);
-      expect(await proxy.hasReceivedSponsored(user1.address)).to.be.false;
-    });
-
-    it("emits SponsoredMetricsUpdated on each pool-funded draw", async function () {
+    it("emits SponsoredMetricsUpdated on each sponsored draw", async function () {
       const { proxy, admin1, user1 } = await loadFixture(deployFixture);
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
       const termId = ethers.encodeBytes32String("t");
-      await expect(proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }))
+      const assets = ethers.parseEther("0.5");
+      await expect(proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 }))
         .to.emit(proxy, "SponsoredMetricsUpdated")
-        .withArgs(1n, ethers.parseEther("1"), 1n);
+        .withArgs(1n, assets, 1n);
     });
   });
 
-  // ============ Withdraw invariant ============
+  // ============ Withdraw on sponsored is a no-op ============
 
-  describe("withdraw credit-invariant protection", function () {
-    it("withdrawAll drains only accumulatedFees; pool is preserved", async function () {
-      const { proxy, admin1, deployer } = await loadFixture(deployFixture);
-
+  describe("withdraw on sponsored channel", function () {
+    it("withdraw reverts because accumulatedFees is always 0", async function () {
+      const { proxy, admin1 } = await loadFixture(deployFixture);
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
+      // Even with a funded pool, accumulatedFees stays at 0 on sponsored.
+      await expect(
+        proxy.connect(admin1).withdraw(admin1.address, 1n),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_InsufficientAccumulatedFees");
+    });
 
-      const termId = ethers.encodeBytes32String("t");
-      await proxy.connect(deployer).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") });
-
-      await proxy.connect(admin1).withdrawAll(admin1.address);
-      expect(await proxy.accumulatedFees()).to.equal(0n);
-      expect(await ethers.provider.getBalance(await proxy.getAddress())).to.equal(
-        await proxy.sponsorPool(),
-      );
+    it("withdrawAll reverts because accumulatedFees is always 0", async function () {
+      const { proxy, admin1 } = await loadFixture(deployFixture);
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
+      await expect(
+        proxy.connect(admin1).withdrawAll(admin1.address),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_NothingToWithdraw");
     });
   });
 
@@ -517,15 +509,75 @@ describe("IntuitionFeeProxyV2Sponsored (shared pool model)", function () {
 
     it("tracks count, volume and window after a claim", async function () {
       const { proxy, admin1, user1 } = await loadFixture(deployFixture);
-      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("0.5") });
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
       const termId = ethers.encodeBytes32String("t");
-      const tx = await proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.15") });
+      const assets = ethers.parseEther("0.5");
+      const tx = await proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 });
       const block = await ethers.provider.getBlock((await tx.wait())!.blockNumber);
 
       const [count, volume, resetsAt] = await proxy.getClaimStatus(user1.address);
       expect(count).to.equal(1n);
-      expect(volume).to.equal(ethers.parseEther("0.5")); // drained the whole pool
+      expect(volume).to.equal(assets);
       expect(resetsAt).to.equal(BigInt(block!.timestamp) + BigInt(ONE_DAY));
+    });
+  });
+
+  // ============ createAtoms / createTriples / depositBatch (full-sponsorship) ============
+
+  describe("createAtoms full-sponsorship", function () {
+    it("pool pays atomCost * count + totalDeposit, msg.value refunded", async function () {
+      const { proxy, mv, admin1, user1 } = await loadFixture(deployFixture);
+      // Raise cap so a 2-atom batch fits
+      await proxy
+        .connect(admin1)
+        .setClaimLimits(ethers.parseEther("5"), 10n, ethers.parseEther("10"), BigInt(ONE_DAY));
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
+
+      const atomCost = await mv.atomCost();
+      const data: string[] = [ethers.hexlify(ethers.toUtf8Bytes("atom1")), ethers.hexlify(ethers.toUtf8Bytes("atom2"))];
+      const assets = [ethers.parseEther("0.1"), ethers.parseEther("0.2")];
+      const totalDeposit = assets[0] + assets[1];
+      const totalRequired = atomCost * 2n + totalDeposit;
+
+      const poolBefore = await proxy.sponsorPool();
+      await proxy.connect(user1).createAtoms(data, assets, 1n, { value: 0 });
+      const poolAfter = await proxy.sponsorPool();
+
+      expect(poolBefore - poolAfter).to.equal(totalRequired);
+      expect(await proxy.accumulatedFees()).to.equal(0n);
+    });
+
+    it("reverts when totalRequired > maxClaimPerTx", async function () {
+      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("10") });
+      const data: string[] = [ethers.hexlify(ethers.toUtf8Bytes("a"))];
+      const assets = [ethers.parseEther("2")]; // > default cap 1
+      await expect(
+        proxy.connect(user1).createAtoms(data, assets, 1n, { value: 0 }),
+      ).to.be.revertedWithCustomError(proxy, "Sponsored_ExceedsMaxPerTx");
+    });
+  });
+
+  describe("depositBatch full-sponsorship", function () {
+    it("pool pays totalDeposit, msg.value refunded, no fee", async function () {
+      const { proxy, admin1, user1 } = await loadFixture(deployFixture);
+      await proxy
+        .connect(admin1)
+        .setClaimLimits(ethers.parseEther("5"), 10n, ethers.parseEther("10"), BigInt(ONE_DAY));
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
+
+      const termIds = [ethers.encodeBytes32String("a"), ethers.encodeBytes32String("b")];
+      const curveIds = [1n, 1n];
+      const assets = [ethers.parseEther("0.3"), ethers.parseEther("0.4")];
+      const minShares = [0n, 0n];
+      const totalDeposit = assets[0] + assets[1];
+
+      const poolBefore = await proxy.sponsorPool();
+      await proxy.connect(user1).depositBatch(termIds, curveIds, assets, minShares, { value: 0 });
+      const poolAfter = await proxy.sponsorPool();
+
+      expect(poolBefore - poolAfter).to.equal(totalDeposit);
+      expect(await proxy.accumulatedFees()).to.equal(0n);
     });
   });
 });
