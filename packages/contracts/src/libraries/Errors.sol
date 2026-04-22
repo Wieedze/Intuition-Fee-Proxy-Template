@@ -4,7 +4,7 @@ pragma solidity ^0.8.21;
 /// @title Errors
 /// @notice Custom errors for IntuitionFeeProxy (V1 + V2) and Factory
 library Errors {
-    // ============ V1 errors (kept for backward compatibility) ============
+    // ============ Errors shared by V1 + V2 ============
 
     /// @notice Caller is not a whitelisted admin
     error IntuitionFeeProxy_NotWhitelistedAdmin();
@@ -12,13 +12,13 @@ library Errors {
     /// @notice Insufficient ETH value sent with transaction
     error IntuitionFeeProxy_InsufficientValue();
 
-    /// @notice Invalid multisig address (zero address) — V1 legacy
+    /// @notice V1 — invalid fee-recipient address (zero address)
     error IntuitionFeeProxy_InvalidMultisigAddress();
 
     /// @notice Invalid MultiVault address (zero address)
     error IntuitionFeeProxy_InvalidMultiVaultAddress();
 
-    /// @notice ETH transfer to fee recipient failed — V1 legacy
+    /// @notice V1 — ETH transfer to the fee recipient failed
     error IntuitionFeeProxy_TransferFailed();
 
     /// @notice Array lengths do not match
@@ -50,9 +50,6 @@ library Errors {
 
     /// @notice Admin tried to revoke themselves while being the last remaining admin
     error IntuitionFeeProxy_LastAdminCannotRevoke();
-
-    /// @notice Direct ETH transfer rejected (no `receive()` in V2) — kept for documentation
-    error IntuitionFeeProxy_DirectTransferNotAllowed();
 
     /// @notice Refund of excess `msg.value` to the caller failed
     error IntuitionFeeProxy_RefundFailed();
@@ -111,9 +108,6 @@ library Errors {
 
     /// @notice Refund of unspent credit failed
     error Sponsored_RefundFailed();
-
-    /// @notice Withdraw would breach the totalSponsoredCredit invariant (balance - amount < totalSponsoredCredit)
-    error Sponsored_WithdrawBreachesCreditInvariant();
 
     /// @notice User has hit `maxClaimsPerWindow` in the current window
     error Sponsored_RateLimited();

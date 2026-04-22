@@ -63,12 +63,26 @@ interface IIntuitionFeeProxyV2 {
 
     // ============ Payable proxy functions (V2 — no `receiver` argument) ============
 
+    /// @notice Create atoms + deposit `assets[i]` on each.
+    /// @dev    **PREREQUISITE**: the caller MUST have approved this proxy on
+    ///         the MultiVault for at least `DEPOSIT` before calling — i.e.
+    ///         `multiVault.approve(address(this), ApprovalTypes.DEPOSIT)`.
+    ///         The per-atom deposit loop runs AFTER atom creation; a missing
+    ///         approval causes the inner call to revert at that point, but
+    ///         the atoms are already created (cost: `atomCost * count`).
+    ///         Frontend / SDK: always call `approve()` upstream of this.
     function createAtoms(
         bytes[] calldata data,
         uint256[] calldata assets,
         uint256 curveId
     ) external payable returns (bytes32[] memory atomIds);
 
+    /// @notice Create triples + deposit `assets[i]` on each.
+    /// @dev    **PREREQUISITE**: same approval requirement as `createAtoms`.
+    ///         Missing approval → inner deposit loop reverts after triples are
+    ///         already created (cost: `tripleCost * count` consumed). Frontend
+    ///         / SDK must always call `multiVault.approve(proxy, DEPOSIT)`
+    ///         before invoking this.
     function createTriples(
         bytes32[] calldata subjectIds,
         bytes32[] calldata predicateIds,

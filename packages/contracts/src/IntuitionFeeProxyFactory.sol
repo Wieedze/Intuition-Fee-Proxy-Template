@@ -21,12 +21,12 @@ import {Errors} from "./libraries/Errors.sol";
 ///    their own instance.
 ///  - Two channels:
 ///      * standard   = `IntuitionFeeProxyV2` (fee-layer, msg.sender is always receiver)
-///      * sponsored  = `IntuitionFeeProxyV2Sponsored` (adds credit-balance sponsoring + depositFor)
-///    A caller picks one at deploy time via the `sponsored` flag on `createProxy`.
-///    Cross-channel registerVersion on a proxy is possible but FORBIDDEN in practice:
-///    standard storage layout and sponsored storage layout use ERC-7201 namespacing,
-///    but switching strips away the credit-invariant protection and orphans sponsor
-///    funds. Proxy-admins must only register versions from the same channel family.
+///      * sponsored  = `IntuitionFeeProxyV2Sponsored` (adds a shared sponsor pool
+///                     with per-user rate limits; draws are user-initiated)
+///    A caller picks one at deploy time via the `channel` argument on `createProxy`.
+///    Cross-channel registerVersion on a proxy is blocked by the versioned proxy
+///    itself: each channel declares a distinct `STORAGE_COMPAT_ID`, so mixing
+///    would orphan the sponsor pool and corrupt state.
 ///  - `setImplementation` / `setSponsoredImplementation` update the impl pointer
 ///    used by future `createProxy` calls in their respective channels. Existing
 ///    proxies are untouched — each manages its own versioning via the ERC-7936

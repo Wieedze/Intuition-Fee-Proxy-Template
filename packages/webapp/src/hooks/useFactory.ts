@@ -100,9 +100,8 @@ export function useAllProxies() {
 
 /**
  * Reads the Factory's own semver via `factory.VERSION()`. Returns `undefined`
- * if the deployed bytecode predates the constant (legacy Factory, or a local
- * hardhat deploy that hasn't been recompiled since the constant was added).
- * The UI should degrade to just showing the address in that case.
+ * if the deployed bytecode doesn't expose `VERSION()` — the UI should
+ * degrade to just showing the address in that case.
  */
 export function useFactoryIdentity() {
   const factory = useFactoryAddress()

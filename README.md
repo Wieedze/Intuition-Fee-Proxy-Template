@@ -107,7 +107,7 @@ What has been done is **two internal security-review passes** (self-review guide
 |---|---|---|---|
 | `proxyAdmin` (per-proxy) | Safe multisig | Register new impl versions, switch default, rename, transfer admin (2-step) | Cannot drain user shares (MultiVault enforces `receiver = msg.sender`). Cannot silently raise fees above `MAX_FEE_PERCENTAGE = 10%` (bytecode constant, requires a new reviewed impl registration to bump). |
 | Factory `owner` | Project Safe multisig | Update the default impl used for FUTURE deployments, UUPS-upgrade the Factory, rotate ownership (2-step via `Ownable2Step`) | Existing proxies untouched — each carries its own `proxyAdmin`. |
-| `whitelistedAdmin` | Per-proxy operator | Adjust fees (bounded 0–10%), add/remove admins, withdraw accumulated fees, fund/reclaim sponsor pool | Cannot mint shares on behalf of users (no `depositFor`). Cannot drain the sponsor pool past the credit-invariant (`balance ≥ sponsorPool + accumulatedFees`). |
+| `whitelistedAdmin` | Per-proxy operator | Adjust fees (bounded 0–10%), add/remove admins, withdraw accumulated fees, fund/reclaim sponsor pool | Cannot mint shares on behalf of users (every write path forces `receiver = msg.sender`). Cannot drain the sponsor pool via the fee-withdraw path: `withdraw` / `withdrawAll` only touch `accumulatedFees`, `reclaimFromPool` only touches `sponsorPool` — the two counters are accounted separately. |
 
 
 ### Defensive guarantees in the code
@@ -115,7 +115,7 @@ What has been done is **two internal security-review passes** (self-review guide
 - `ReentrancyGuard` on every payable entry + all withdraw paths (including the 4 Sponsored overrides)
 - Inverse-formula `deposit()` splits `msg.value` exactly (no refund leak)
 - `_refundExcess` returns overpayment on `createAtoms` / `createTriples` / `depositBatch`
-- `_assertCreditInvariant` blocks any withdraw that would eat into the sponsor pool
+- `withdraw` / `withdrawAll` are capped at `accumulatedFees`; `reclaimFromPool` is capped at `sponsorPool` — separate counters keep fee withdraws away from the sponsor pool
 - ERC-7201 namespaced storage on VersionedFeeProxy + V2Sponsored (no slot collision)
 - `_disableInitializers()` on all upgradeable impls
 - Last-admin self-revoke guard (V1 + V2)

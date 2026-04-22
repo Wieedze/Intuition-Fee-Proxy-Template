@@ -1691,14 +1691,16 @@ function Sponsoring() {
 // from the pool per call, bounded by maxClaimsPerWindow (count) and
 // maxClaimVolumePerWindow (TRUST) per user over claimWindowSeconds.`}</Block>
 
-      <H3>Invariant: withdraw never dips into the credit pool</H3>
+      <H3>Withdraw never dips into the sponsor pool</H3>
       <P>
-        <Code>withdraw</Code> / <Code>withdrawAll</Code> on a sponsored
-        proxy assert that{' '}
-        <Code>balance - amount &ge; totalSponsoredCredit</Code> after the
-        transfer — an admin can&apos;t accidentally drain user credit by
-        withdrawing fees. Only <Code>accumulatedFees</Code> is reachable
-        through the withdraw path.
+        Fees and sponsor funds live in two separate counters —{' '}
+        <Code>accumulatedFees</Code> and <Code>sponsorPool</Code>. The
+        fee-withdraw path (<Code>withdraw</Code> /{' '}
+        <Code>withdrawAll</Code>) is capped at <Code>accumulatedFees</Code>{' '}
+        and decrements it, while <Code>reclaimFromPool</Code> is capped at{' '}
+        <Code>sponsorPool</Code> and decrements it. Neither path can touch
+        the other counter, so an admin can&apos;t accidentally drain the
+        sponsor pool by withdrawing fees.
       </P>
 
       <H3>Choose the channel at deploy time</H3>

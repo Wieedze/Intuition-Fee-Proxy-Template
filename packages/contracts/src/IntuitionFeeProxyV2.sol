@@ -2,8 +2,8 @@
 pragma solidity ^0.8.21;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-// OZ v5.5+ removed `ReentrancyGuardUpgradeable` because `ReentrancyGuard` now uses
-// ERC-7201 namespaced storage and is proxy-safe out of the box.
+// `ReentrancyGuard` (non-`Upgradeable`) is safe here: OZ v5 uses ERC-7201
+// namespaced storage for it, so it cannot collide with the impl's inline slots.
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IEthMultiVault} from "./interfaces/IEthMultiVault.sol";
@@ -22,6 +22,15 @@ import {Errors} from "./libraries/Errors.sol";
 ///    layer, not a sponsor.
 ///  - MultiVault target is fixed at `initialize()` (no setter). Ship a new
 ///    logic version and register it on the versioned proxy if MultiVault migrates.
+///  - **IMPORTANT — MultiVault approval prerequisite**: callers of
+///    `createAtoms` / `createTriples` MUST have approved this proxy on the
+///    MultiVault for `DEPOSIT` before invoking them. The per-item deposit
+///    loop runs AFTER term creation; a missing approval causes the inner
+///    call to revert AFTER atoms/triples are created on-chain (user pays
+///    the creation cost for nothing). The MultiVault v2 `approvals` mapping
+///    is `internal` — we cannot preflight it on-chain, so the check must
+///    live in the frontend / SDK. A future upstream PR may expose the
+///    mapping; once it does, this proxy will gain an on-chain preflight.
 contract IntuitionFeeProxyV2 is
     IIntuitionFeeProxyV2,
     Initializable,
@@ -50,7 +59,8 @@ contract IntuitionFeeProxyV2 is
 
     // ============ Storage (50 slots reserved) ============
 
-    /// @dev slot 0 — was immutable in V1, now storage (upgradeable requirement)
+    /// @dev slot 0 — MultiVault target. Stored (not immutable) so the address
+    ///      survives implementation swaps behind the versioned proxy.
     IEthMultiVault internal _ethMultiVault;
 
     /// @dev slot 1
@@ -321,6 +331,8 @@ contract IntuitionFeeProxyV2 is
     // ============ Proxy payable functions (V2 — no receiver arg) ============
 
     /// @inheritdoc IIntuitionFeeProxyV2
+    /// @dev ⚠️ Caller MUST have `multiVault.approve(proxy, DEPOSIT)` beforehand.
+    ///      See contract-level NatSpec for the failure mode when approval is missing.
     function createAtoms(
         bytes[] calldata data,
         uint256[] calldata assets,
@@ -597,5 +609,7 @@ contract IntuitionFeeProxyV2 is
         }
     }
 
-    // NOTE: no `receive()` / `fallback()`. Direct ETH transfers revert (V1 foot-gun removed).
+    // NOTE: no `receive()` / `fallback()` — direct ETH transfers revert. All
+    // fee flows carry calldata (createAtoms / deposit / …), so bare transfers
+    // would only be mis-sends.
 }

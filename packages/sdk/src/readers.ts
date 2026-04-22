@@ -126,10 +126,11 @@ export async function readProxyMetrics(
 }
 
 /**
- * Reads the on-chain `version()` label. Returns `undefined` if the impl
- * predates the versioned layout. Used to infer the proxy family:
+ * Reads the on-chain `version()` label. Only the sponsored family of impls
+ * exposes it — standard impls revert because the selector isn't in their ABI,
+ * which is the signal callers use to classify the channel:
  *   label containing "-sponsored" → sponsored
- *   otherwise                      → standard
+ *   revert (undefined)            → standard
  */
 export async function readProxyVersionLabel(
   client: PublicClient,

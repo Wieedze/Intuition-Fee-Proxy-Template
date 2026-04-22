@@ -260,7 +260,9 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         if (assets == 0) revert Errors.IntuitionFeeProxy_InsufficientValue();
         _claimFull(assets);
 
-        // Fee=0 on sponsored, but keep the hook call so V2.1 can emit VersionUsed.
+        // Sponsored channel charges no Sofia fee, but the hook is still invoked
+        // so overriding impls (e.g. a version-marker layer) see every write-path
+        // entry and can emit on it.
         _accrueFee(0, "deposit", assets);
         _finaliseCredit(assets);
 
@@ -271,6 +273,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         _refundMsgValue();
     }
 
+    /// @inheritdoc IntuitionFeeProxyV2
+    /// @dev ⚠️ Same MultiVault approval prerequisite as V2: the caller must
+    ///      have `multiVault.approve(proxy, DEPOSIT)`. The full-sponsorship
+    ///      path doesn't change the receiver — atom seed shares (if any) and
+    ///      the per-atom deposit loop still target `msg.sender`, which
+    ///      requires that approval.
     function createAtoms(
         bytes[] calldata data,
         uint256[] calldata assets,
@@ -305,6 +313,9 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         _refundMsgValue();
     }
 
+    /// @inheritdoc IntuitionFeeProxyV2
+    /// @dev ⚠️ Same MultiVault approval prerequisite as V2 — see the V2
+    ///      contract-level NatSpec.
     function createTriples(
         bytes32[] calldata subjectIds,
         bytes32[] calldata predicateIds,

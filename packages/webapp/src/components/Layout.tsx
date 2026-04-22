@@ -255,11 +255,8 @@ interface RKChain {
 /**
  * Portal-style wallet menu: single round avatar in the navbar; click
  * reveals an inline dropdown with wallet address + balance, network,
- * and quick actions (Profile / Explorer / Disconnect).
- *
- * Replaces the 2-button "chain | address" pair that opened the
- * RainbowKit account modal — gives us the same information density
- * without leaving the page.
+ * and quick actions (Profile / Explorer / Disconnect). Keeps all the
+ * information density of the RainbowKit account modal inline on the page.
  */
 function WalletDropdown({ account, chain }: { account: RKAccount; chain: RKChain }) {
   const [open, setOpen] = useState(false)

@@ -1,6 +1,6 @@
 # @intuition-fee-proxy/contracts
 
-Smart contracts for the Intuition fee-proxy ecosystem: a versioned, UUPS-upgradeable fee layer on top of the Intuition MultiVault, plus a permissionless factory and an optional sponsored-channel variant.
+Smart contracts for the Intuition fee-proxy ecosystem: a versioned fee layer (ERC-7936) on top of the Intuition MultiVault, plus a permissionless UUPS factory and an optional sponsored-channel variant.
 
 ## Contracts
 
@@ -52,7 +52,7 @@ Canonical Factory / impl addresses will be pinned in `@intuition-fee-proxy/sdk` 
 
 V2 uses `whitelistedAdmins[]` (multi-admin, not Ownable), with a last-admin guard + dedupe on init. The proxy-admin (first admin at deploy) additionally gates ERC-7936 version management + name updates. Production deployments must use a Gnosis Safe — this is document-only enforcement; internal-review finding M-03 is accepted with that caveat.
 
-V2.1 will introduce a TimelockController (roadmap). See `../../.claude/07-roadmap.md`.
+V2.1 adds a `VersionUsed(bytes32,address)` event on every write-path call (same storage layout as V2). See `../../.claude/07-roadmap.md` for follow-up ideas.
 
 ## License
 

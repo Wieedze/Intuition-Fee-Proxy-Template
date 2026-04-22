@@ -23,7 +23,7 @@ import IntuitionVersionedFeeProxyAbi from './abis/IntuitionVersionedFeeProxy.jso
 import IntuitionFeeProxyV1Abi from './abis/IntuitionFeeProxy.json'
 
 export const IntuitionFeeProxyV2ABI = IntuitionFeeProxyV2Abi
-/** V2Sponsored ABI — superset of V2 adding credit pool / depositFor / claim limits. */
+/** V2Sponsored ABI — superset of V2 adding the shared sponsor pool, per-user rate limits, and `depositSponsored`. */
 export const IntuitionFeeProxyV2SponsoredABI = IntuitionFeeProxyV2SponsoredAbi
 export const IntuitionFeeProxyFactoryABI = IntuitionFeeProxyFactoryAbi
 /** ERC-7936 versioned proxy ABI — the contract deployed by the Factory. */
