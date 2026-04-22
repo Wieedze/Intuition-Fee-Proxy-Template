@@ -4,6 +4,7 @@ pragma solidity ^0.8.21;
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IntuitionFeeProxyV2} from "./IntuitionFeeProxyV2.sol";
+import {ProxyChannel} from "./interfaces/IIntuitionFeeProxyV2.sol";
 import {Errors} from "./libraries/Errors.sol";
 
 /// @title IntuitionFeeProxyV2Sponsored
@@ -116,6 +117,13 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
             DEFAULT_MAX_CLAIM_VOLUME_PER_WINDOW,
             DEFAULT_CLAIM_WINDOW_SECONDS
         );
+    }
+
+    // ============ Channel marker (overrides V2) ============
+
+    /// @inheritdoc IntuitionFeeProxyV2
+    function channel() external pure override returns (ProxyChannel) {
+        return ProxyChannel.Sponsored;
     }
 
     // ============ Identification ============

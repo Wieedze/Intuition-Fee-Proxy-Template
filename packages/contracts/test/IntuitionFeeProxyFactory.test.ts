@@ -317,6 +317,86 @@ describe("IntuitionFeeProxyFactory (UUPS)", function () {
     });
   });
 
+  // ============ Channel family enforcement (H-2) ============
+
+  describe("channel family enforcement", function () {
+    it("setImplementation rejects a sponsored impl (ChannelMismatch)", async function () {
+      const { factory, factoryOwner } = await loadFixture(deployFixture);
+      const SponsoredFactory = await ethers.getContractFactory("IntuitionFeeProxyV2Sponsored");
+      const sponsoredImpl = await SponsoredFactory.deploy();
+      await sponsoredImpl.waitForDeployment();
+
+      await expect(
+        factory
+          .connect(factoryOwner)
+          .setImplementation(
+            await sponsoredImpl.getAddress(),
+            ethers.encodeBytes32String("v2.0.0-sponsored"),
+          ),
+      ).to.be.revertedWithCustomError(factory, "IntuitionFeeProxyFactory_ChannelMismatch");
+    });
+
+    it("setSponsoredImplementation rejects a standard V2 impl (ChannelMismatch)", async function () {
+      const { factory, factoryOwner, implV2 } = await loadFixture(deployFixture);
+      await expect(
+        factory
+          .connect(factoryOwner)
+          .setSponsoredImplementation(
+            await implV2.getAddress(),
+            ethers.encodeBytes32String("v2.0.0"),
+          ),
+      ).to.be.revertedWithCustomError(factory, "IntuitionFeeProxyFactory_ChannelMismatch");
+    });
+
+    it("setImplementation accepts a standard V2 impl", async function () {
+      const { factory, factoryOwner } = await loadFixture(deployFixture);
+      const Fresh = await ethers.getContractFactory("IntuitionFeeProxyV2");
+      const impl = await Fresh.deploy();
+      await impl.waitForDeployment();
+      await expect(
+        factory
+          .connect(factoryOwner)
+          .setImplementation(await impl.getAddress(), ethers.encodeBytes32String("v2.1.0")),
+      ).to.emit(factory, "ImplementationUpdated");
+    });
+
+    it("setSponsoredImplementation accepts a sponsored impl", async function () {
+      const { factory, factoryOwner } = await loadFixture(deployFixture);
+      const SponsoredFactory = await ethers.getContractFactory("IntuitionFeeProxyV2Sponsored");
+      const sponsoredImpl = await SponsoredFactory.deploy();
+      await sponsoredImpl.waitForDeployment();
+      await expect(
+        factory
+          .connect(factoryOwner)
+          .setSponsoredImplementation(
+            await sponsoredImpl.getAddress(),
+            ethers.encodeBytes32String("v2.0.0-sponsored"),
+          ),
+      ).to.emit(factory, "SponsoredImplementationUpdated");
+    });
+
+    it("both setters reject impls without a channel() getter (legacy)", async function () {
+      const { factory, factoryOwner } = await loadFixture(deployFixture);
+      // MockMultiVault doesn't implement channel() — stands in for any
+      // contract that isn't a V2-family impl.
+      const MockMV = await ethers.getContractFactory("MockMultiVault");
+      const legacy = await MockMV.deploy();
+      await legacy.waitForDeployment();
+
+      await expect(
+        factory
+          .connect(factoryOwner)
+          .setImplementation(await legacy.getAddress(), ethers.encodeBytes32String("legacy")),
+      ).to.be.revertedWithCustomError(factory, "IntuitionFeeProxyFactory_ChannelMismatch");
+
+      await expect(
+        factory
+          .connect(factoryOwner)
+          .setSponsoredImplementation(await legacy.getAddress(), ethers.encodeBytes32String("legacy")),
+      ).to.be.revertedWithCustomError(factory, "IntuitionFeeProxyFactory_ChannelMismatch");
+    });
+  });
+
   // ============ UUPS upgrade of the factory itself ============
 
   describe("Factory UUPS upgrade", function () {

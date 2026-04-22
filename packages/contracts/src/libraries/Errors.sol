@@ -65,6 +65,11 @@ library Errors {
     /// @notice Factory received an invalid version identifier (bytes32(0))
     error IntuitionFeeProxyFactory_InvalidVersion();
 
+    /// @notice Impl's self-declared `channel()` does not match the slot it is
+    ///         being assigned to (e.g. a Sponsored impl passed to
+    ///         `setImplementation`, or an impl without the `channel()` getter).
+    error IntuitionFeeProxyFactory_ChannelMismatch();
+
     // ============ VersionedFeeProxy (ERC-7936) errors ============
 
     /// @notice Caller is not the proxy-admin (the address gated for registerVersion / setDefaultVersion / removeVersion)

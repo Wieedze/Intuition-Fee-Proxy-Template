@@ -7,7 +7,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {IEthMultiVault} from "./interfaces/IEthMultiVault.sol";
-import {IIntuitionFeeProxyV2} from "./interfaces/IIntuitionFeeProxyV2.sol";
+import {IIntuitionFeeProxyV2, ProxyChannel} from "./interfaces/IIntuitionFeeProxyV2.sol";
 import {Errors} from "./libraries/Errors.sol";
 
 /// @title IntuitionFeeProxyV2
@@ -195,6 +195,13 @@ contract IntuitionFeeProxyV2 is
             revert Errors.IntuitionFeeProxy_NoAdminsProvided();
         }
         adminCount = added;
+    }
+
+    // ============ Channel marker ============
+
+    /// @inheritdoc IIntuitionFeeProxyV2
+    function channel() external pure virtual returns (ProxyChannel) {
+        return ProxyChannel.Standard;
     }
 
     // ============ Fee calculation ============

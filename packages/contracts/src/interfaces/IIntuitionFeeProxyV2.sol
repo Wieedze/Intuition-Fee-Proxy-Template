@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
+/// @notice Channel flavor an impl declares on-chain so the Factory can reject
+///         cross-channel mistakes at `setImplementation` / `setSponsoredImplementation`.
+///         File-scope enum — imported by both the V2 family of impls and the
+///         Factory without circular deps.
+/// @dev    Append-only: new channels MUST be added at the end to preserve the
+///         numeric values (Standard=0, Sponsored=1, …).
+enum ProxyChannel {
+    Standard,
+    Sponsored
+}
+
 /// @title IIntuitionFeeProxyV2
 /// @notice Public signatures of IntuitionFeeProxyV2 — used by the Factory and external tooling.
 /// @dev Internal / admin-only functions are also exposed here for typechain consumption by the webapp.
@@ -78,6 +89,13 @@ interface IIntuitionFeeProxyV2 {
         uint256[] calldata assets,
         uint256[] calldata minShares
     ) external payable returns (uint256[] memory shares);
+
+    // ============ Channel marker (Factory enforcement) ============
+
+    /// @notice On-chain marker used by the Factory to reject cross-channel
+    ///         mistakes at registration time. Standard impls must return
+    ///         `ProxyChannel.Standard`, sponsored impls `ProxyChannel.Sponsored`.
+    function channel() external pure returns (ProxyChannel);
 
     // ============ View / accounting ============
 

@@ -6,14 +6,8 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
 import {IntuitionVersionedFeeProxy} from "./IntuitionVersionedFeeProxy.sol";
-import {IIntuitionFeeProxyV2} from "./interfaces/IIntuitionFeeProxyV2.sol";
+import {IIntuitionFeeProxyV2, ProxyChannel} from "./interfaces/IIntuitionFeeProxyV2.sol";
 import {Errors} from "./libraries/Errors.sol";
-
-/// @dev Channel flavor a caller can select on `createProxy`.
-enum ProxyChannel {
-    Standard,
-    Sponsored
-}
 
 /// @title IntuitionFeeProxyFactory
 /// @notice Permissionless factory that deploys ERC-7936 versioned proxies
@@ -152,6 +146,7 @@ contract IntuitionFeeProxyFactory is
             if (newVersion == bytes32(0)) {
                 revert Errors.IntuitionFeeProxyFactory_InvalidVersion();
             }
+            _verifyChannel(newImpl, ProxyChannel.Sponsored);
         }
         address oldImpl = sponsoredImplementation;
         bytes32 oldVersion = sponsoredVersion;
@@ -167,11 +162,26 @@ contract IntuitionFeeProxyFactory is
         if (newVersion == bytes32(0)) {
             revert Errors.IntuitionFeeProxyFactory_InvalidVersion();
         }
+        _verifyChannel(newImpl, ProxyChannel.Standard);
         address oldImpl = currentImplementation;
         bytes32 oldVersion = currentVersion;
         currentImplementation = newImpl;
         currentVersion = newVersion;
         emit ImplementationUpdated(oldImpl, newImpl, oldVersion, newVersion);
+    }
+
+    /// @dev Asks the impl to self-declare its channel via `channel()` and
+    ///      rejects any mismatch. Impls without the `channel()` getter
+    ///      (legacy or non-IIntuitionFeeProxyV2) also revert — try/catch
+    ///      catches the unknown-selector path.
+    function _verifyChannel(address impl, ProxyChannel expected) internal view {
+        try IIntuitionFeeProxyV2(impl).channel() returns (ProxyChannel actual) {
+            if (actual != expected) {
+                revert Errors.IntuitionFeeProxyFactory_ChannelMismatch();
+            }
+        } catch {
+            revert Errors.IntuitionFeeProxyFactory_ChannelMismatch();
+        }
     }
 
     // ============ Deployment ============
