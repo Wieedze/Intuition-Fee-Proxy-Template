@@ -139,6 +139,22 @@ describe("IntuitionFeeProxyV2", function () {
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_FeePercentageTooHigh");
     });
 
+    it("reverts when fixed fee > MAX_FIXED_FEE at init", async function () {
+      const { admin1, mockMultiVault } = await loadFixture(deployFixture);
+      const ImplFactory = await ethers.getContractFactory("IntuitionFeeProxyV2");
+      const impl = await ImplFactory.deploy();
+      const initData = impl.interface.encodeFunctionData("initialize", [
+        await mockMultiVault.getAddress(),
+        ethers.parseEther("10") + 1n, // 1 wei over MAX_FIXED_FEE
+        DEPOSIT_PERCENTAGE,
+        [admin1.address],
+      ]);
+      const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
+      await expect(
+        VersionedFactory.deploy(admin1.address, INITIAL_VERSION, await impl.getAddress(), initData, ethers.ZeroHash)
+      ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_FixedFeeTooHigh");
+    });
+
     it("reverts on empty admin list", async function () {
       const { admin1, mockMultiVault } = await loadFixture(deployFixture);
       const ImplFactory = await ethers.getContractFactory("IntuitionFeeProxyV2");
@@ -491,6 +507,17 @@ describe("IntuitionFeeProxyV2", function () {
         .to.emit(proxy, "DepositFixedFeeUpdated")
         .withArgs(DEPOSIT_FEE, newFee);
       expect(await proxy.depositFixedFee()).to.equal(newFee);
+    });
+
+    it("admin can set fixed fee, capped at MAX_FIXED_FEE (10 TRUST)", async function () {
+      const { proxy, admin1 } = await loadFixture(deployFixture);
+      // At the boundary (10 TRUST) — allowed.
+      await proxy.connect(admin1).setDepositFixedFee(ethers.parseEther("10"));
+      expect(await proxy.depositFixedFee()).to.equal(ethers.parseEther("10"));
+      // One wei above the boundary — rejected.
+      await expect(
+        proxy.connect(admin1).setDepositFixedFee(ethers.parseEther("10") + 1n),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_FixedFeeTooHigh");
     });
 
     it("admin can set percentage fee, capped at MAX (10%)", async function () {

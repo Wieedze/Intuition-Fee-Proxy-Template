@@ -123,6 +123,21 @@ describe("IntuitionFeeProxy", function () {
         )
       ).to.be.revertedWithCustomError(IntuitionFeeProxyFactory, "IntuitionFeeProxy_NoAdminsProvided");
     });
+
+    it("Should revert when fixed fee exceeds MAX_FIXED_FEE at constructor", async function () {
+      const { mockMultiVault, admin1 } = await loadFixture(deployFixture);
+      const IntuitionFeeProxyFactory = await ethers.getContractFactory("IntuitionFeeProxy");
+
+      await expect(
+        IntuitionFeeProxyFactory.deploy(
+          await mockMultiVault.getAddress(),
+          FEE_RECIPIENT,
+          ethers.parseEther("10") + 1n, // 1 wei over MAX_FIXED_FEE
+          DEPOSIT_PERCENTAGE,
+          [admin1.address]
+        )
+      ).to.be.revertedWithCustomError(IntuitionFeeProxyFactory, "IntuitionFeeProxy_FixedFeeTooHigh");
+    });
   });
 
   describe("Fee Calculations", function () {
@@ -270,6 +285,18 @@ describe("IntuitionFeeProxy", function () {
       // One above the boundary — rejected.
       await expect(proxy.connect(admin1).setDepositPercentageFee(1001n))
         .to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_FeePercentageTooHigh");
+    });
+
+    it("Should revert when fixed fee exceeds MAX_FIXED_FEE (10 TRUST)", async function () {
+      const { proxy, admin1 } = await loadFixture(deployFixture);
+
+      // At the boundary (10 TRUST) — allowed.
+      await proxy.connect(admin1).setDepositFixedFee(ethers.parseEther("10"));
+      expect(await proxy.depositFixedFee()).to.equal(ethers.parseEther("10"));
+      // One wei above the boundary — rejected.
+      await expect(
+        proxy.connect(admin1).setDepositFixedFee(ethers.parseEther("10") + 1n),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_FixedFeeTooHigh");
     });
   });
 

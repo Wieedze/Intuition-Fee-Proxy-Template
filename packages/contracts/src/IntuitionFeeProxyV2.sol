@@ -38,6 +38,15 @@ contract IntuitionFeeProxyV2 is
     ///      raise it; existing proxies stay bounded forever.
     uint256 public constant MAX_FEE_PERCENTAGE = 1000;
 
+    /// @notice Hard upper bound on `depositFixedFee`. Set to 10 TRUST.
+    /// @dev Same rationale as `MAX_FEE_PERCENTAGE`: an admin can tune the
+    ///      fixed fee within [0, 10 TRUST] but cannot set it to an absurd
+    ///      value that would freeze all `deposit()` calls (`msg.value <=
+    ///      depositFixedFee` reverts `InsufficientValue`). Constant — only
+    ///      a fresh impl version registered on the versioned proxy can
+    ///      raise it; existing proxies stay bounded forever.
+    uint256 public constant MAX_FIXED_FEE = 10 ether;
+
     // ============ Storage (50 slots reserved) ============
 
     /// @dev slot 0 — was immutable in V1, now storage (upgradeable requirement)
@@ -159,6 +168,9 @@ contract IntuitionFeeProxyV2 is
         if (depositPercentageFee_ > MAX_FEE_PERCENTAGE) {
             revert Errors.IntuitionFeeProxy_FeePercentageTooHigh();
         }
+        if (depositFixedFee_ > MAX_FIXED_FEE) {
+            revert Errors.IntuitionFeeProxy_FixedFeeTooHigh();
+        }
         if (initialAdmins_.length == 0) {
             revert Errors.IntuitionFeeProxy_NoAdminsProvided();
         }
@@ -216,6 +228,9 @@ contract IntuitionFeeProxyV2 is
 
     /// @inheritdoc IIntuitionFeeProxyV2
     function setDepositFixedFee(uint256 newFee) external onlyWhitelistedAdmin {
+        if (newFee > MAX_FIXED_FEE) {
+            revert Errors.IntuitionFeeProxy_FixedFeeTooHigh();
+        }
         uint256 oldFee = depositFixedFee;
         depositFixedFee = newFee;
         emit DepositFixedFeeUpdated(oldFee, newFee);

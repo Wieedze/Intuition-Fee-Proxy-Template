@@ -30,6 +30,10 @@ library Errors {
     /// @notice Fee percentage exceeds maximum allowed (100%)
     error IntuitionFeeProxy_FeePercentageTooHigh();
 
+    /// @notice Fixed fee exceeds `MAX_FIXED_FEE` — caps admin rug potential by
+    ///         blocking unreasonable fixed fees that would freeze user deposits.
+    error IntuitionFeeProxy_FixedFeeTooHigh();
+
     // ============ V2 errors ============
 
     /// @notice Withdraw attempted while `accumulatedFees` is zero

@@ -17,6 +17,10 @@ contract IntuitionFeeProxy {
     /// @dev Caps admin-controlled rug potential. See V2 for the full rationale.
     uint256 public constant MAX_FEE_PERCENTAGE = 1000;
 
+    /// @notice Hard upper bound on `depositFixedFee` — 10 TRUST.
+    /// @dev Caps admin-controlled rug potential. See V2 for the full rationale.
+    uint256 public constant MAX_FIXED_FEE = 10 ether;
+
     // ============ Immutables ============
 
     /// @notice Reference to the Intuition MultiVault contract
@@ -111,6 +115,9 @@ contract IntuitionFeeProxy {
         if (_depositPercentageFee > MAX_FEE_PERCENTAGE) {
             revert Errors.IntuitionFeeProxy_FeePercentageTooHigh();
         }
+        if (_depositFixedFee > MAX_FIXED_FEE) {
+            revert Errors.IntuitionFeeProxy_FixedFeeTooHigh();
+        }
 
         ethMultiVault = IEthMultiVault(_ethMultiVault);
         feeRecipient = _feeRecipient;
@@ -167,6 +174,9 @@ contract IntuitionFeeProxy {
     /// @notice Update the deposit fixed fee
     /// @param newFee New fee in wei
     function setDepositFixedFee(uint256 newFee) external onlyWhitelistedAdmin {
+        if (newFee > MAX_FIXED_FEE) {
+            revert Errors.IntuitionFeeProxy_FixedFeeTooHigh();
+        }
         uint256 oldFee = depositFixedFee;
         depositFixedFee = newFee;
         emit DepositFixedFeeUpdated(oldFee, newFee);
