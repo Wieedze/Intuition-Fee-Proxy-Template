@@ -14,10 +14,15 @@ import {Errors} from "./libraries/Errors.sol";
 ///    version of the logic.
 ///  - Proxy-level state is stored in a custom namespace slot so it never collides
 ///    with the logic implementation's regular storage.
-///  - No `receive()`: direct ETH transfers revert (intentional foot-gun removal).
+///  - No `receive()`: direct ETH transfers revert. All legitimate fee flows
+///    carry calldata, so a bare transfer would only be a mis-send.
 ///  - Admin gating is a single `proxyAdmin` address; users should point it at a
 ///    multisig. Transferable via `transferProxyAdmin`.
 contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
+    /// @notice EIP-1967 convention — emitted whenever the default impl
+    ///         changes, so explorer tooling can pick up the update.
+    event Upgraded(address indexed implementation);
+
     // ============ Namespaced storage ============
 
     /// @dev ERC-7201 namespaced storage slot for the versioned-proxy registry.
@@ -28,6 +33,14 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
     bytes32 private constant _STORAGE_SLOT = keccak256(
         abi.encode(uint256(keccak256("intuition.VersionedFeeProxy")) - 1)
     ) & ~bytes32(uint256(0xff));
+
+    /// @dev EIP-1967 implementation slot — `bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1)`.
+    /// Written as a tooling-facing mirror of the current default impl so
+    /// Etherscan / MetaMask / OZ Upgrades detect this contract as a proxy.
+    /// Never read internally — the authoritative impl stays in the ERC-7201
+    /// `implementations[defaultVersion]` mapping.
+    bytes32 private constant _EIP1967_IMPLEMENTATION_SLOT =
+        0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
     struct Layout {
         bytes32 defaultVersion;
@@ -87,6 +100,8 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
         s.versionList.push(initialVersion);
         s.defaultVersion = initialVersion;
         s.name = initialName;
+
+        _mirrorEip1967(initialImpl);
 
         emit ProxyAdminTransferred(address(0), admin);
         emit VersionRegistered(initialVersion, initialImpl);
@@ -175,6 +190,7 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
         bytes32 old = s.defaultVersion;
         if (version == old) return;
         s.defaultVersion = version;
+        _mirrorEip1967(s.implementations[version]);
         emit DefaultVersionChanged(old, version);
     }
 
@@ -269,10 +285,20 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
     }
 
     // NOTE: no `receive()` — ETH transfers without calldata revert. Fee flows
-    // all come with calldata (createAtoms / deposit / …), so this is fine.
-    // Rejecting bare ETH transfers keeps the V1 foot-gun removed.
+    // all come with calldata (createAtoms / deposit / …), so bare transfers
+    // would only be mis-sends.
 
     // ============ Internal ============
+
+    /// @dev Writes `impl` into the EIP-1967 implementation slot and emits
+    ///      `Upgraded`. Tooling-facing only; never read from on-chain.
+    function _mirrorEip1967(address impl) private {
+        bytes32 slot = _EIP1967_IMPLEMENTATION_SLOT;
+        assembly {
+            sstore(slot, impl)
+        }
+        emit Upgraded(impl);
+    }
 
     function _revertFromReturndata(bytes memory ret) private pure {
         if (ret.length > 0) {

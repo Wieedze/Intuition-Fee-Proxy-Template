@@ -298,6 +298,73 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
     });
   });
 
+  // ============ EIP-1967 mirror (tooling compat) ============
+
+  describe("EIP-1967 implementation slot mirror", function () {
+    const EIP1967_IMPL_SLOT =
+      "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc";
+
+    const slotToAddress = (slotValue: string): string =>
+      ethers.getAddress("0x" + slotValue.slice(-40));
+
+    it("constructor writes the initial impl into the EIP-1967 slot", async function () {
+      const { proxyAddress, implV2 } = await loadFixture(deployFixture);
+      const raw = await ethers.provider.getStorage(proxyAddress, EIP1967_IMPL_SLOT);
+      expect(slotToAddress(raw)).to.equal(await implV2.getAddress());
+    });
+
+    it("constructor emits Upgraded(initialImpl)", async function () {
+      const { proxyAddress, implV2 } = await loadFixture(deployFixture);
+      // The deployFixture already deployed the proxy — read its deploy tx's logs
+      // and confirm the Upgraded event fired with the initialImpl address.
+      const proxyContract = await ethers.getContractAt(
+        "IntuitionVersionedFeeProxy",
+        proxyAddress,
+      );
+      const iface = proxyContract.interface;
+      const upgradedTopic = iface.getEvent("Upgraded")!.topicHash;
+      const logs = await ethers.provider.getLogs({
+        address: proxyAddress,
+        fromBlock: 0,
+        topics: [upgradedTopic],
+      });
+      expect(logs.length).to.be.greaterThan(0);
+      const parsed = iface.parseLog({ topics: [...logs[0].topics], data: logs[0].data });
+      expect(parsed!.args.implementation).to.equal(await implV2.getAddress());
+    });
+
+    it("setDefaultVersion updates the EIP-1967 slot + emits Upgraded", async function () {
+      const { versioned, proxyAddress, proxyAdmin } = await loadFixture(deployFixture);
+      const v3Addr = await deployV3Impl();
+      await versioned.connect(proxyAdmin).registerVersion(V3, v3Addr);
+
+      await expect(versioned.connect(proxyAdmin).setDefaultVersion(V3))
+        .to.emit(versioned, "Upgraded")
+        .withArgs(v3Addr);
+
+      const raw = await ethers.provider.getStorage(proxyAddress, EIP1967_IMPL_SLOT);
+      expect(slotToAddress(raw)).to.equal(v3Addr);
+    });
+
+    it("setDefaultVersion is a no-op when already set — does NOT re-emit Upgraded", async function () {
+      const { versioned, proxyAdmin } = await loadFixture(deployFixture);
+      await expect(versioned.connect(proxyAdmin).setDefaultVersion(V2))
+        .to.not.emit(versioned, "Upgraded");
+    });
+
+    it("ERC-7201 mapping remains the authoritative source (routing unchanged)", async function () {
+      const { versioned, proxyAsV2, proxyAdmin } = await loadFixture(deployFixture);
+      const v3Addr = await deployV3Impl();
+      await versioned.connect(proxyAdmin).registerVersion(V3, v3Addr);
+      await versioned.connect(proxyAdmin).setDefaultVersion(V3);
+
+      // Internal state query via ERC-7201 getter still works + matches.
+      expect(await versioned.getImplementation(V3)).to.equal(v3Addr);
+      // Routing via fallback reaches V3 (depositFixedFee still readable via inherited V2 layout).
+      expect(await proxyAsV2.depositFixedFee()).to.equal(DEPOSIT_FEE);
+    });
+  });
+
   // ============ executeAtVersion ============
 
   describe("executeAtVersion", function () {
