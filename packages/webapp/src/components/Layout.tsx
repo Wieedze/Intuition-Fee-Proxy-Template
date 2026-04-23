@@ -5,6 +5,7 @@ import { useDisconnect } from 'wagmi'
 
 import { useFactoryIdentity } from '../hooks/useFactory'
 import Address from './Address'
+import LaserFlow from './LaserFlow'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Home', end: true },
@@ -16,6 +17,8 @@ const NAV_ITEMS = [
 
 export default function Layout() {
   const [scrolled, setScrolled] = useState(false)
+  const location = useLocation()
+  const isHome = location.pathname === '/'
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 4)
@@ -31,10 +34,10 @@ export default function Layout() {
           scrolled ? 'border-b border-line' : 'border-b border-transparent'
         }`}
       >
-        <div className="px-6 h-[72px] flex items-center justify-between gap-6">
+        <div className="relative px-6 h-[72px] flex items-center gap-6">
           <Wordmark />
 
-          <nav className="flex items-center gap-6">
+          <nav className="absolute left-1/2 -translate-x-1/2 flex items-center gap-6">
             {NAV_ITEMS.map((item) => (
               <NavItem key={item.to} to={item.to} end={item.end}>
                 {item.label}
@@ -42,15 +45,38 @@ export default function Layout() {
             ))}
           </nav>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="ml-auto flex items-center gap-2 shrink-0">
             <ThemeToggle />
             <WalletButton />
           </div>
         </div>
       </header>
 
-      <main className="flex-1">
-        <div className="mx-auto max-w-6xl px-6 pt-14 pb-8 animate-fade-in">
+      <main className="relative flex-1">
+        <div
+          aria-hidden
+          className={`hidden dark:block pointer-events-none absolute inset-x-0 top-0 h-[820px] z-0 transition-opacity ease-out ${
+            isHome ? 'opacity-100 duration-1000' : 'opacity-0 duration-100'
+          }`}
+          style={{
+            maskImage:
+              'linear-gradient(to bottom, transparent 0px, black 120px)',
+            WebkitMaskImage:
+              'linear-gradient(to bottom, transparent 0px, black 120px)',
+          }}
+        >
+          <div className="mx-auto max-w-6xl h-full px-6">
+            <LaserFlow
+              color="#F07A3F"
+              horizontalBeamOffset={0}
+              verticalBeamOffset={-0.07}
+              verticalSizing={100}
+              wispIntensity={3.0}
+              fogIntensity={0.5}
+            />
+          </div>
+        </div>
+        <div className="relative mx-auto max-w-6xl px-6 pt-14 pb-8 animate-fade-in">
           <Outlet />
         </div>
       </main>

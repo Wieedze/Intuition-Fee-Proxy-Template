@@ -3,38 +3,38 @@ import { Link } from 'react-router-dom'
 export default function HomePage() {
   return (
     <div className="space-y-10">
-      <section className="max-w-3xl space-y-6 pt-6">
-        <h1 className="text-5xl font-semibold tracking-tight text-ink leading-[1.1]">
-          A versioned fee layer for the{' '}
-          <span className="text-brand">Intuition MultiVault</span>.
-        </h1>
-        <p className="text-lg text-muted leading-relaxed max-w-2xl">
-          Deploy a thin, upgradeable proxy in front of the MultiVault.
-          Configure fees, manage admins, and ship new logic versions without
-          forcing users off the one they depend on.
-        </p>
-        <div className="flex items-center gap-5 pt-2">
-          <Link to="/deploy" className="btn-primary px-5 py-2.5">
-            Deploy a proxy
-          </Link>
-          <Link
-            to="/docs"
-            className="text-sm text-muted hover:text-ink transition-colors"
-          >
-            Read the docs →
-          </Link>
-        </div>
-      </section>
+        <section className="max-w-xl space-y-6 pt-6">
+          <h1 className="text-5xl font-semibold tracking-tight text-ink leading-[1.1]">
+            A versioned fee layer for the{' '}
+            <span className="text-brand">Intuition MultiVault</span>.
+          </h1>
+          <p className="text-lg text-muted leading-relaxed max-w-md">
+            Deploy a thin, upgradeable proxy in front of the MultiVault.
+            Configure fees, manage admins, and ship new logic versions without
+            forcing users off the one they depend on.
+          </p>
+        </section>
 
-      <section className="space-y-8">
-        <CallFlow />
-        <Link
-          to="/docs/architecture"
-          className="inline-block text-sm text-muted hover:text-ink transition-colors"
-        >
-          See the full architecture →
-        </Link>
-      </section>
+        <section className="space-y-6">
+          <CallFlow />
+          <div className="flex items-center gap-5 pt-2">
+            <Link to="/deploy" className="btn-primary px-5 py-2.5">
+              Deploy a proxy
+            </Link>
+            <Link
+              to="/docs"
+              className="text-sm text-muted hover:text-ink transition-colors"
+            >
+              Read the docs →
+            </Link>
+            <Link
+              to="/docs/architecture"
+              className="ml-auto text-sm text-muted hover:text-ink transition-colors"
+            >
+              See the full architecture →
+            </Link>
+          </div>
+        </section>
 
       <section className="grid gap-12 sm:grid-cols-3">
         {[
@@ -59,15 +59,14 @@ export default function HomePage() {
             <p className="mt-2 text-sm text-muted leading-relaxed">{f.body}</p>
           </div>
         ))}
-      </section>
-
+        </section>
     </div>
   )
 }
 
 function CallFlow() {
   return (
-    <div className="rounded-2xl border border-line bg-surface/50 p-8 md:p-10">
+    <div className="relative z-10 rounded-2xl border border-brand/25 bg-surface p-8 md:p-10 shadow-[0_0_60px_-15px_rgba(240,122,63,0.35)]">
       <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr] items-stretch gap-4 md:gap-0">
         <FlowNode
           icon={<WalletIcon />}
