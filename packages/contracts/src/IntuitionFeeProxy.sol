@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity 0.8.28;
 
 import {IEthMultiVault} from "./interfaces/IEthMultiVault.sol";
 import {Errors} from "./libraries/Errors.sol";

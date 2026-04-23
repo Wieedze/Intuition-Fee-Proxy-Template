@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity 0.8.28;
 
 import {IIntuitionVersionedFeeProxy} from "./interfaces/IIntuitionVersionedFeeProxy.sol";
 import {IIntuitionFeeProxyV2} from "./interfaces/IIntuitionFeeProxyV2.sol";

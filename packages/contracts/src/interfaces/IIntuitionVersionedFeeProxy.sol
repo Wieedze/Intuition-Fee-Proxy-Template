@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity 0.8.28;
 
 /// @title IIntuitionVersionedFeeProxy
 /// @notice ERC-7936 compliant interface for the Intuition versioned fee-proxy.

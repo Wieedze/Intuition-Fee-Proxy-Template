@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity 0.8.28;
 
 /// @notice Pulls the OpenZeppelin `ERC1967Proxy` into the compile set so tests
 ///         can call `ethers.getContractFactory("ERC1967Proxy")`. Nothing else

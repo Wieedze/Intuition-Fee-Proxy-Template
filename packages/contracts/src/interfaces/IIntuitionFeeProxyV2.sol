@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity 0.8.28;
 
 /// @notice Channel flavor an impl declares on-chain so the Factory can reject
 ///         cross-channel mistakes at `setImplementation` / `setSponsoredImplementation`.

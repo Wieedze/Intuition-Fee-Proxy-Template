@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity 0.8.28;
 
 /// @title NoReceiveCaller
 /// @notice Test-only stand-in for a smart-contract wallet that CANNOT receive

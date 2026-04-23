@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.21;
+pragma solidity 0.8.28;
 
 /// @title IEthMultiVault
 /// @notice Interface for the Intuition MultiVault contract (subset of functions used by Sofia)
