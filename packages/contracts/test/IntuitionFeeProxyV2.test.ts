@@ -709,6 +709,122 @@ describe("IntuitionFeeProxyV2", function () {
     });
   });
 
+  // ============ pendingRefunds fallback (Fix #8 / M-4) ============
+
+  describe("pendingRefunds fallback for SCW callers without receive()", function () {
+    async function deployWithSCWCaller() {
+      const fixture = await loadFixture(deployFixture);
+      const NoRecvFactory = await ethers.getContractFactory("NoReceiveCaller");
+      const scw = await NoRecvFactory.deploy();
+      await scw.waitForDeployment();
+      return { ...fixture, scw };
+    }
+
+    it("createAtoms with overpay from SCW: deposit succeeds, excess queued", async function () {
+      const { proxy, mockMultiVault, scw, user } = await deployWithSCWCaller();
+      const atomCost = await mockMultiVault.getAtomCost();
+      const data = [ethers.toUtf8Bytes("a")];
+      const assets = [ethers.parseEther("1")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = atomCost + assets[0] + fee;
+      const overpay = ethers.parseEther("0.5");
+
+      const callData = proxy.interface.encodeFunctionData("createAtoms", [
+        data,
+        assets,
+        1n,
+      ]);
+
+      const scwAddr = await scw.getAddress();
+      await expect(
+        scw.connect(user).forward(await proxy.getAddress(), callData, {
+          value: totalRequired + overpay,
+        }),
+      )
+        .to.emit(proxy, "RefundQueued")
+        .withArgs(scwAddr, overpay);
+
+      expect(await proxy.pendingRefunds(scwAddr)).to.equal(overpay);
+    });
+
+    it("claimRefund pulls the queued amount to a chosen EOA address", async function () {
+      const { proxy, mockMultiVault, scw, user, withdrawTo } = await deployWithSCWCaller();
+      const atomCost = await mockMultiVault.getAtomCost();
+      const data = [ethers.toUtf8Bytes("a")];
+      const assets = [ethers.parseEther("1")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = atomCost + assets[0] + fee;
+      const overpay = ethers.parseEther("0.5");
+
+      const callData = proxy.interface.encodeFunctionData("createAtoms", [
+        data,
+        assets,
+        1n,
+      ]);
+
+      await scw.connect(user).forward(await proxy.getAddress(), callData, {
+        value: totalRequired + overpay,
+      });
+
+      // The SCW forwards a `claimRefund(withdrawTo)` call. `withdrawTo` is a
+      // fresh EOA that doesn't pay gas on this tx — so its balance delta is
+      // exactly the refund amount with no noise.
+      const claimCalldata = proxy.interface.encodeFunctionData("claimRefund", [
+        withdrawTo.address,
+      ]);
+
+      const balBefore = await ethers.provider.getBalance(withdrawTo.address);
+      await scw.connect(user).forward(await proxy.getAddress(), claimCalldata, {
+        value: 0,
+      });
+      const balAfter = await ethers.provider.getBalance(withdrawTo.address);
+
+      expect(balAfter - balBefore).to.equal(overpay);
+      expect(await proxy.pendingRefunds(await scw.getAddress())).to.equal(0n);
+    });
+
+    it("claimRefund reverts with NothingToRefund when balance is 0", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      await expect(
+        proxy.connect(user).claimRefund(user.address),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_NothingToRefund");
+    });
+
+    it("claimRefund reverts on zero `to` address", async function () {
+      const { proxy, user } = await loadFixture(deployFixture);
+      await expect(
+        proxy.connect(user).claimRefund(ethers.ZeroAddress),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_ZeroAddress");
+    });
+
+    it("multiple failed refunds accumulate", async function () {
+      const { proxy, mockMultiVault, scw, user } = await deployWithSCWCaller();
+      const atomCost = await mockMultiVault.getAtomCost();
+      const data = [ethers.toUtf8Bytes("a")];
+      const assets = [ethers.parseEther("1")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = atomCost + assets[0] + fee;
+      const overpay = ethers.parseEther("0.3");
+
+      const callData = proxy.interface.encodeFunctionData("createAtoms", [
+        data,
+        assets,
+        1n,
+      ]);
+
+      // First overpay
+      await scw.connect(user).forward(await proxy.getAddress(), callData, {
+        value: totalRequired + overpay,
+      });
+      // Second overpay
+      await scw.connect(user).forward(await proxy.getAddress(), callData, {
+        value: totalRequired + overpay,
+      });
+
+      expect(await proxy.pendingRefunds(await scw.getAddress())).to.equal(overpay * 2n);
+    });
+  });
+
   // ============ Metrics ============
 
   describe("Metrics", function () {

@@ -106,8 +106,14 @@ contract IntuitionFeeProxyV2 is
     /// @dev slot 13 — tracks first-time interaction per user (for uniqueUsers)
     mapping(address => bool) private _hasInteracted;
 
-    /// @dev 14 slots used — 36 left to reserve for future upgrades (total 50)
-    uint256[36] private __gap;
+    /// @dev slot 14 — user → unclaimed refund balance (accrued when a direct
+    ///      refund `.call` failed because the caller cannot receive ETH, e.g.
+    ///      a SCW without a payable `receive()`). Pull-based: the owner
+    ///      reclaims via `claimRefund`.
+    mapping(address => uint256) public pendingRefunds;
+
+    /// @dev 15 slots used — 35 left to reserve for future upgrades (total 50)
+    uint256[35] private __gap;
 
     // ============ Events ============
 
@@ -126,6 +132,14 @@ contract IntuitionFeeProxyV2 is
     event MultiVaultSuccess(string operation, uint256 resultCount);
 
     event FeesWithdrawn(address indexed to, uint256 amount, address indexed by);
+
+    /// @notice Emitted when a direct refund `.call` failed (typically a SCW
+    ///         caller without payable `receive()`) and the excess was queued
+    ///         for later pull via `claimRefund`.
+    event RefundQueued(address indexed user, uint256 amount);
+
+    /// @notice Emitted when a caller pulls their queued refund to `to`.
+    event RefundClaimed(address indexed user, address indexed to, uint256 amount);
 
     /// @notice Emitted on every write-path call with a snapshot of the aggregate metrics.
     event MetricsUpdated(
@@ -603,12 +617,33 @@ contract IntuitionFeeProxyV2 is
     ///      `totalRequired - consumedCredit`). Called at the tail of payable entry
     ///      points, after MV forwards + metrics. Must be guarded by
     ///      `nonReentrant` on the caller.
+    ///
+    ///      Fallback: if the direct `.call` fails (caller is a SCW without
+    ///      payable `receive()` / `fallback()`), the excess is credited to
+    ///      `pendingRefunds[msg.sender]` and can be pulled later via
+    ///      `claimRefund`. The outer tx proceeds instead of reverting — the
+    ///      deposit itself would have succeeded regardless.
     function _refundExcess(uint256 ethSpent) internal {
         uint256 excess = msg.value - ethSpent;
-        if (excess > 0) {
-            (bool ok, ) = msg.sender.call{value: excess}("");
-            if (!ok) revert Errors.IntuitionFeeProxy_RefundFailed();
+        if (excess == 0) return;
+        (bool ok, ) = msg.sender.call{value: excess}("");
+        if (!ok) {
+            pendingRefunds[msg.sender] += excess;
+            emit RefundQueued(msg.sender, excess);
         }
+    }
+
+    /// @notice Pull any refund that was queued because the direct `.call`
+    ///         failed. Sends the caller's entire pending balance to `to`.
+    /// @param to Recipient — typically an EOA under the caller's control.
+    function claimRefund(address to) external nonReentrant {
+        if (to == address(0)) revert Errors.IntuitionFeeProxy_ZeroAddress();
+        uint256 amount = pendingRefunds[msg.sender];
+        if (amount == 0) revert Errors.IntuitionFeeProxy_NothingToRefund();
+        pendingRefunds[msg.sender] = 0;
+        (bool ok, ) = to.call{value: amount}("");
+        if (!ok) revert Errors.IntuitionFeeProxy_RefundFailed();
+        emit RefundClaimed(msg.sender, to, amount);
     }
 
     // NOTE: no `receive()` / `fallback()` — direct ETH transfers revert. All

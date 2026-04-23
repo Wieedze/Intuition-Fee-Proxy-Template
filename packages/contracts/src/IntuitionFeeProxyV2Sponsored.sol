@@ -409,10 +409,16 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     /// @dev Refunds the entire `msg.value` if any was sent. Tolerant UX —
     ///      on sponsored paths the pool pays everything, so any ETH the
     ///      caller attached is returned. Guarded by outer `nonReentrant`.
+    ///      Shares the `pendingRefunds` fallback with V2: if the direct
+    ///      `.call` fails (SCW without payable receive), the excess is
+    ///      queued for later pull via `claimRefund`.
     function _refundMsgValue() internal {
         if (msg.value == 0) return;
         (bool ok, ) = msg.sender.call{value: msg.value}("");
-        if (!ok) revert Errors.IntuitionFeeProxy_RefundFailed();
+        if (!ok) {
+            pendingRefunds[msg.sender] += msg.value;
+            emit RefundQueued(msg.sender, msg.value);
+        }
     }
 
     /// @dev Commits a pool draw + enforces the per-user rate limits (count +

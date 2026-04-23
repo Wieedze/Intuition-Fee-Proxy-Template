@@ -54,6 +54,9 @@ library Errors {
     /// @notice Refund of excess `msg.value` to the caller failed
     error IntuitionFeeProxy_RefundFailed();
 
+    /// @notice `claimRefund` called with no pending refund on the caller's balance
+    error IntuitionFeeProxy_NothingToRefund();
+
     // ============ Factory errors ============
 
     /// @notice Factory received an invalid implementation (zero address or not a contract)
