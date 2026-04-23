@@ -174,7 +174,7 @@ contract IntuitionFeeProxyFactory is
     ///      rejects any mismatch. Impls without the `channel()` getter
     ///      (legacy or non-IIntuitionFeeProxyV2) also revert — try/catch
     ///      catches the unknown-selector path.
-    function _verifyChannel(address impl, ProxyChannel expected) internal view {
+    function _verifyChannel(address impl, ProxyChannel expected) internal pure {
         try IIntuitionFeeProxyV2(impl).channel() returns (ProxyChannel actual) {
             if (actual != expected) {
                 revert Errors.IntuitionFeeProxyFactory_ChannelMismatch();

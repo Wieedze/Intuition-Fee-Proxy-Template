@@ -43,7 +43,7 @@ contract MockMultiVault is IEthMultiVault {
 
     function createAtoms(
         bytes[] calldata data,
-        uint256[] calldata assets
+        uint256[] calldata /* assets */
     ) external payable override returns (bytes32[] memory atomIds) {
         createAtomsCallCount++;
         atomIds = new bytes32[](data.length);
@@ -61,7 +61,7 @@ contract MockMultiVault is IEthMultiVault {
         bytes32[] calldata subjectIds,
         bytes32[] calldata predicateIds,
         bytes32[] calldata objectIds,
-        uint256[] calldata assets
+        uint256[] calldata /* assets */
     ) external payable override returns (bytes32[] memory tripleIds) {
         createTriplesCallCount++;
         tripleIds = new bytes32[](subjectIds.length);
@@ -81,7 +81,7 @@ contract MockMultiVault is IEthMultiVault {
         address receiver,
         bytes32 termId,
         uint256 curveId,
-        uint256 minShares
+        uint256 /* minShares */
     ) external payable override returns (uint256 sharesOut) {
         depositCallCount++;
         lastDepositAmount = msg.value;
@@ -101,7 +101,7 @@ contract MockMultiVault is IEthMultiVault {
         bytes32[] calldata termIds,
         uint256[] calldata curveIds,
         uint256[] calldata assets,
-        uint256[] calldata minShares
+        uint256[] calldata /* minShares */
     ) external payable override returns (uint256[] memory sharesOut) {
         depositBatchCallCount++;
         sharesOut = new uint256[](termIds.length);
@@ -161,8 +161,8 @@ contract MockMultiVault is IEthMultiVault {
     }
 
     function previewDeposit(
-        bytes32 termId,
-        uint256 curveId,
+        bytes32 /* termId */,
+        uint256 /* curveId */,
         uint256 assets
     ) external pure override returns (uint256, uint256) {
         // Mock: 1:1 ratio, no fees

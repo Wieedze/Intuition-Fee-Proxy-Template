@@ -151,7 +151,7 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
     /// @dev Reads both impls' `STORAGE_COMPAT_ID` and reverts on mismatch.
     ///      Catches the missing-getter path (any legacy or non-V2-family
     ///      impl) via try/catch.
-    function _assertStorageCompat(address current, address candidate) internal view {
+    function _assertStorageCompat(address current, address candidate) internal pure {
         bytes32 refId;
         bytes32 candId;
         try IIntuitionFeeProxyV2(current).STORAGE_COMPAT_ID() returns (bytes32 id) {
