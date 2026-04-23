@@ -157,7 +157,7 @@ describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
 
   // ============ fundPool / reclaimFromPool ============
 
-  describe("fundPool / reclaimFromPool (admin only)", function () {
+  describe("fundPool (public) / reclaimFromPool (admin only)", function () {
     it("admin funds the pool; balance updates", async function () {
       const { proxy, admin1 } = await loadFixture(deployFixture);
       const amount = ethers.parseEther("5");
@@ -174,11 +174,23 @@ describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
       expect(await proxy.sponsorPool()).to.equal(ethers.parseEther("4"));
     });
 
-    it("non-admin cannot fundPool", async function () {
+    it("non-admin can fundPool (permissionless donations)", async function () {
       const { proxy, nonAdmin } = await loadFixture(deployFixture);
-      await expect(
-        proxy.connect(nonAdmin).fundPool({ value: ethers.parseEther("1") }),
-      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_NotWhitelistedAdmin");
+      const amount = ethers.parseEther("1");
+      await expect(proxy.connect(nonAdmin).fundPool({ value: amount }))
+        .to.emit(proxy, "PoolFunded")
+        .withArgs(amount, nonAdmin.address);
+      expect(await proxy.sponsorPool()).to.equal(amount);
+    });
+
+    it("mixed admin + non-admin funders all show up with their own address in PoolFunded", async function () {
+      const { proxy, admin1, nonAdmin, user1 } = await loadFixture(deployFixture);
+      await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
+      await proxy.connect(nonAdmin).fundPool({ value: ethers.parseEther("2") });
+      await proxy.connect(user1).fundPool({ value: ethers.parseEther("0.5") });
+      expect(await proxy.sponsorPool()).to.equal(ethers.parseEther("3.5"));
+      // Each funder's address is emitted in `by` — the webapp uses these events
+      // to render the permissionless top-ups log.
     });
 
     it("fundPool reverts on zero msg.value", async function () {

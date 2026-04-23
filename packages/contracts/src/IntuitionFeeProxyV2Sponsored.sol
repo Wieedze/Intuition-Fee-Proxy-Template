@@ -211,9 +211,17 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         emit ClaimLimitsSet(maxPerTx, maxPerWindow, maxVolumePerWindow, windowSec);
     }
 
-    // ============ Admin: pool top-up / reclaim ============
+    // ============ Pool top-up (public) / reclaim (admin) ============
 
-    function fundPool() external payable onlyWhitelistedAdmin {
+    /// @notice Contribute TRUST to the shared sponsor pool.
+    /// @dev    Permissionless by design — anyone can donate. Contributions
+    ///         are one-way: only whitelisted admins can `reclaimFromPool`,
+    ///         so from the donor's perspective this is a public donation.
+    ///         The `PoolFunded(amount, by)` event makes every top-up
+    ///         publicly traceable (funder address + amount), which enables
+    ///         a permissionless "top-ups log" UI + an admin-gated per-entry
+    ///         refund flow that pre-fills the donor address.
+    function fundPool() external payable {
         if (msg.value == 0) revert Errors.Sponsored_NothingToCredit();
 
         SponsoredLayout storage $ = _s();
