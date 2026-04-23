@@ -18,10 +18,13 @@ import {Errors} from "./libraries/Errors.sol";
 ///         Defaults: 1 TRUST per call, 10 pool-drawing calls per day per user,
 ///         10 TRUST cumulative per day per user, window = 1 day.
 /// @dev
-///  - Sponsorship model is **full-coverage** (B1): pool pays `totalRequired`
-///    (no Sofia fee on sponsored — fees would be bookkeeping from admin's
-///    pool back to admin's own address). Any `msg.value` a caller may send is
-///    refunded at the end of the call (tolerant UX, `nonReentrant`-protected).
+///  - Sponsorship model is **full-coverage**: the pool pays `totalRequired =
+///    assets + Sofia fee`. Users never spend TRUST from their wallet — any
+///    `msg.value` a caller may send is refunded at the end of the call
+///    (tolerant UX, `nonReentrant`-protected). Fees accrue to
+///    `accumulatedFees` exactly like the standard channel — the fundPool
+///    being permissionless means public donors effectively fund both the
+///    user deposit AND Sofia's cut, making the fee model non-circular.
 ///  - The inverse-formula `deposit(3 args)` is **disabled** on this channel —
 ///    the pool cannot finance an intent that is only implicit in `msg.value`.
 ///    Callers must use `depositSponsored(4 args)` with an explicit `assets`.
@@ -263,12 +266,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     }
 
     /// @notice Full-sponsorship deposit. User declares `assets` as their
-    ///         claim intent; the pool covers the entire cost (`totalRequired
-    ///         = assets`, no Sofia fee on sponsored). Any `msg.value` is
-    ///         refunded tolerantly at the tail of the call.
+    ///         claim intent; the pool covers the entire cost including Sofia's
+    ///         fee — `totalRequired = assets + fee(1, assets)`. Any
+    ///         `msg.value` is refunded tolerantly at the tail of the call.
     /// @dev    Reverts:
-    ///         - `Sponsored_ExceedsMaxPerTx`  if `assets > maxClaimPerTx`
-    ///         - `Sponsored_InsufficientPool` if `sponsorPool < assets`
+    ///         - `Sponsored_ExceedsMaxPerTx`  if `totalRequired > maxClaimPerTx`
+    ///         - `Sponsored_InsufficientPool` if `sponsorPool < totalRequired`
     ///         - `Sponsored_RateLimited` / `Sponsored_VolumeLimited` on per-user caps
     function depositSponsored(
         bytes32 termId,
@@ -277,13 +280,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 assets
     ) external payable nonReentrant returns (uint256 shares) {
         if (assets == 0) revert Errors.IntuitionFeeProxy_InsufficientValue();
-        _claimFull(assets);
+        uint256 fee = calculateDepositFee(1, assets);
+        uint256 totalRequired = assets + fee;
+        _claimFull(totalRequired);
 
-        // Sponsored channel charges no Sofia fee, but the hook is still invoked
-        // so overriding impls (e.g. a version-marker layer) see every write-path
-        // entry and can emit on it.
-        _accrueFee(0, DEPOSIT, assets);
-        _finaliseCredit(assets);
+        _accrueFee(fee, DEPOSIT, assets);
+        _finaliseCredit(totalRequired);
 
         shares = _ethMultiVault.deposit{value: assets}(msg.sender, termId, curveId, minShares);
         _trackActivity(0, 0, 1, assets);
@@ -310,11 +312,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 totalDeposit = _sumArray(assets);
         uint256 nonZero = _countNonZero(assets);
 
-        // totalRequired = MV cost only — no Sofia fee on sponsored.
-        uint256 totalRequired = (atomCost * count) + totalDeposit;
+        uint256 multiVaultCost = (atomCost * count) + totalDeposit;
+        uint256 fee = calculateDepositFee(nonZero, totalDeposit);
+        uint256 totalRequired = multiVaultCost + fee;
         _claimFull(totalRequired);
 
-        _accrueFee(0, CREATE_ATOMS, totalRequired);
+        _accrueFee(fee, CREATE_ATOMS, multiVaultCost);
         _finaliseCredit(totalRequired);
 
         uint256[] memory minAssets = new uint256[](count);
@@ -353,10 +356,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 totalDeposit = _sumArray(assets);
         uint256 nonZero = _countNonZero(assets);
 
-        uint256 totalRequired = (tripleCost * count) + totalDeposit;
+        uint256 multiVaultCost = (tripleCost * count) + totalDeposit;
+        uint256 fee = calculateDepositFee(nonZero, totalDeposit);
+        uint256 totalRequired = multiVaultCost + fee;
         _claimFull(totalRequired);
 
-        _accrueFee(0, CREATE_TRIPLES, totalRequired);
+        _accrueFee(fee, CREATE_TRIPLES, multiVaultCost);
         _finaliseCredit(totalRequired);
 
         uint256[] memory minAssets = new uint256[](count);
@@ -390,10 +395,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
         uint256 totalDeposit = _sumArray(assets);
         if (totalDeposit == 0) revert Errors.IntuitionFeeProxy_InsufficientValue();
-        _claimFull(totalDeposit);
+        uint256 fee = calculateDepositFee(termIds.length, totalDeposit);
+        uint256 totalRequired = totalDeposit + fee;
+        _claimFull(totalRequired);
 
-        _accrueFee(0, DEPOSIT_BATCH, totalDeposit);
-        _finaliseCredit(totalDeposit);
+        _accrueFee(fee, DEPOSIT_BATCH, totalDeposit);
+        _finaliseCredit(totalRequired);
 
         shares = _ethMultiVault.depositBatch{value: totalDeposit}(
             msg.sender, termIds, curveIds, assets, minShares
