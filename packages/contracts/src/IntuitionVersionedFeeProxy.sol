@@ -279,6 +279,12 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
 
     fallback() external payable {
         address impl = _layout().implementations[_layout().defaultVersion];
+        // Defensive guard: in EVM a delegatecall to address(0) succeeds with
+        // empty returndata, which would silently make every call appear to
+        // "succeed" while doing nothing. Fail loudly instead. `impl` should
+        // always be non-zero by construction (registerVersion / constructor
+        // both reject zero impls) — this is belt-and-braces.
+        if (impl == address(0)) revert Errors.VersionedFeeProxy_InvalidImplementation();
         assembly {
             calldatacopy(0, 0, calldatasize())
             let result := delegatecall(gas(), impl, 0, calldatasize(), 0, 0)
