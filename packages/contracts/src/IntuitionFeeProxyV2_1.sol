@@ -27,7 +27,7 @@ contract IntuitionFeeProxyV2_1 is IntuitionFeeProxyV2 {
     event VersionUsed(bytes32 indexed version, address indexed user);
 
     /// @inheritdoc IntuitionFeeProxyV2
-    function _accrueFee(uint256 fee, string memory operation, uint256 mvValue)
+    function _accrueFee(uint256 fee, bytes32 operation, uint256 mvValue)
         internal
         virtual
         override

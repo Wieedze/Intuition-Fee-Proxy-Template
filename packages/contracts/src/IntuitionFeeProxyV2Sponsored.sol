@@ -274,12 +274,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         // Sponsored channel charges no Sofia fee, but the hook is still invoked
         // so overriding impls (e.g. a version-marker layer) see every write-path
         // entry and can emit on it.
-        _accrueFee(0, "deposit", assets);
+        _accrueFee(0, DEPOSIT, assets);
         _finaliseCredit(assets);
 
         shares = _ethMultiVault.deposit{value: assets}(msg.sender, termId, curveId, minShares);
         _trackActivity(0, 0, 1, assets);
-        emit MultiVaultSuccess("deposit", 1);
+        emit MultiVaultSuccess(DEPOSIT, 1);
 
         _refundMsgValue();
     }
@@ -306,7 +306,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 totalRequired = (atomCost * count) + totalDeposit;
         _claimFull(totalRequired);
 
-        _accrueFee(0, "createAtoms", totalRequired);
+        _accrueFee(0, CREATE_ATOMS, totalRequired);
         _finaliseCredit(totalRequired);
 
         uint256[] memory minAssets = new uint256[](count);
@@ -320,7 +320,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         }
 
         _trackActivity(count, 0, nonZero, totalDeposit);
-        emit MultiVaultSuccess("createAtoms", count);
+        emit MultiVaultSuccess(CREATE_ATOMS, count);
         _refundMsgValue();
     }
 
@@ -348,7 +348,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         uint256 totalRequired = (tripleCost * count) + totalDeposit;
         _claimFull(totalRequired);
 
-        _accrueFee(0, "createTriples", totalRequired);
+        _accrueFee(0, CREATE_TRIPLES, totalRequired);
         _finaliseCredit(totalRequired);
 
         uint256[] memory minAssets = new uint256[](count);
@@ -364,7 +364,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         }
 
         _trackActivity(0, count, nonZero, totalDeposit);
-        emit MultiVaultSuccess("createTriples", count);
+        emit MultiVaultSuccess(CREATE_TRIPLES, count);
         _refundMsgValue();
     }
 
@@ -384,14 +384,14 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         if (totalDeposit == 0) revert Errors.IntuitionFeeProxy_InsufficientValue();
         _claimFull(totalDeposit);
 
-        _accrueFee(0, "depositBatch", totalDeposit);
+        _accrueFee(0, DEPOSIT_BATCH, totalDeposit);
         _finaliseCredit(totalDeposit);
 
         shares = _ethMultiVault.depositBatch{value: totalDeposit}(
             msg.sender, termIds, curveIds, assets, minShares
         );
         _trackActivity(0, 0, termIds.length, totalDeposit);
-        emit MultiVaultSuccess("depositBatch", shares.length);
+        emit MultiVaultSuccess(DEPOSIT_BATCH, shares.length);
         _refundMsgValue();
     }
 

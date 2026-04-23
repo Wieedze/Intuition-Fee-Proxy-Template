@@ -28,7 +28,7 @@ contract IntuitionFeeProxyV2_1Sponsored is IntuitionFeeProxyV2Sponsored {
 
     /// @dev Overrides the V2 `_accrueFee` hook (reachable via V2Sponsored's
     ///      inheritance chain) to emit a version marker before fee accrual.
-    function _accrueFee(uint256 fee, string memory operation, uint256 mvValue)
+    function _accrueFee(uint256 fee, bytes32 operation, uint256 mvValue)
         internal
         virtual
         override

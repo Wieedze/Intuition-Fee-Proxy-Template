@@ -56,6 +56,15 @@ contract IntuitionFeeProxyV2 is
     ///      raise it; existing proxies stay bounded forever.
     uint256 public constant MAX_FIXED_FEE = 10 ether;
 
+    /// @notice Operation labels used as `bytes32 indexed` in write-path events.
+    /// @dev Values are the ASCII name of the entry point, zero-padded to 32
+    ///      bytes. Indexers can filter FeesCollected / TransactionForwarded /
+    ///      MultiVaultSuccess by any of these directly via topic lookup.
+    bytes32 public constant DEPOSIT = "deposit";
+    bytes32 public constant DEPOSIT_BATCH = "depositBatch";
+    bytes32 public constant CREATE_ATOMS = "createAtoms";
+    bytes32 public constant CREATE_TRIPLES = "createTriples";
+
 
     // ============ Storage (50 slots reserved) ============
 
@@ -121,15 +130,15 @@ contract IntuitionFeeProxyV2 is
     event DepositPercentageFeeUpdated(uint256 oldFee, uint256 newFee);
     event AdminWhitelistUpdated(address indexed admin, bool status);
 
-    event FeesCollected(address indexed user, uint256 amount, string operation);
+    event FeesCollected(address indexed user, uint256 amount, bytes32 indexed operation);
     event TransactionForwarded(
-        string operation,
+        bytes32 indexed operation,
         address indexed user,
         uint256 fee,
         uint256 multiVaultValue,
         uint256 totalReceived
     );
-    event MultiVaultSuccess(string operation, uint256 resultCount);
+    event MultiVaultSuccess(bytes32 indexed operation, uint256 resultCount);
 
     event FeesWithdrawn(address indexed to, uint256 amount, address indexed by);
 
@@ -368,7 +377,7 @@ contract IntuitionFeeProxyV2 is
             revert Errors.IntuitionFeeProxy_InsufficientValue();
         }
 
-        _accrueFee(fee, "createAtoms", multiVaultCost);
+        _accrueFee(fee, CREATE_ATOMS, multiVaultCost);
 
         uint256[] memory minAssets = new uint256[](count);
         for (uint256 i = 0; i < count; i++) {
@@ -383,7 +392,7 @@ contract IntuitionFeeProxyV2 is
         }
 
         _trackActivity(count, 0, depositCount, totalDeposit);
-        emit MultiVaultSuccess("createAtoms", count);
+        emit MultiVaultSuccess(CREATE_ATOMS, count);
         _refundExcess(totalRequired);
         return atomIds;
     }
@@ -418,7 +427,7 @@ contract IntuitionFeeProxyV2 is
             revert Errors.IntuitionFeeProxy_InsufficientValue();
         }
 
-        _accrueFee(fee, "createTriples", multiVaultCost);
+        _accrueFee(fee, CREATE_TRIPLES, multiVaultCost);
 
         uint256[] memory minAssets = new uint256[](count);
         for (uint256 i = 0; i < count; i++) {
@@ -435,7 +444,7 @@ contract IntuitionFeeProxyV2 is
         }
 
         _trackActivity(0, count, depositCount, totalDeposit);
-        emit MultiVaultSuccess("createTriples", count);
+        emit MultiVaultSuccess(CREATE_TRIPLES, count);
         _refundExcess(totalRequired);
         return tripleIds;
     }
@@ -454,11 +463,11 @@ contract IntuitionFeeProxyV2 is
                                    / (FEE_DENOMINATOR + depositPercentageFee);
         uint256 fee = msg.value - multiVaultAmount;
 
-        _accrueFee(fee, "deposit", multiVaultAmount);
+        _accrueFee(fee, DEPOSIT, multiVaultAmount);
 
         shares = _ethMultiVault.deposit{value: multiVaultAmount}(msg.sender, termId, curveId, minShares);
         _trackActivity(0, 0, 1, multiVaultAmount);
-        emit MultiVaultSuccess("deposit", 1);
+        emit MultiVaultSuccess(DEPOSIT, 1);
     }
 
     /// @inheritdoc IIntuitionFeeProxyV2
@@ -483,13 +492,13 @@ contract IntuitionFeeProxyV2 is
             revert Errors.IntuitionFeeProxy_InsufficientValue();
         }
 
-        _accrueFee(fee, "depositBatch", totalDeposit);
+        _accrueFee(fee, DEPOSIT_BATCH, totalDeposit);
 
         shares = _ethMultiVault.depositBatch{value: totalDeposit}(
             msg.sender, termIds, curveIds, assets, minShares
         );
         _trackActivity(0, 0, termIds.length, totalDeposit);
-        emit MultiVaultSuccess("depositBatch", shares.length);
+        emit MultiVaultSuccess(DEPOSIT_BATCH, shares.length);
         _refundExcess(totalRequired);
     }
 
@@ -564,7 +573,7 @@ contract IntuitionFeeProxyV2 is
 
     // ============ Internal ============
 
-    function _accrueFee(uint256 fee, string memory operation, uint256 mvValue) internal virtual {
+    function _accrueFee(uint256 fee, bytes32 operation, uint256 mvValue) internal virtual {
         if (fee > 0) {
             accumulatedFees += fee;
             totalFeesCollectedAllTime += fee;
