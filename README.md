@@ -1,6 +1,6 @@
 # Intuition Proxy Factory
 
-![tests](https://img.shields.io/badge/tests-170%2B%20passing-green) ![solidity](https://img.shields.io/badge/solidity-0.8.21-blue) ![oz](https://img.shields.io/badge/openzeppelin-v5%20namespaced-blue)
+![solidity](https://img.shields.io/badge/solidity-0.8.21-blue) ![openzeppelin](https://img.shields.io/badge/openzeppelin-v5-blue) ![ERC-7936](https://img.shields.io/badge/ERC--7936-versioned%20proxy-orange) ![ERC-7201](https://img.shields.io/badge/ERC--7201-namespaced%20storage-orange) ![ERC-1967](https://img.shields.io/badge/ERC--1967-proxy%20slots-orange) ![UUPS](https://img.shields.io/badge/UUPS-upgradeable-orange) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
 Monorepo for a versioned, upgradeable fee proxy on top of the [Intuition](https://intuition.systems) MultiVault, with a permissionless Factory for one-click deployment and a web UI to manage individual proxies (fees, admins, versions, metrics).
 
