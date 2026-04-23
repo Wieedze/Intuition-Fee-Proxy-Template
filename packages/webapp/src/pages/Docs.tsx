@@ -268,7 +268,23 @@ function Overview() {
         <div className="grid gap-3 sm:grid-cols-2">
           <Principle
             title="Versioned"
-            body="Each new version is added to the registry — it never replaces the previous one. Users who pinned an older version keep running it. The default version is chosen by the admin."
+            body={
+              <>
+                Each new version is added to the registry — it never replaces
+                the previous one. Users who pinned an older version keep
+                running it. The default version is chosen by the admin.
+                Implements{' '}
+                <a
+                  href="https://eips.ethereum.org/EIPS/eip-7936"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand hover:underline"
+                >
+                  ERC-7936
+                </a>
+                .
+              </>
+            }
           />
           <Principle
             title="Permissionless"
@@ -1718,7 +1734,13 @@ function Sponsoring() {
 
 // ============ Small building blocks ============
 
-function Principle({ title, body }: { title: string; body: string }) {
+function Principle({
+  title,
+  body,
+}: {
+  title: string
+  body: React.ReactNode
+}) {
   return (
     <div className="rounded-xl border border-line bg-surface p-5">
       <div className="flex items-center gap-2">

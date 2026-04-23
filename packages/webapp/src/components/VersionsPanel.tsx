@@ -213,7 +213,18 @@ export function VersionsPanel({
   return (
     <section className="card space-y-4">
       <div>
-        <h2 className="font-semibold">Versions (ERC-7936)</h2>
+        <h2 className="font-semibold">
+          Versions (
+          <a
+            href="https://eips.ethereum.org/EIPS/eip-7936"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-brand underline decoration-line decoration-from-font hover:decoration-brand"
+          >
+            ERC-7936
+          </a>
+          )
+        </h2>
         <p className="text-xs text-subtle leading-relaxed">
           Every implementation this proxy has registered + the canonical
           directory published by the team. Pin any past version with{' '}
