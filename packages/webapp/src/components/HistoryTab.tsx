@@ -3,6 +3,8 @@ import { formatEther, parseEther, type Address } from 'viem'
 import { useChainId, useWaitForTransactionReceipt } from 'wagmi'
 
 import {
+  matchRefunds,
+  usePoolReclaims,
   usePoolTopUps,
   useReclaimFromPool,
   useSponsorPool,
@@ -16,19 +18,38 @@ interface Props {
 }
 
 /**
- * Permissionless "Top-ups" log:
+ * Permissionless pool "History" log:
  *   - ANY visitor sees the full list of PoolFunded events (funder + amount + date).
  *   - Admins see a per-row Refund button that pre-fills reclaimFromPool with
  *     the event's amount + funder address (both editable before confirming).
+ *   - Refunded rows carry a "Refunded" badge, FIFO-matched against
+ *     PoolReclaimed events per funder.
  *
  * Pool balance is shown at the top so the admin can tell at-a-glance if a
  * given refund will exceed what's left on-chain.
  */
-export function TopUpsTab({ proxy, isAdmin }: Props) {
+export function HistoryTab({ proxy, isAdmin }: Props) {
   const chainId = useChainId()
   const explorerRoot = EXPLORER_BY_CHAIN[chainId]
-  const { topUps, isLoading, error, refetch } = usePoolTopUps(proxy)
+  const {
+    topUps,
+    isLoading,
+    error,
+    refetch: refetchTopUps,
+  } = usePoolTopUps(proxy)
+  const { reclaims, refetch: refetchReclaims } = usePoolReclaims(proxy)
   const { balance: poolBalance } = useSponsorPool(proxy)
+
+  // Merge top-ups with their refund status (FIFO-matched against reclaims).
+  const rows = useMemo(
+    () => matchRefunds(topUps, reclaims),
+    [topUps, reclaims],
+  )
+
+  const refetch = () => {
+    refetchTopUps()
+    refetchReclaims()
+  }
 
   // Which row is currently expanded into "refund editor" mode. Only one at a
   // time — prevents sending two overlapping txs accidentally.
@@ -75,7 +96,7 @@ export function TopUpsTab({ proxy, isAdmin }: Props) {
         </div>
       )}
 
-      {!isLoading && !error && topUps.length === 0 && (
+      {!isLoading && !error && rows.length === 0 && (
         <div className="card">
           <p className="text-sm text-subtle">
             No top-ups yet. The first person to call{' '}
@@ -85,7 +106,7 @@ export function TopUpsTab({ proxy, isAdmin }: Props) {
         </div>
       )}
 
-      {!isLoading && topUps.length > 0 && (
+      {!isLoading && rows.length > 0 && (
         <div className="card p-0 overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -100,7 +121,7 @@ export function TopUpsTab({ proxy, isAdmin }: Props) {
               </tr>
             </thead>
             <tbody>
-              {topUps.map((t) => {
+              {rows.map((t) => {
                 const rowId = `${t.txHash}-${t.logIndex}`
                 const isEditing = refundingId === rowId
                 return (
@@ -115,6 +136,8 @@ export function TopUpsTab({ proxy, isAdmin }: Props) {
                     explorerRoot={explorerRoot}
                     isAdmin={isAdmin}
                     isEditing={isEditing}
+                    refunded={t.refunded}
+                    refundTxHash={t.refundTxHash}
                     onStartRefund={() => setRefundingId(rowId)}
                     onCancelRefund={() => setRefundingId(null)}
                     onRefundDone={() => {
@@ -144,6 +167,8 @@ interface RowProps {
   explorerRoot: string | undefined
   isAdmin: boolean
   isEditing: boolean
+  refunded: boolean
+  refundTxHash: `0x${string}` | undefined
   onStartRefund: () => void
   onCancelRefund: () => void
   onRefundDone: () => void
@@ -159,6 +184,8 @@ function TopUpRow({
   explorerRoot,
   isAdmin,
   isEditing,
+  refunded,
+  refundTxHash,
   onStartRefund,
   onCancelRefund,
   onRefundDone,
@@ -235,14 +262,52 @@ function TopUpRow({
           )}
         </td>
         <td className="px-4 py-2.5 text-right">
-          {isAdmin && !isEditing && (
-            <button
-              type="button"
-              onClick={onStartRefund}
-              className="text-xs rounded border border-line bg-canvas px-2 py-1 text-subtle hover:text-ink hover:border-line-strong transition-colors"
-            >
-              Refund
-            </button>
+          {refunded ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand"
+                title="This top-up has been fully refunded on-chain"
+              >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3"
+                >
+                  <path
+                    d="M20 6L9 17l-5-5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                Refunded
+              </span>
+              {refundTxHash && explorerRoot && (
+                <a
+                  href={`${explorerRoot}/tx/${refundTxHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] text-subtle hover:text-brand"
+                  aria-label="View refund tx"
+                  title="View refund tx"
+                >
+                  ↗
+                </a>
+              )}
+            </span>
+          ) : (
+            isAdmin &&
+            !isEditing && (
+              <button
+                type="button"
+                onClick={onStartRefund}
+                className="text-xs rounded border border-line bg-canvas px-2 py-1 text-subtle hover:text-ink hover:border-line-strong transition-colors"
+              >
+                Refund
+              </button>
+            )
           )}
         </td>
       </tr>

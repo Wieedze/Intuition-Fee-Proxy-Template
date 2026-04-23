@@ -1,4 +1,4 @@
-export type TabId = 'overview' | 'fee' | 'sponsoring' | 'topups' | 'metrics' | 'admins'
+export type TabId = 'overview' | 'fee' | 'sponsoring' | 'history' | 'metrics' | 'admins'
 
 /**
  * 5-state machine for the "grant both roles" convenience flow.

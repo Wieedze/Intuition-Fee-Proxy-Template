@@ -137,6 +137,34 @@ export type PoolTopUp = {
   logIndex: number
 }
 
+export type PoolReclaim = {
+  /** Address that received the refund (from the event's `to` arg). */
+  to: Address
+  /** Amount in wei. */
+  amount: bigint
+  /** Block number the reclaim tx landed in. */
+  blockNumber: bigint
+  /** Admin who initiated the reclaim. */
+  by: Address
+  /** Tx hash. */
+  txHash: `0x${string}`
+  /** Log index within the block. */
+  logIndex: number
+}
+
+/**
+ * A top-up augmented with its refund status. Computed client-side by
+ * FIFO-matching PoolReclaimed events against PoolFunded events per funder:
+ * the oldest un-refunded top-up from a funder is "consumed" first when a
+ * reclaim to that address lands. A partial reclaim is not attributed to any
+ * single top-up until enough cumulative reclaim equals that top-up's amount.
+ */
+export type PoolTopUpWithStatus = PoolTopUp & {
+  refunded: boolean
+  /** Tx hash of the reclaim that covered this top-up (undefined if not refunded). */
+  refundTxHash?: `0x${string}`
+}
+
 /**
  * Replays `PoolFunded` events for a proxy and returns the list newest-first.
  * Timestamps are fetched in a best-effort second pass (one getBlock per unique
@@ -237,6 +265,171 @@ export function usePoolTopUps(proxy: Address | undefined): {
     error,
     refetch: () => setRefreshKey((k) => k + 1),
   }
+}
+
+/**
+ * Replays `PoolReclaimed` events for a proxy. Same shape as usePoolTopUps but
+ * for admin-side refunds.
+ */
+export function usePoolReclaims(proxy: Address | undefined): {
+  reclaims: PoolReclaim[]
+  isLoading: boolean
+  error: Error | null
+  refetch: () => void
+} {
+  const publicClient = usePublicClient()
+  const { data: currentBlock } = useBlockNumber({ watch: true })
+  const [reclaims, setReclaims] = useState<PoolReclaim[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    if (!publicClient || !proxy || !currentBlock) return
+    let cancelled = false
+    setIsLoading(true)
+    setError(null)
+    publicClient
+      .getLogs({
+        address: proxy,
+        event: {
+          type: 'event',
+          name: 'PoolReclaimed',
+          inputs: [
+            { type: 'uint256', name: 'amount', indexed: false },
+            { type: 'address', name: 'to', indexed: true },
+            { type: 'address', name: 'by', indexed: true },
+          ],
+        },
+        fromBlock: 0n,
+        toBlock: currentBlock,
+      })
+      .then((logs) => {
+        if (cancelled) return
+        const entries: PoolReclaim[] = logs.map((log) => {
+          const args = (log as any).args as {
+            amount: bigint
+            to: Address
+            by: Address
+          }
+          return {
+            to: args.to,
+            amount: args.amount,
+            by: args.by,
+            blockNumber: log.blockNumber!,
+            txHash: log.transactionHash!,
+            logIndex: log.logIndex ?? 0,
+          }
+        })
+        setReclaims(entries)
+        setIsLoading(false)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setError(e as Error)
+        setIsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [publicClient, proxy, currentBlock ? Number(currentBlock) : 0, refreshKey])
+
+  return {
+    reclaims,
+    isLoading,
+    error,
+    refetch: () => setRefreshKey((k) => k + 1),
+  }
+}
+
+/**
+ * FIFO-match reclaims against top-ups per funder to decide which top-ups
+ * are fully covered (= "refunded"). Per funder:
+ *   - accumulate reclaim amounts to that address (in chronological order)
+ *   - mark top-ups from that funder as refunded oldest-first, each consuming
+ *     its full amount from the accumulator
+ * Partial reclaims that don't cover a full top-up leave it un-refunded (no
+ * partial badge). If a reclaim sends more than the sum of that funder's
+ * top-ups, the excess is ignored for attribution purposes.
+ *
+ * Returned list preserves the input order (typically newest-first).
+ */
+export function matchRefunds(
+  topUps: PoolTopUp[],
+  reclaims: PoolReclaim[],
+): PoolTopUpWithStatus[] {
+  // 1. Sum reclaims per funder AND remember them oldest-first so we can attribute
+  //    FIFO — paired later with top-ups sorted oldest-first.
+  const reclaimsByFunder = new Map<string, PoolReclaim[]>()
+  const sortedReclaims = [...reclaims].sort((a, b) => {
+    const bn = Number(a.blockNumber - b.blockNumber)
+    return bn !== 0 ? bn : a.logIndex - b.logIndex
+  })
+  for (const r of sortedReclaims) {
+    const key = r.to.toLowerCase()
+    const arr = reclaimsByFunder.get(key) ?? []
+    arr.push(r)
+    reclaimsByFunder.set(key, arr)
+  }
+
+  // 2. Group top-ups by funder, sorted oldest-first for FIFO attribution.
+  const topUpsByFunder = new Map<string, PoolTopUp[]>()
+  for (const t of topUps) {
+    const key = t.funder.toLowerCase()
+    const arr = topUpsByFunder.get(key) ?? []
+    arr.push(t)
+    topUpsByFunder.set(key, arr)
+  }
+  for (const arr of topUpsByFunder.values()) {
+    arr.sort((a, b) => {
+      const bn = Number(a.blockNumber - b.blockNumber)
+      return bn !== 0 ? bn : a.logIndex - b.logIndex
+    })
+  }
+
+  // 3. Walk each funder's top-ups oldest-first, consuming reclaim balance.
+  const refundedTxByTopUp = new Map<string, `0x${string}`>() // key = `${blockNumber}-${logIndex}`
+  for (const [funderKey, funderTopUps] of topUpsByFunder.entries()) {
+    const funderReclaims = reclaimsByFunder.get(funderKey) ?? []
+    // Flatten reclaim pool as a queue of (amount remaining, txHash) chunks.
+    const reclaimQueue = funderReclaims.map((r) => ({
+      remaining: r.amount,
+      txHash: r.txHash,
+    }))
+    for (const t of funderTopUps) {
+      let need = t.amount
+      let coveringTx: `0x${string}` | undefined
+      while (need > 0n && reclaimQueue.length > 0) {
+        const chunk = reclaimQueue[0]
+        if (chunk.remaining >= need) {
+          chunk.remaining -= need
+          need = 0n
+          coveringTx = chunk.txHash
+          if (chunk.remaining === 0n) reclaimQueue.shift()
+        } else {
+          // Chunk exhausted without fully covering — drop it and try the next.
+          need -= chunk.remaining
+          reclaimQueue.shift()
+        }
+      }
+      if (need === 0n && coveringTx !== undefined) {
+        const k = `${t.blockNumber}-${t.logIndex}`
+        refundedTxByTopUp.set(k, coveringTx)
+      }
+    }
+  }
+
+  // 4. Produce the final list in the same order as the input (newest-first
+  //    from usePoolTopUps).
+  return topUps.map((t) => {
+    const k = `${t.blockNumber}-${t.logIndex}`
+    const refundTxHash = refundedTxByTopUp.get(k)
+    return {
+      ...t,
+      refunded: refundTxHash !== undefined,
+      refundTxHash,
+    }
+  })
 }
 
 // ============ Claim status + sponsored metrics ============

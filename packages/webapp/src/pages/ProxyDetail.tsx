@@ -23,7 +23,7 @@ import { FeeTab } from '../components/FeeTab'
 import { MetricsTab } from '../components/MetricsTab'
 import { OverviewTab } from '../components/OverviewTab'
 import { SponsoringTab } from '../components/SponsoringTab'
-import { TopUpsTab } from '../components/TopUpsTab'
+import { HistoryTab } from '../components/HistoryTab'
 import { Tabs } from '../components/Tabs'
 import { ViewerBanner } from '../components/ViewerBanner'
 import { useProxyRoles } from '../hooks/useProxyRoles'
@@ -186,8 +186,8 @@ function ProxyDetail({ proxy }: { proxy: Address }) {
         <SponsoringTab proxy={proxy} isAdmin={isFeeAdmin} />
       )}
 
-      {tab === 'topups' && channel === 'sponsored' && (
-        <TopUpsTab proxy={proxy} isAdmin={isFeeAdmin} />
+      {tab === 'history' && channel === 'sponsored' && (
+        <HistoryTab proxy={proxy} isAdmin={isFeeAdmin} />
       )}
     </div>
   )
