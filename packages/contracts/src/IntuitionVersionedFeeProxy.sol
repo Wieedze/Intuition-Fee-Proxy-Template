@@ -289,6 +289,15 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
 
     // ============ Fallback (ERC-7936 default routing) ============
 
+    /// @notice Explicit rejection of bare ETH transfers (no calldata). All
+    ///         legitimate fee flows carry calldata and hit the fallback
+    ///         below. This `receive()` reverts before any delegatecall
+    ///         happens — cheaper and louder than letting the fallback
+    ///         route an empty call into the impl that would revert anyway.
+    receive() external payable {
+        revert Errors.VersionedFeeProxy_DirectTransferNotAllowed();
+    }
+
     fallback() external payable {
         address impl = _layout().implementations[_layout().defaultVersion];
         // Defensive guard: in EVM a delegatecall to address(0) succeeds with

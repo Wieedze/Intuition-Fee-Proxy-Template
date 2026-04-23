@@ -101,6 +101,11 @@ library Errors {
     ///         layout would silently corrupt state at `setDefaultVersion`.
     error VersionedFeeProxy_StorageLayoutMismatch();
 
+    /// @notice Direct ETH transfer (no calldata) to the versioned proxy.
+    ///         All legitimate fee flows come with calldata (createAtoms /
+    ///         deposit / …). A bare transfer is always a mis-send.
+    error VersionedFeeProxy_DirectTransferNotAllowed();
+
     // ============ Sponsored-proxy errors ============
 
     /// @notice Admin tried to credit / uncredit zero amount
