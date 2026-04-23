@@ -45,10 +45,7 @@ export function ReclaimFromPoolPanel({ proxy, poolBalance, onDone }: Props) {
         <h3 className="font-semibold mt-1">Reclaim from pool</h3>
         <p className="text-xs text-subtle mt-1 leading-relaxed">
           Withdraw TRUST you previously funded but that users haven&apos;t
-          spent yet. Use when scaling sponsorship down, rotating capital to
-          a different treasury, or shutting the program down entirely.
-          Can&apos;t touch accumulated fees or user shares — only the pool
-          balance, and never more than what&apos;s currently there.
+          spent yet.
         </p>
       </div>
 

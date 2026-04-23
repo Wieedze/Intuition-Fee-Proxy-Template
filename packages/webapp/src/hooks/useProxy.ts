@@ -262,6 +262,128 @@ export function useWithdraw(proxy: Address | undefined) {
   return { withdraw, withdrawAll, hash: data, isPending, error, reset }
 }
 
+// ============ Fee withdrawals log ============
+
+export type FeeWithdrawal = {
+  /** Recipient (from the event's `to` arg). */
+  to: Address
+  /** Amount withdrawn (wei). */
+  amount: bigint
+  /** Admin who triggered the withdraw (from the event's `by` arg). */
+  by: Address
+  /** Block number the tx landed in. */
+  blockNumber: bigint
+  /** Unix seconds (best-effort fetch, may be undefined). */
+  timestamp: number | undefined
+  /** Tx hash for explorer link. */
+  txHash: `0x${string}`
+  /** Log index in block. */
+  logIndex: number
+}
+
+/**
+ * Replays `FeesWithdrawn(to, amount, by)` events for a proxy. Public audit
+ * trail of every admin-triggered withdraw. Applies to both channels —
+ * sponsored proxies' accumulatedFees should always be 0 under B1 so the
+ * list is typically empty, but if any accrued historically the events
+ * still surface here.
+ */
+export function useFeeWithdrawals(proxy: Address | undefined): {
+  withdrawals: FeeWithdrawal[]
+  isLoading: boolean
+  error: Error | null
+  refetch: () => void
+} {
+  const publicClient = usePublicClient()
+  const { data: currentBlock } = useBlockNumber({ watch: true })
+  const [withdrawals, setWithdrawals] = useState<FeeWithdrawal[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    if (!publicClient || !proxy || !currentBlock) return
+    let cancelled = false
+    setIsLoading(true)
+    setError(null)
+    publicClient
+      .getLogs({
+        address: proxy,
+        event: {
+          type: 'event',
+          name: 'FeesWithdrawn',
+          inputs: [
+            { type: 'address', name: 'to', indexed: true },
+            { type: 'uint256', name: 'amount', indexed: false },
+            { type: 'address', name: 'by', indexed: true },
+          ],
+        },
+        fromBlock: 0n,
+        toBlock: currentBlock,
+      })
+      .then(async (logs) => {
+        if (cancelled) return
+        if (logs.length === 0) {
+          setWithdrawals([])
+          setIsLoading(false)
+          return
+        }
+        const uniqueBlocks = Array.from(new Set(logs.map((l) => l.blockNumber!)))
+        const blockMap = new Map<bigint, number>()
+        await Promise.all(
+          uniqueBlocks.map((bn) =>
+            publicClient
+              .getBlock({ blockNumber: bn })
+              .then((b) => blockMap.set(bn, Number(b.timestamp)))
+              .catch(() => {
+                /* leave undefined */
+              }),
+          ),
+        )
+        if (cancelled) return
+
+        const entries: FeeWithdrawal[] = logs.map((log) => {
+          const args = (log as any).args as {
+            to: Address
+            amount: bigint
+            by: Address
+          }
+          return {
+            to: args.to,
+            amount: args.amount,
+            by: args.by,
+            blockNumber: log.blockNumber!,
+            timestamp: blockMap.get(log.blockNumber!),
+            txHash: log.transactionHash!,
+            logIndex: log.logIndex ?? 0,
+          }
+        })
+        entries.sort((a, b) => {
+          if (a.blockNumber !== b.blockNumber)
+            return Number(b.blockNumber - a.blockNumber)
+          return b.logIndex - a.logIndex
+        })
+        setWithdrawals(entries)
+        setIsLoading(false)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setError(e as Error)
+        setIsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [publicClient, proxy, currentBlock ? Number(currentBlock) : 0, refreshKey])
+
+  return {
+    withdrawals,
+    isLoading,
+    error,
+    refetch: () => setRefreshKey((k) => k + 1),
+  }
+}
+
 export function useSetFees(proxy: Address | undefined) {
   const { writeContractAsync, data, isPending, error, reset } = useWriteContract()
 

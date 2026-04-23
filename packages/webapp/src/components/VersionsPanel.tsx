@@ -219,9 +219,25 @@ export function VersionsPanel({
             href="https://eips.ethereum.org/EIPS/eip-7936"
             target="_blank"
             rel="noopener noreferrer"
-            className="hover:text-brand underline decoration-line decoration-from-font hover:decoration-brand"
+            className="inline-flex items-center gap-0.5 text-brand underline decoration-brand/60 decoration-from-font hover:decoration-brand"
           >
             ERC-7936
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              aria-hidden="true"
+              className="-translate-y-px"
+            >
+              <path
+                d="M7 17L17 7M17 7H9M17 7v8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
           </a>
           )
         </h2>

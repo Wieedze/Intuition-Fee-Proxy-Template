@@ -17,11 +17,9 @@ export function Tabs({ active, onChange, isSponsored, isViewer }: Props) {
         { id: 'overview', label: 'Overview' },
         { id: 'fee', label: 'Fee' },
         ...(isSponsored
-          ? [
-              { id: 'sponsoring' as TabId, label: 'Sponsoring' },
-              { id: 'history' as TabId, label: 'History' },
-            ]
+          ? [{ id: 'sponsoring' as TabId, label: 'Sponsoring' }]
           : []),
+        { id: 'history' as TabId, label: 'History' },
         { id: 'metrics', label: 'Metrics' },
         { id: 'admins', label: 'Admins' },
       ]

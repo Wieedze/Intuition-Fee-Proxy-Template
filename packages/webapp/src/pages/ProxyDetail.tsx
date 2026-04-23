@@ -186,8 +186,8 @@ function ProxyDetail({ proxy }: { proxy: Address }) {
         <SponsoringTab proxy={proxy} isAdmin={isFeeAdmin} />
       )}
 
-      {tab === 'history' && channel === 'sponsored' && (
-        <HistoryTab proxy={proxy} isAdmin={isFeeAdmin} />
+      {tab === 'history' && (
+        <HistoryTab proxy={proxy} isAdmin={isFeeAdmin} channel={channel} />
       )}
     </div>
   )

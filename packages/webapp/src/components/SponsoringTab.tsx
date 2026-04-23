@@ -55,9 +55,11 @@ export function SponsoringTab({ proxy, isAdmin }: Props) {
         />
       </section>
 
+      {/* Permissionless — anyone can contribute to the pool. */}
+      <FundPoolPanel proxy={proxy} onDone={onWriteDone} />
+
       {isAdmin ? (
         <>
-          <FundPoolPanel proxy={proxy} onDone={onWriteDone} />
           <ReclaimFromPoolPanel
             proxy={proxy}
             poolBalance={poolBalance}
@@ -67,8 +69,8 @@ export function SponsoringTab({ proxy, isAdmin }: Props) {
         </>
       ) : (
         <p className="text-sm text-subtle border-l-2 border-line pl-3">
-          Connect as a whitelisted admin to fund the pool, reclaim, or change
-          claim limits.
+          Reclaiming pool balance and tuning claim limits is restricted to
+          whitelisted admins of this proxy.
         </p>
       )}
     </section>

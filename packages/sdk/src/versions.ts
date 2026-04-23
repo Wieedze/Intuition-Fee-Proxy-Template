@@ -76,14 +76,14 @@ export const CANONICAL_VERSIONS: Record<NetworkName, CanonicalRegistry> = {
       },
       'v2.1.0': {
         label: 'v2.1.0',
-        impl: '0xC65e0e84d44269fA6286BeC88C9E22CE09fab204',
+        impl: '0xF3d9baB3a5ab38Ad7F560aD781C3529d5693D1F3',
         family: 'standard',
         review: { url: 'https://github.com/Wieedze/Intuition-Proxy-Factory', date: '2026-04-21' },
         summary: 'Emits VersionUsed(version, user) on every write-path call so indexers can attribute activity to the active impl.',
       },
       'v2.1.0-sponsored': {
         label: 'v2.1.0-sponsored',
-        impl: '0x435979B23F561db76eAc6eb54f524e3B0fAF91fA',
+        impl: '0xc37d6725E5972c8bCd7eB33E8F26F5a80298a3C5',
         family: 'sponsored',
         review: { url: 'https://github.com/Wieedze/Intuition-Proxy-Factory', date: '2026-04-21' },
         summary: 'Sponsored sibling of v2.1.0 — same VersionUsed marker, version() now returns "v2.1.0-sponsored".',

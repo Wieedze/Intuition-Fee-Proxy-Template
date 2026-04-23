@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { formatEther, parseEther, type Address } from 'viem'
 import { useChainId, useWaitForTransactionReceipt } from 'wagmi'
 
+import { useFeeWithdrawals } from '../hooks/useProxy'
 import {
   matchRefunds,
   usePoolReclaims,
@@ -15,71 +16,131 @@ import { formatAbsoluteDate } from '../lib/format'
 interface Props {
   proxy: Address
   isAdmin: boolean
+  channel: 'standard' | 'sponsored' | 'unknown'
 }
 
+type TopUpRow = {
+  kind: 'topup'
+  blockNumber: bigint
+  logIndex: number
+  timestamp: number | undefined
+  txHash: `0x${string}`
+  funder: Address
+  amount: bigint
+  refunded: boolean
+  refundTxHash: `0x${string}` | undefined
+}
+
+type WithdrawalRow = {
+  kind: 'withdrawal'
+  blockNumber: bigint
+  logIndex: number
+  timestamp: number | undefined
+  txHash: `0x${string}`
+  to: Address
+  amount: bigint
+  by: Address
+}
+
+type HistoryRow = TopUpRow | WithdrawalRow
+
 /**
- * Permissionless pool "History" log:
- *   - ANY visitor sees the full list of PoolFunded events (funder + amount + date).
- *   - Admins see a per-row Refund button that pre-fills reclaimFromPool with
- *     the event's amount + funder address (both editable before confirming).
- *   - Refunded rows carry a "Refunded" badge, FIFO-matched against
- *     PoolReclaimed events per funder.
+ * Unified proxy history — chronological feed of meaningful public events.
+ * Currently surfaces three event types:
+ *   - PoolFunded         (sponsored only) "top-up"     — refundable by admins
+ *   - PoolReclaimed      (sponsored only) attached as "refunded" on top-ups
+ *   - FeesWithdrawn      (both channels)  "withdrawal"
  *
- * Pool balance is shown at the top so the admin can tell at-a-glance if a
- * given refund will exceed what's left on-chain.
+ * Visible to everyone. Only whitelisted admins see the Refund button on
+ * top-ups; withdrawals are informational only.
  */
-export function HistoryTab({ proxy, isAdmin }: Props) {
+export function HistoryTab({ proxy, isAdmin, channel }: Props) {
   const chainId = useChainId()
   const explorerRoot = EXPLORER_BY_CHAIN[chainId]
+
+  const isSponsored = channel === 'sponsored'
+
   const {
     topUps,
-    isLoading,
-    error,
+    isLoading: topUpsLoading,
+    error: topUpsError,
     refetch: refetchTopUps,
-  } = usePoolTopUps(proxy)
-  const { reclaims, refetch: refetchReclaims } = usePoolReclaims(proxy)
-  const { balance: poolBalance } = useSponsorPool(proxy)
-
-  // Merge top-ups with their refund status (FIFO-matched against reclaims).
-  const rows = useMemo(
-    () => matchRefunds(topUps, reclaims),
-    [topUps, reclaims],
+  } = usePoolTopUps(isSponsored ? proxy : undefined)
+  const { reclaims, refetch: refetchReclaims } = usePoolReclaims(
+    isSponsored ? proxy : undefined,
+  )
+  const {
+    withdrawals,
+    isLoading: withdrawalsLoading,
+    error: withdrawalsError,
+    refetch: refetchWithdrawals,
+  } = useFeeWithdrawals(proxy)
+  const { balance: poolBalance } = useSponsorPool(
+    isSponsored ? proxy : undefined,
   )
 
-  const refetch = () => {
+  const rows: HistoryRow[] = useMemo(() => {
+    const topUpRows: TopUpRow[] = matchRefunds(topUps, reclaims).map((t) => ({
+      kind: 'topup',
+      blockNumber: t.blockNumber,
+      logIndex: t.logIndex,
+      timestamp: t.timestamp,
+      txHash: t.txHash,
+      funder: t.funder,
+      amount: t.amount,
+      refunded: t.refunded,
+      refundTxHash: t.refundTxHash,
+    }))
+    const withdrawalRows: WithdrawalRow[] = withdrawals.map((w) => ({
+      kind: 'withdrawal',
+      blockNumber: w.blockNumber,
+      logIndex: w.logIndex,
+      timestamp: w.timestamp,
+      txHash: w.txHash,
+      to: w.to,
+      amount: w.amount,
+      by: w.by,
+    }))
+    const merged = [...topUpRows, ...withdrawalRows]
+    merged.sort((a, b) => {
+      if (a.blockNumber !== b.blockNumber)
+        return Number(b.blockNumber - a.blockNumber)
+      return b.logIndex - a.logIndex
+    })
+    return merged
+  }, [topUps, reclaims, withdrawals])
+
+  const isLoading = topUpsLoading || withdrawalsLoading
+  const error = topUpsError ?? withdrawalsError
+
+  const [refundingId, setRefundingId] = useState<string | null>(null)
+
+  const refetchAll = () => {
     refetchTopUps()
     refetchReclaims()
+    refetchWithdrawals()
   }
-
-  // Which row is currently expanded into "refund editor" mode. Only one at a
-  // time — prevents sending two overlapping txs accidentally.
-  const [refundingId, setRefundingId] = useState<string | null>(null)
 
   return (
     <section className="space-y-4">
       <div className="card space-y-2">
-        <h3 className="font-semibold">Pool top-ups</h3>
+        <h3 className="font-semibold">History</h3>
         <p className="text-sm text-subtle leading-relaxed">
-          Anyone can contribute TRUST to this proxy&apos;s sponsor pool by
-          calling{' '}
-          <code className="font-mono text-muted text-xs">fundPool()</code>.
-          Every contribution emits an on-chain{' '}
-          <code className="font-mono text-muted text-xs">PoolFunded</code>{' '}
-          event — the full list below is reconstructed from those logs.
+          Chronological log of every public event on this proxy — pool
+          contributions, refunds, and fee withdrawals. Reconstructed
+          client-side from on-chain events; everyone sees the same data.
+          Admins get a one-click Refund on top-ups (amount + donor
+          pre-filled from the event).
         </p>
-        <p className="text-sm text-subtle leading-relaxed">
-          Contributions are one-way for donors: only whitelisted admins of
-          this proxy can reclaim TRUST from the pool. An admin looking at
-          this page can refund any single top-up in one click — the row
-          below pre-fills the donor&apos;s address, the amount is editable.
-        </p>
-        <div className="text-xs text-muted">
-          Current pool balance:{' '}
-          <span className="font-mono text-ink">
-            {poolBalance !== undefined ? formatEther(poolBalance) : '—'}
-          </span>{' '}
-          TRUST
-        </div>
+        {isSponsored && (
+          <div className="text-xs text-muted">
+            Current pool balance:{' '}
+            <span className="font-mono text-ink">
+              {poolBalance !== undefined ? formatEther(poolBalance) : '—'}
+            </span>{' '}
+            TRUST
+          </div>
+        )}
       </div>
 
       {isLoading && (
@@ -91,7 +152,7 @@ export function HistoryTab({ proxy, isAdmin }: Props) {
       {error && (
         <div className="card">
           <p className="text-xs text-rose-400 font-mono">
-            Error loading top-ups: {error.message}
+            Error loading history: {error.message}
           </p>
         </div>
       )}
@@ -99,9 +160,18 @@ export function HistoryTab({ proxy, isAdmin }: Props) {
       {!isLoading && !error && rows.length === 0 && (
         <div className="card">
           <p className="text-sm text-subtle">
-            No top-ups yet. The first person to call{' '}
-            <code className="font-mono text-muted text-xs">fundPool()</code>{' '}
-            will show up here.
+            No activity yet. As soon as someone{' '}
+            {isSponsored ? (
+              <>
+                funds the pool via{' '}
+                <code className="font-mono text-muted text-xs">fundPool()</code>{' '}
+                or an admin withdraws fees, it will show up here.
+              </>
+            ) : (
+              <>
+                an admin withdraws fees, it will show up here.
+              </>
+            )}
           </p>
         </div>
       )}
@@ -112,7 +182,8 @@ export function HistoryTab({ proxy, isAdmin }: Props) {
             <thead>
               <tr className="text-left text-xs uppercase tracking-wider text-muted border-b border-line">
                 <th className="px-4 py-2.5 font-medium">Date</th>
-                <th className="px-4 py-2.5 font-medium">Funder</th>
+                <th className="px-4 py-2.5 font-medium">Event</th>
+                <th className="px-4 py-2.5 font-medium">Party</th>
                 <th className="px-4 py-2.5 font-medium text-right">Amount</th>
                 <th className="px-4 py-2.5 font-medium text-right">Tx</th>
                 <th className="px-4 py-2.5 font-medium text-right">
@@ -121,29 +192,32 @@ export function HistoryTab({ proxy, isAdmin }: Props) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((t) => {
-                const rowId = `${t.txHash}-${t.logIndex}`
-                const isEditing = refundingId === rowId
+              {rows.map((r) => {
+                const rowId = `${r.txHash}-${r.logIndex}`
+                if (r.kind === 'topup') {
+                  return (
+                    <TopUpRowView
+                      key={rowId}
+                      rowId={rowId}
+                      proxy={proxy}
+                      row={r}
+                      explorerRoot={explorerRoot}
+                      isAdmin={isAdmin}
+                      isEditing={refundingId === rowId}
+                      onStartRefund={() => setRefundingId(rowId)}
+                      onCancelRefund={() => setRefundingId(null)}
+                      onRefundDone={() => {
+                        setRefundingId(null)
+                        refetchAll()
+                      }}
+                    />
+                  )
+                }
                 return (
-                  <TopUpRow
+                  <WithdrawalRowView
                     key={rowId}
-                    rowId={rowId}
-                    proxy={proxy}
-                    funder={t.funder}
-                    amount={t.amount}
-                    timestamp={t.timestamp}
-                    txHash={t.txHash}
+                    row={r}
                     explorerRoot={explorerRoot}
-                    isAdmin={isAdmin}
-                    isEditing={isEditing}
-                    refunded={t.refunded}
-                    refundTxHash={t.refundTxHash}
-                    onStartRefund={() => setRefundingId(rowId)}
-                    onCancelRefund={() => setRefundingId(null)}
-                    onRefundDone={() => {
-                      setRefundingId(null)
-                      refetch()
-                    }}
                   />
                 )
               })}
@@ -155,45 +229,58 @@ export function HistoryTab({ proxy, isAdmin }: Props) {
   )
 }
 
-// ============ Row ============
+// ============ Row renderers ============
 
-interface RowProps {
+function EventBadge({
+  kind,
+}: {
+  kind: 'topup' | 'withdrawal'
+}) {
+  if (kind === 'topup') {
+    return (
+      <span className="inline-flex items-center rounded-full border border-brand/40 bg-brand/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-brand">
+        Top-up
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center rounded-full border border-line-strong bg-canvas px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted">
+      Withdrawal
+    </span>
+  )
+}
+
+function ExplorerIcon() {
+  return <span aria-hidden="true">↗</span>
+}
+
+interface TopUpRowProps {
   rowId: string
   proxy: Address
-  funder: Address
-  amount: bigint
-  timestamp: number | undefined
-  txHash: `0x${string}`
+  row: TopUpRow
   explorerRoot: string | undefined
   isAdmin: boolean
   isEditing: boolean
-  refunded: boolean
-  refundTxHash: `0x${string}` | undefined
   onStartRefund: () => void
   onCancelRefund: () => void
   onRefundDone: () => void
 }
 
-function TopUpRow({
+function TopUpRowView({
   rowId: _rowId,
   proxy,
-  funder,
-  amount,
-  timestamp,
-  txHash,
+  row,
   explorerRoot,
   isAdmin,
   isEditing,
-  refunded,
-  refundTxHash,
   onStartRefund,
   onCancelRefund,
   onRefundDone,
-}: RowProps) {
+}: TopUpRowProps) {
+  const { funder, amount, timestamp, txHash, refunded, refundTxHash } = row
   const { reclaim, hash, isPending, error, reset } = useReclaimFromPool(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
 
-  // Editable amount for the refund (pre-filled with the event amount).
   const [amountInput, setAmountInput] = useState('')
   useMemo(() => {
     if (isEditing) setAmountInput(formatEther(amount))
@@ -213,7 +300,6 @@ function TopUpRow({
     }
   }
 
-  // When the reclaim tx is mined, notify parent and reset local state.
   if (receipt.isSuccess) {
     reset()
     onRefundDone()
@@ -229,6 +315,9 @@ function TopUpRow({
           {dateLabel}
         </td>
         <td className="px-4 py-2.5">
+          <EventBadge kind="topup" />
+        </td>
+        <td className="px-4 py-2.5">
           <div className="inline-flex items-center gap-2">
             <AddressDisplay value={funder} variant="short" />
             {explorerRoot && (
@@ -239,7 +328,7 @@ function TopUpRow({
                 className="text-xs text-subtle hover:text-brand"
                 aria-label="View funder on explorer"
               >
-                ↗
+                <ExplorerIcon />
               </a>
             )}
           </div>
@@ -255,7 +344,7 @@ function TopUpRow({
               rel="noopener noreferrer"
               className="text-xs font-mono text-subtle hover:text-brand"
             >
-              {txShort} ↗
+              {txShort} <ExplorerIcon />
             </a>
           ) : (
             <span className="text-xs font-mono text-muted">{txShort}</span>
@@ -293,7 +382,7 @@ function TopUpRow({
                   aria-label="View refund tx"
                   title="View refund tx"
                 >
-                  ↗
+                  <ExplorerIcon />
                 </a>
               )}
             </span>
@@ -314,7 +403,7 @@ function TopUpRow({
 
       {isEditing && (
         <tr className="border-b border-line/60 last:border-b-0 bg-canvas/40">
-          <td colSpan={5} className="px-4 py-3">
+          <td colSpan={6} className="px-4 py-3">
             <div className="flex flex-wrap items-end gap-3">
               <label className="block space-y-1">
                 <div className="text-xs text-muted">Refund amount (TRUST)</div>
@@ -370,8 +459,67 @@ function TopUpRow({
   )
 }
 
-// Mirrors the map in Layout.tsx. Kept local here so this component stays a
-// self-contained drop-in; if the map grows, promote it to lib/config.
+interface WithdrawalRowProps {
+  row: WithdrawalRow
+  explorerRoot: string | undefined
+}
+
+function WithdrawalRowView({ row, explorerRoot }: WithdrawalRowProps) {
+  const { to, amount, by, timestamp, txHash } = row
+  const dateLabel = timestamp ? formatAbsoluteDate(timestamp) : '—'
+  const txShort = `${txHash.slice(0, 6)}…${txHash.slice(-4)}`
+
+  return (
+    <tr className="border-b border-line/60 last:border-b-0">
+      <td className="px-4 py-2.5 text-muted whitespace-nowrap">{dateLabel}</td>
+      <td className="px-4 py-2.5">
+        <EventBadge kind="withdrawal" />
+      </td>
+      <td className="px-4 py-2.5">
+        <div className="text-xs text-subtle space-y-0.5">
+          <div className="inline-flex items-center gap-2">
+            <span className="text-muted">to</span>
+            <AddressDisplay value={to} variant="short" />
+            {explorerRoot && (
+              <a
+                href={`${explorerRoot}/address/${to}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-subtle hover:text-brand"
+                aria-label="View recipient on explorer"
+              >
+                <ExplorerIcon />
+              </a>
+            )}
+          </div>
+          <div className="inline-flex items-center gap-2">
+            <span className="text-muted">by admin</span>
+            <AddressDisplay value={by} variant="short" />
+          </div>
+        </div>
+      </td>
+      <td className="px-4 py-2.5 text-right font-mono text-ink">
+        {formatEther(amount)} TRUST
+      </td>
+      <td className="px-4 py-2.5 text-right">
+        {explorerRoot ? (
+          <a
+            href={`${explorerRoot}/tx/${txHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-mono text-subtle hover:text-brand"
+          >
+            {txShort} <ExplorerIcon />
+          </a>
+        ) : (
+          <span className="text-xs font-mono text-muted">{txShort}</span>
+        )}
+      </td>
+      <td className="px-4 py-2.5 text-right" />
+    </tr>
+  )
+}
+
 const EXPLORER_BY_CHAIN: Record<number, string> = {
   1155: 'https://explorer.intuition.systems',
   13579: 'https://testnet.explorer.intuition.systems',

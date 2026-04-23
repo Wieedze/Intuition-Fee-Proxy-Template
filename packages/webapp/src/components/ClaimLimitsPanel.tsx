@@ -273,7 +273,7 @@ export function ClaimLimitsPanel({ proxy, current, onDone }: Props) {
       {/* ── Live policy recap ──────────────────────────── */}
       <div className="rounded-md border border-brand/30 bg-brand/5 p-4">
         <div className="text-xs font-semibold uppercase tracking-wider text-brand mb-1.5">
-          📌 Current policy
+          Current policy
         </div>
         <p className="text-sm text-ink leading-relaxed">
           With these settings, each user can pull up to{' '}
