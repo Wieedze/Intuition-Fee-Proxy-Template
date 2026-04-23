@@ -18,6 +18,11 @@ import {Errors} from "./libraries/Errors.sol";
 ///    carry calldata, so a bare transfer would only be a mis-send.
 ///  - Admin gating is a single `proxyAdmin` address; users should point it at a
 ///    multisig. Transferable via `transferProxyAdmin`.
+///  - ⚠️ **`name` is admin-controlled metadata, NOT a trust anchor.** The
+///    proxy-admin can rename the proxy at any time — including to mimic a
+///    known brand. Consumers MUST derive identity / "official" status from
+///    the proxy address itself (e.g. the Factory's `isProxyFromFactory`
+///    mapping), never from `getName()`.
 contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
     /// @notice EIP-1967 convention — emitted whenever the default impl
     ///         changes, so explorer tooling can pick up the update.

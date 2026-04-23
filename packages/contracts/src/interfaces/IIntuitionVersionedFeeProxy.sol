@@ -37,6 +37,12 @@ interface IIntuitionVersionedFeeProxy {
     function acceptProxyAdmin() external;
 
     /// @notice Set or rename the proxy's human-readable label. Pass bytes32(0) to clear.
+    /// @dev    ⚠️ **The name is NOT a trust anchor.** The proxy-admin can
+    ///         rename the proxy at any time — including to mimic a known
+    ///         brand. Frontends MUST NOT use `name` to derive an "official"
+    ///         / "verified" badge. Use the Factory's `isProxyFromFactory`
+    ///         mapping or the proxy address itself (allowlist) as the
+    ///         authoritative identity.
     function setName(bytes32 newName) external;
 
     // ============ Views ============
@@ -46,6 +52,9 @@ interface IIntuitionVersionedFeeProxy {
     function getVersions() external view returns (bytes32[] memory);
     function proxyAdmin() external view returns (address);
     function pendingProxyAdmin() external view returns (address);
+    /// @notice Returns the proxy's current human-readable label.
+    /// @dev    ⚠️ See the warning on `setName` — a name is admin-controlled
+    ///         metadata, never a source of trust.
     function getName() external view returns (bytes32);
 
     // ============ ERC-7936 execute-at-version ============
