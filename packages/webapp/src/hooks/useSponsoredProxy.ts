@@ -120,6 +120,125 @@ export function useReclaimFromPool(proxy: Address | undefined) {
   return { reclaim, hash: data, isPending, error, reset }
 }
 
+// ============ Pool top-ups log ============
+
+export type PoolTopUp = {
+  /** Address that funded the pool (from the event's `by` arg). */
+  funder: Address
+  /** Amount in wei. */
+  amount: bigint
+  /** Block number the tx landed in. */
+  blockNumber: bigint
+  /** Unix seconds (filled in best-effort from the block — may be undefined if unresolved). */
+  timestamp: number | undefined
+  /** Tx hash, for explorer links. */
+  txHash: `0x${string}`
+  /** Log index within the block — tie-breaker for stable sort. */
+  logIndex: number
+}
+
+/**
+ * Replays `PoolFunded` events for a proxy and returns the list newest-first.
+ * Timestamps are fetched in a best-effort second pass (one getBlock per unique
+ * block). Large pools may want to paginate — here we read fromBlock = 0n for
+ * simplicity, matching the size targets of a single sponsored proxy.
+ */
+export function usePoolTopUps(proxy: Address | undefined): {
+  topUps: PoolTopUp[]
+  isLoading: boolean
+  error: Error | null
+  refetch: () => void
+} {
+  const publicClient = usePublicClient()
+  const { data: currentBlock } = useBlockNumber({ watch: true })
+  const [topUps, setTopUps] = useState<PoolTopUp[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<Error | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  useEffect(() => {
+    if (!publicClient || !proxy || !currentBlock) return
+    let cancelled = false
+    setIsLoading(true)
+    setError(null)
+
+    publicClient
+      .getLogs({
+        address: proxy,
+        event: {
+          type: 'event',
+          name: 'PoolFunded',
+          inputs: [
+            { type: 'uint256', name: 'amount', indexed: false },
+            { type: 'address', name: 'by', indexed: true },
+          ],
+        },
+        fromBlock: 0n,
+        toBlock: currentBlock,
+      })
+      .then(async (logs) => {
+        if (cancelled) return
+        if (logs.length === 0) {
+          setTopUps([])
+          setIsLoading(false)
+          return
+        }
+
+        // Deduplicate unique block numbers to minimize getBlock calls.
+        const uniqueBlocks = Array.from(new Set(logs.map((l) => l.blockNumber!)))
+        const blockMap = new Map<bigint, number>()
+        await Promise.all(
+          uniqueBlocks.map((bn) =>
+            publicClient
+              .getBlock({ blockNumber: bn })
+              .then((b) => blockMap.set(bn, Number(b.timestamp)))
+              .catch(() => {
+                /* leave undefined */
+              }),
+          ),
+        )
+        if (cancelled) return
+
+        const entries: PoolTopUp[] = logs.map((log) => {
+          const args = (log as any).args as { amount: bigint; by: Address }
+          return {
+            funder: args.by,
+            amount: args.amount,
+            blockNumber: log.blockNumber!,
+            timestamp: blockMap.get(log.blockNumber!),
+            txHash: log.transactionHash!,
+            logIndex: log.logIndex ?? 0,
+          }
+        })
+
+        // Newest-first.
+        entries.sort((a, b) => {
+          if (a.blockNumber !== b.blockNumber)
+            return Number(b.blockNumber - a.blockNumber)
+          return b.logIndex - a.logIndex
+        })
+
+        setTopUps(entries)
+        setIsLoading(false)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        setError(e as Error)
+        setIsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [publicClient, proxy, currentBlock ? Number(currentBlock) : 0, refreshKey])
+
+  return {
+    topUps,
+    isLoading,
+    error,
+    refetch: () => setRefreshKey((k) => k + 1),
+  }
+}
+
 // ============ Claim status + sponsored metrics ============
 
 export type ClaimStatus = {
