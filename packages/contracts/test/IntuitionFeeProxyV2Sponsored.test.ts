@@ -587,12 +587,14 @@ describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("1") });
       const termId = ethers.encodeBytes32String("t");
       const assets = ethers.parseEther("0.5");
+      const fee = DEPOSIT_FEE + (assets * DEPOSIT_PCT) / FEE_DENOMINATOR;
       const tx = await proxy.connect(user1).depositSponsored(termId, 1n, 0n, assets, { value: 0 });
       const block = await ethers.provider.getBlock((await tx.wait())!.blockNumber);
 
       const [count, volume, resetsAt] = await proxy.getClaimStatus(user1.address);
       expect(count).to.equal(1n);
-      expect(volume).to.equal(assets);
+      // volume reflects the full pool drain (assets + fee), matching CreditConsumed.
+      expect(volume).to.equal(assets + fee);
       expect(resetsAt).to.equal(BigInt(block!.timestamp) + BigInt(ONE_DAY));
     });
   });
@@ -600,26 +602,32 @@ describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
   // ============ createAtoms / createTriples / depositBatch (full-sponsorship) ============
 
   describe("createAtoms full-sponsorship", function () {
-    it("pool pays atomCost * count + totalDeposit, msg.value refunded", async function () {
-      const { proxy, mv, admin1, user1 } = await loadFixture(deployFixture);
-      // Raise cap so a 2-atom batch fits
+    it("pool pays atomCost*count + totalDeposit + fee, msg.value refunded", async function () {
+      const { proxy, admin1, user1, mv } = await loadFixture(deployFixture);
       await proxy
         .connect(admin1)
         .setClaimLimits(ethers.parseEther("5"), 10n, ethers.parseEther("10"), BigInt(ONE_DAY));
       await proxy.connect(admin1).fundPool({ value: ethers.parseEther("5") });
 
       const atomCost = await mv.atomCost();
-      const data: string[] = [ethers.hexlify(ethers.toUtf8Bytes("atom1")), ethers.hexlify(ethers.toUtf8Bytes("atom2"))];
+      const data: string[] = [
+        ethers.hexlify(ethers.toUtf8Bytes("atom1")),
+        ethers.hexlify(ethers.toUtf8Bytes("atom2")),
+      ];
       const assets = [ethers.parseEther("0.1"), ethers.parseEther("0.2")];
       const totalDeposit = assets[0] + assets[1];
-      const totalRequired = atomCost * 2n + totalDeposit;
+      const nonZero = 2n; // both > 0
+      const fee =
+        DEPOSIT_FEE * nonZero + (totalDeposit * DEPOSIT_PCT) / FEE_DENOMINATOR;
+      const multiVaultCost = atomCost * 2n + totalDeposit;
+      const totalRequired = multiVaultCost + fee;
 
       const poolBefore = await proxy.sponsorPool();
       await proxy.connect(user1).createAtoms(data, assets, 1n, { value: 0 });
       const poolAfter = await proxy.sponsorPool();
 
       expect(poolBefore - poolAfter).to.equal(totalRequired);
-      expect(await proxy.accumulatedFees()).to.equal(0n);
+      expect(await proxy.accumulatedFees()).to.equal(fee);
     });
 
     it("reverts when totalRequired > maxClaimPerTx", async function () {
@@ -634,7 +642,7 @@ describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
   });
 
   describe("depositBatch full-sponsorship", function () {
-    it("pool pays totalDeposit, msg.value refunded, no fee", async function () {
+    it("pool pays totalDeposit + fee, msg.value refunded, admin can withdraw fees", async function () {
       const { proxy, admin1, user1 } = await loadFixture(deployFixture);
       await proxy
         .connect(admin1)
@@ -646,13 +654,17 @@ describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
       const assets = [ethers.parseEther("0.3"), ethers.parseEther("0.4")];
       const minShares = [0n, 0n];
       const totalDeposit = assets[0] + assets[1];
+      const depositCount = BigInt(termIds.length);
+      const fee =
+        DEPOSIT_FEE * depositCount + (totalDeposit * DEPOSIT_PCT) / FEE_DENOMINATOR;
+      const totalRequired = totalDeposit + fee;
 
       const poolBefore = await proxy.sponsorPool();
       await proxy.connect(user1).depositBatch(termIds, curveIds, assets, minShares, { value: 0 });
       const poolAfter = await proxy.sponsorPool();
 
-      expect(poolBefore - poolAfter).to.equal(totalDeposit);
-      expect(await proxy.accumulatedFees()).to.equal(0n);
+      expect(poolBefore - poolAfter).to.equal(totalRequired);
+      expect(await proxy.accumulatedFees()).to.equal(fee);
     });
   });
 });
