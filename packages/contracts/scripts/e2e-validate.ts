@@ -13,11 +13,13 @@
  *   ⑦ Non-admin withdraw attempt → expect revert
  *   ⑧ withdraw(amount > accumulatedFees) → expect revert
  *   ⑨ Fee cap boundary: 1000 bps OK, 1001 bps revert (M-01)
- *   ⑩ Register v2.1.0 + setDefaultVersion
- *   ⑪ executeAtVersion pinning back to v2.0.0
- *   ⑫ Admin whitelist ops (add / revoke, last-admin guard)
- *   ⑬ Final withdrawAll
- *   ⑭ Cumulative assertions on metrics
+ *   ⑩ Register real v2.1.0 + setDefaultVersion → next call emits VersionUsed
+ *   ⑪ Cross-family registerVersion (sponsored impl) → StorageLayoutMismatch
+ *   ⑫ executeAtVersion pinning back to v2.0.0 (no VersionUsed event under v2)
+ *   ⑬ Admin whitelist ops (add / revoke, last-admin guard)
+ *   ⑭ 2-step proxyAdmin transfer (transfer → accept, pending guards)
+ *   ⑮ Final withdrawAll
+ *   ⑯ Cumulative assertions on metrics
  *
  * Usage (hardhat node must be up on :8545 and Factory deployed):
  *   bun contracts:e2e:local
@@ -30,6 +32,7 @@ import * as path from "node:path";
 
 import { multiVaultFor } from "./multiVaultAddresses";
 import { assert, assertEq, expectRevertWithName } from "./assertionHelpers";
+import { ensureSigners } from "./ensureSigners";
 
 const VERSION_V2 = ethers.encodeBytes32String("v2.0.0");
 const VERSION_V21 = ethers.encodeBytes32String("v2.1.0");
@@ -45,7 +48,7 @@ function fmt(v: bigint): string {
 
 async function main() {
   const [deployer, userA, userB, userC, feeRecipient, nonAdmin] =
-    await ethers.getSigners();
+    await ensureSigners(6);
   const { chainId } = await ethers.provider.getNetwork();
   const multiVault = multiVaultFor(chainId);
 
@@ -315,14 +318,16 @@ async function main() {
   console.log("   ✓ cap enforced at 1000 bps");
 
   // ════════════════════════════════════════════════════════════════════
-  // ⑩ Register v2.1.0 (V3Mock) + setDefault
+  // ⑩ Register real IntuitionFeeProxyV2_1 as v2.1.0 + setDefault.
+  //    The real impl emits `VersionUsed(v2.1.0, user)` on every write path
+  //    — used immediately after in ⑩b to prove routing.
   // ════════════════════════════════════════════════════════════════════
-  console.log("\n⑩ Deploy V3Mock and register as v2.1.0 …");
-  const V3MockFactory = await ethers.getContractFactory("IntuitionFeeProxyV3Mock");
-  const v3Impl = await V3MockFactory.deploy();
-  await v3Impl.waitForDeployment();
-  const v3Addr = await v3Impl.getAddress();
-  await (await versioned.connect(deployer).registerVersion(VERSION_V21, v3Addr)).wait();
+  console.log("\n⑩ Deploy IntuitionFeeProxyV2_1 and register as v2.1.0 …");
+  const V21Factory = await ethers.getContractFactory("IntuitionFeeProxyV2_1");
+  const v21Impl = await V21Factory.deploy();
+  await v21Impl.waitForDeployment();
+  const v21Addr = await v21Impl.getAddress();
+  await (await versioned.connect(deployer).registerVersion(VERSION_V21, v21Addr)).wait();
   await (await versioned.connect(deployer).setDefaultVersion(VERSION_V21)).wait();
   const registeredVersions = (await versioned.getVersions()).map(
     ethers.decodeBytes32String,
@@ -335,8 +340,46 @@ async function main() {
   );
   console.log(`   ✓ versions: ${registeredVersions.join(", ")} · default: v2.1.0`);
 
+  // ── ⑩b VersionUsed event — next fallback call runs under v2.1.0 ──────
+  console.log("\n⑩b userA deposit via fallback → expect VersionUsed(v2.1.0, userA) …");
+  const vuTx = await proxy
+    .connect(userA)
+    .deposit(atomIds[0], 1n, 0n, { value: ethers.parseEther("0.3") });
+  const vuRc = await vuTx.wait();
+  const versionUsedTopic = ethers.id("VersionUsed(bytes32,address)");
+  const vuLog = vuRc!.logs.find(
+    (l: any) =>
+      l.topics[0]?.toLowerCase() === versionUsedTopic.toLowerCase() &&
+      l.address.toLowerCase() === proxyAddr.toLowerCase(),
+  );
+  assert(Boolean(vuLog), "VersionUsed event emitted when default = v2.1.0");
+  const emittedV = ethers.decodeBytes32String(vuLog!.topics[1]);
+  const emittedU = "0x" + vuLog!.topics[2].slice(26);
+  assertEq(emittedV, "v2.1.0", "VersionUsed.version = v2.1.0");
+  assertEq(
+    emittedU.toLowerCase(),
+    userA.address.toLowerCase(),
+    "VersionUsed.user = userA (msg.sender)",
+  );
+  console.log("   ✓ VersionUsed(v2.1.0, userA) emitted — v2.1 routed via fallback");
+
+  // ── ⑩c StorageLayoutMismatch — sponsored impl on a standard proxy ───
+  console.log("\n⑩c Attempt registerVersion(sponsored impl) on standard proxy → mismatch …");
+  const V2SFactory = await ethers.getContractFactory("IntuitionFeeProxyV2Sponsored");
+  const v2sImpl = await V2SFactory.deploy();
+  await v2sImpl.waitForDeployment();
+  const v2sAddr = await v2sImpl.getAddress();
+  const LABEL_BADFAMILY = ethers.encodeBytes32String("v99-badfamily");
+  await expectRevertWithName(
+    () => versioned.connect(deployer).registerVersion(LABEL_BADFAMILY, v2sAddr),
+    "VersionedFeeProxy_StorageLayoutMismatch",
+    "sponsored impl on standard proxy",
+  );
+  console.log("   ✓ cross-family register blocked — STORAGE_COMPAT_ID guard");
+
   // ════════════════════════════════════════════════════════════════════
   // ⑪ executeAtVersion — userA pins back to v2.0.0 for one deposit
+  //    Runs under v2 impl → no VersionUsed event (v2 doesn't emit it).
   // ════════════════════════════════════════════════════════════════════
   console.log("\n⑪ userA executeAtVersion(v2.0.0) deposit 0.3 TRUST …");
   const depositCalldata = proxy.interface.encodeFunctionData("deposit", [
@@ -344,19 +387,24 @@ async function main() {
     1n,
     0n,
   ]);
-  await (
-    await versioned
-      .connect(userA)
-      .executeAtVersion(VERSION_V2, depositCalldata, {
-        value: ethers.parseEther("0.3"),
-      })
-  ).wait();
+  const pinTx = await versioned
+    .connect(userA)
+    .executeAtVersion(VERSION_V2, depositCalldata, {
+      value: ethers.parseEther("0.3"),
+    });
+  const pinRc = await pinTx.wait();
+  const pinVuLog = pinRc!.logs.find(
+    (l: any) =>
+      l.topics[0]?.toLowerCase() === versionUsedTopic.toLowerCase() &&
+      l.address.toLowerCase() === proxyAddr.toLowerCase(),
+  );
+  assert(!pinVuLog, "no VersionUsed event when pinned back to v2.0.0");
   const m11 = await proxy.getMetrics();
   assert(
-    m11.totalDeposits === 8n,
-    `totalDeposits == 8 after ⑪ (got ${m11.totalDeposits})`,
+    m11.totalDeposits === 9n,
+    `totalDeposits == 9 after ⑪ (got ${m11.totalDeposits})`,
   );
-  console.log("   ✓ executeAtVersion increments same metrics (shared storage)");
+  console.log("   ✓ executeAtVersion increments same metrics (shared storage), v2 silent");
 
   // ════════════════════════════════════════════════════════════════════
   // ⑫ Admin whitelist ops — add userA as admin, then revoke deployer
@@ -384,6 +432,50 @@ async function main() {
     "last-admin self-revoke (L-01)",
   );
   console.log("   ✓ adminship rotated + last-admin guard enforced");
+
+  // ════════════════════════════════════════════════════════════════════
+  // ⑫b 2-step proxyAdmin transfer (versioned proxy level).
+  //    deployer is still proxyAdmin here — removing from whitelistedAdmins
+  //    in ⑫ doesn't affect the versioned-proxy admin slot. Transfer it to
+  //    userA (already the sole whitelistedAdmin after ⑫) so one address
+  //    controls both surfaces going forward.
+  // ════════════════════════════════════════════════════════════════════
+  console.log("\n⑫b 2-step proxyAdmin transfer: deployer → userA …");
+  assertEq(
+    (await versioned.proxyAdmin()).toLowerCase(),
+    deployer.address.toLowerCase(),
+    "proxyAdmin still = deployer (whitelist revoke didn't touch versioned admin)",
+  );
+  await (await versioned.connect(deployer).transferProxyAdmin(userA.address)).wait();
+  assertEq(
+    (await versioned.pendingProxyAdmin()).toLowerCase(),
+    userA.address.toLowerCase(),
+    "pendingProxyAdmin = userA",
+  );
+  // Guard: only the pending address can accept
+  await expectRevertWithName(
+    () => versioned.connect(nonAdmin).acceptProxyAdmin(),
+    "VersionedFeeProxy_NotPendingProxyAdmin",
+    "non-pending accept blocked",
+  );
+  await (await versioned.connect(userA).acceptProxyAdmin()).wait();
+  assertEq(
+    (await versioned.proxyAdmin()).toLowerCase(),
+    userA.address.toLowerCase(),
+    "proxyAdmin now = userA",
+  );
+  assertEq(
+    await versioned.pendingProxyAdmin(),
+    ethers.ZeroAddress,
+    "pendingProxyAdmin cleared",
+  );
+  // Old proxyAdmin locked out
+  await expectRevertWithName(
+    () => versioned.connect(deployer).transferProxyAdmin(deployer.address),
+    "VersionedFeeProxy_NotProxyAdmin",
+    "old proxyAdmin locked out",
+  );
+  console.log("   ✓ proxyAdmin rotated via 2-step, old admin locked out");
 
   // ════════════════════════════════════════════════════════════════════
   // ⑬ Final withdrawAll by userA (now sole admin)
@@ -417,7 +509,7 @@ async function main() {
   const totalAllTime = await proxy.totalFeesCollectedAllTime();
   console.log(` totalAtomsCreated    ${mF.totalAtomsCreated}            (expected 4: 3 in ② + 1 in ⑤)`);
   console.log(` totalTriplesCreated  ${mF.totalTriplesCreated}            (expected 1: ③)`);
-  console.log(` totalDeposits        ${mF.totalDeposits}            (expected 8: 3+1+2+1+1)`);
+  console.log(` totalDeposits        ${mF.totalDeposits}            (expected 9: 3+1+2+1+1+1)`);
   console.log(` totalVolume          ${fmt(mF.totalVolume)} TRUST`);
   console.log(` totalUniqueUsers     ${mF.totalUniqueUsers}            (expected 3: A, B, C)`);
   console.log(` lastActivityBlock    ${mF.lastActivityBlock}`);
@@ -433,7 +525,7 @@ async function main() {
   // Final hard assertions
   assertEq(mF.totalAtomsCreated, 4n, "final totalAtomsCreated");
   assertEq(mF.totalTriplesCreated, 1n, "final totalTriplesCreated");
-  assertEq(mF.totalDeposits, 8n, "final totalDeposits");
+  assertEq(mF.totalDeposits, 9n, "final totalDeposits");
   assertEq(mF.totalUniqueUsers, 3n, "final totalUniqueUsers");
   assert(totalAllTime > 0n, "totalFeesCollectedAllTime > 0");
 
