@@ -418,6 +418,51 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
     });
   });
 
+  // ============ ERC-165 ============
+
+  describe("ERC-165 supportsInterface", function () {
+    const ERC165_ID = "0x01ffc9a7";
+
+    it("returns true for ERC-165", async function () {
+      const { versioned } = await loadFixture(deployFixture);
+      expect(await versioned.supportsInterface(ERC165_ID)).to.be.true;
+    });
+
+    it("returns true for IIntuitionVersionedFeeProxy", async function () {
+      const { versioned } = await loadFixture(deployFixture);
+      // Compute the interface id by XOR'ing all function selectors of the interface.
+      const iface = versioned.interface;
+      // Pick the canonical selectors from the interface fragments
+      const selectors = [
+        "registerVersion(bytes32,address)",
+        "removeVersion(bytes32)",
+        "setDefaultVersion(bytes32)",
+        "transferProxyAdmin(address)",
+        "acceptProxyAdmin()",
+        "setName(bytes32)",
+        "getImplementation(bytes32)",
+        "getDefaultVersion()",
+        "getVersions()",
+        "proxyAdmin()",
+        "pendingProxyAdmin()",
+        "getName()",
+        "executeAtVersion(bytes32,bytes)",
+      ];
+      let id = 0n;
+      for (const sig of selectors) {
+        const sel = BigInt(ethers.id(sig).slice(0, 10));
+        id ^= sel;
+      }
+      const interfaceId = "0x" + id.toString(16).padStart(8, "0");
+      expect(await versioned.supportsInterface(interfaceId)).to.be.true;
+    });
+
+    it("returns false for a random / unrelated interfaceId", async function () {
+      const { versioned } = await loadFixture(deployFixture);
+      expect(await versioned.supportsInterface("0xdeadbeef")).to.be.false;
+    });
+  });
+
   // ============ transferProxyAdmin ============
 
   describe("transferProxyAdmin", function () {

@@ -259,6 +259,18 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
         return _layout().pendingProxyAdmin;
     }
 
+    // ============ ERC-165 ============
+
+    /// @notice ERC-165 interface detection. Covers ERC-165 itself and this
+    ///         proxy's own admin interface. Implementation-level interfaces
+    ///         (IIntuitionFeeProxyV2, …) must be discovered by calling the
+    ///         default version directly — they'd hit the fallback anyway.
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return
+            interfaceId == type(IIntuitionVersionedFeeProxy).interfaceId ||
+            interfaceId == 0x01ffc9a7; // ERC-165
+    }
+
     // ============ Execute at version ============
 
     /// @inheritdoc IIntuitionVersionedFeeProxy
