@@ -62,28 +62,28 @@ export const CANONICAL_VERSIONS: Record<NetworkName, CanonicalRegistry> = {
     versions: {
       'v2.0.0': {
         label: 'v2.0.0',
-        impl: '0xc3F9463C5Eb011055F74eaCc1E90ffa23052F474',
+        impl: '0x03F18D228425c462C0Ba93B35f297417f5a31dD6',
         family: 'standard',
         review: { url: 'https://github.com/Wieedze/Intuition-Proxy-Factory', date: '2026-04-23' },
         summary: 'Standard impl — user pays assets + Sofia fee from their wallet.',
       },
       'v2.0.0-sponsored': {
         label: 'v2.0.0-sponsored',
-        impl: '0x89fcea34031AE9Bf266642B5e53E759cB5E92846',
+        impl: '0x10EaBA357E091F5470Eb212c3aa98A71fe1ce5A8',
         family: 'sponsored',
         review: { url: 'https://github.com/Wieedze/Intuition-Proxy-Factory', date: '2026-04-23' },
         summary: 'Sponsored impl — pool pays assets + Sofia fee (fee on top). Permissionless fundPool, admin reclaims accumulated fees via withdraw.',
       },
       'v2.1.0': {
         label: 'v2.1.0',
-        impl: '0x7B1B77Cf63AAC2D9BF5C972Ac0a68674797D8fE7',
+        impl: '0x049288E1146C7752431b04E8d875a92327e087BD',
         family: 'standard',
         review: { url: 'https://github.com/Wieedze/Intuition-Proxy-Factory', date: '2026-04-23' },
         summary: 'Standard sibling adding a VersionUsed(version, user) marker on every write-path call — indexers can attribute each tx to the active impl.',
       },
       'v2.1.0-sponsored': {
         label: 'v2.1.0-sponsored',
-        impl: '0xBfD528023dc76505f1f03a4D0F9856f07c92D43d',
+        impl: '0xFf8345536a76810d81c96Bb7BD8D1df7E7ae4bf8',
         family: 'sponsored',
         review: { url: 'https://github.com/Wieedze/Intuition-Proxy-Factory', date: '2026-04-23' },
         summary: 'Sponsored sibling of v2.1.0 — same VersionUsed marker, version() returns "v2.1.0-sponsored". Inherits the fee-on-top model + permissionless fundPool.',

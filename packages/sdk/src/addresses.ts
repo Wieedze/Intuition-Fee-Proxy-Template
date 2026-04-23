@@ -27,6 +27,6 @@ export const V2_ADDRESSES = {
     factory: '0x0000000000000000000000000000000000000000',
   },
   testnet: {
-    factory: '0x7D2a0C97324876F327281BBffFfE076Eaf3af84a',
+    factory: '0xB33D7D9C9E618Ec55B99D38b373aE533f1Ab0d68',
   },
 } as const satisfies Record<NetworkName, { factory: `0x${string}` }>
