@@ -150,7 +150,12 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
 
     /// @dev Reads both impls' `STORAGE_COMPAT_ID` and reverts on mismatch.
     ///      Catches the missing-getter path (any legacy or non-V2-family
-    ///      impl) via try/catch.
+    ///      impl) via try/catch. Rejects `bytes32(0)` as an explicit
+    ///      sentinel for "layout undeclared" — prevents two impls that both
+    ///      forget to override the getter from accidentally matching.
+    ///      Marked `pure` because the STATICCALLs dispatch to `pure`
+    ///      externals (`STORAGE_COMPAT_ID`), which Solidity transitively
+    ///      allows from a pure context.
     function _assertStorageCompat(address current, address candidate) internal pure {
         bytes32 refId;
         bytes32 candId;
@@ -162,6 +167,9 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
         try IIntuitionFeeProxyV2(candidate).STORAGE_COMPAT_ID() returns (bytes32 id) {
             candId = id;
         } catch {
+            revert Errors.VersionedFeeProxy_StorageLayoutMismatch();
+        }
+        if (refId == bytes32(0) || candId == bytes32(0)) {
             revert Errors.VersionedFeeProxy_StorageLayoutMismatch();
         }
         if (refId != candId) revert Errors.VersionedFeeProxy_StorageLayoutMismatch();
@@ -261,14 +269,24 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
 
     // ============ ERC-165 ============
 
-    /// @notice ERC-165 interface detection. Covers ERC-165 itself and this
-    ///         proxy's own admin interface. Implementation-level interfaces
-    ///         (IIntuitionFeeProxyV2, …) must be discovered by calling the
-    ///         default version directly — they'd hit the fallback anyway.
-    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
-        return
-            interfaceId == type(IIntuitionVersionedFeeProxy).interfaceId ||
-            interfaceId == 0x01ffc9a7; // ERC-165
+    /// @notice ERC-165 interface detection. Covers ERC-165 itself, this
+    ///         proxy's own admin interface, and — via STATICCALL delegation
+    ///         — whatever the currently-active default impl advertises.
+    ///         Consumers probing at the proxy address see the truth of the
+    ///         active version without having to resolve it manually first.
+    ///         Never reverts on unknown selectors: a missing or buggy impl
+    ///         getter is treated as "unsupported", so ecosystem tools can
+    ///         probe safely.
+    function supportsInterface(bytes4 interfaceId) external view returns (bool) {
+        if (interfaceId == type(IIntuitionVersionedFeeProxy).interfaceId) return true;
+        if (interfaceId == 0x01ffc9a7) return true; // ERC-165
+
+        address impl = _layout().implementations[_layout().defaultVersion];
+        if (impl == address(0)) return false;
+        (bool ok, bytes memory data) = impl.staticcall(
+            abi.encodeWithSelector(this.supportsInterface.selector, interfaceId)
+        );
+        return ok && data.length == 32 && abi.decode(data, (bool));
     }
 
     // ============ Execute at version ============
@@ -325,6 +343,11 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
     /// @dev Writes `impl` into the EIP-1967 implementation slot and emits
     ///      `Upgraded`. Tooling-facing only; never read from on-chain.
     function _mirrorEip1967(address impl) private {
+        // By construction `impl` is non-zero here (registerVersion validates
+        // contract-having code and removeVersion cannot drop the default),
+        // but assert to self-document the invariant and match the fallback
+        // guard added in 1c072d2.
+        if (impl == address(0)) revert Errors.VersionedFeeProxy_InvalidImplementation();
         bytes32 slot = _EIP1967_IMPLEMENTATION_SLOT;
         assembly {
             sstore(slot, impl)
