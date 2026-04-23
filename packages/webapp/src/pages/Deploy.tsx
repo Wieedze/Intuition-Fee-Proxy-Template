@@ -1,10 +1,21 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { isAddress, parseEther, type Address } from 'viem'
+import { isAddress, parseEther, type Address, type Hex } from 'viem'
 import { useAccount, useChainId, useWaitForTransactionReceipt } from 'wagmi'
 import { Link, useNavigate } from 'react-router-dom'
 
+import {
+  calculateProxyTermId,
+  toIntuitionCaip10,
+} from '@intuition-fee-proxy/sdk'
 import { addressesFor, networkFor } from '../lib/addresses'
+import {
+  ATOM_PORTAL_BY_CHAIN,
+  TX_EXPLORER_BY_CHAIN,
+} from '../lib/explorers'
 import { useDeployProxy } from '../hooks/useFactory'
+import { useCreateProxyIdentityAtom } from '../hooks/useIntuitionAtom'
+import { CopyInline } from '../components/CopyInline'
+import { Spinner } from '../components/Spinner'
 
 const FEE_DENOMINATOR = 10_000n
 
@@ -25,6 +36,17 @@ export default function DeployPage() {
 
   const { deploy, hash, isPending, error, factory } = useDeployProxy()
   const receipt = useWaitForTransactionReceipt({ hash })
+
+  // Atom creation (step 2 — fires automatically once the proxy tx lands)
+  const {
+    createIdentity,
+    hash: atomHash,
+    isPending: atomSigning,
+    error: atomError,
+    reset: resetAtom,
+  } = useCreateProxyIdentityAtom()
+  const atomReceipt = useWaitForTransactionReceipt({ hash: atomHash })
+  const [atomTriggered, setAtomTriggered] = useState(false)
 
   const admins = adminsRaw
     .split(/[,\s\n]+/)
@@ -83,6 +105,59 @@ export default function DeployPage() {
     }
   }, [receipt.isSuccess, newProxyAddress])
 
+  // Auto-fire the CAIP-10 identity atom right after the proxy lands.
+  // Runs once per deploy; on rejection or failure the user retries via
+  // the button in the success card. Guarded so a re-render with
+  // `isSuccess` still true doesn't re-submit.
+  useEffect(() => {
+    if (
+      receipt.isSuccess &&
+      newProxyAddress &&
+      !atomTriggered &&
+      mvValid
+    ) {
+      setAtomTriggered(true)
+      createIdentity({
+        multiVault: ethMultiVault as Address,
+        chainId,
+        proxyAddress: newProxyAddress,
+      }).catch((err) => {
+        console.error('identity atom creation failed', err)
+      })
+    }
+  }, [
+    receipt.isSuccess,
+    newProxyAddress,
+    atomTriggered,
+    mvValid,
+    chainId,
+    ethMultiVault,
+    createIdentity,
+  ])
+
+  async function handleRetryAtom() {
+    if (!newProxyAddress || !mvValid) return
+    resetAtom()
+    try {
+      await createIdentity({
+        multiVault: ethMultiVault as Address,
+        chainId,
+        proxyAddress: newProxyAddress,
+      })
+    } catch (err) {
+      console.error('identity atom retry failed', err)
+    }
+  }
+
+  const caip10: string | undefined = newProxyAddress
+    ? toIntuitionCaip10(chainId, newProxyAddress)
+    : undefined
+  const termId: Hex | undefined = newProxyAddress
+    ? calculateProxyTermId(chainId, newProxyAddress)
+    : undefined
+  const txExplorer = TX_EXPLORER_BY_CHAIN[chainId]
+  const atomPortal = ATOM_PORTAL_BY_CHAIN[chainId]
+
   return (
     <div className="space-y-8 max-w-2xl mx-auto">
       <div className="space-y-2">
@@ -95,12 +170,38 @@ export default function DeployPage() {
       </div>
 
       {receipt.isSuccess && newProxyAddress && (
-        <div className="rounded-xl border border-brand/30 bg-brand/10 p-5 space-y-3">
-          <div className="text-sm font-medium text-brand">Proxy deployed</div>
-          <div className="font-mono text-xs text-ink break-all">
-            {newProxyAddress}
+        <div className="rounded-xl border border-brand/30 bg-brand/10 p-5 space-y-4">
+          {/* Step 1 — Proxy deployment (always green once we reach this card) */}
+          <div className="space-y-2">
+            <StepHeader state="success" label="Proxy deployed" />
+            <div className="flex items-start gap-2 pl-6">
+              <code className="font-mono text-xs text-ink break-all flex-1 leading-relaxed">
+                {newProxyAddress}
+              </code>
+              <CopyInline value={newProxyAddress} />
+            </div>
           </div>
-          <div className="flex gap-4 pt-1 text-sm">
+
+          {/* Step 2 — Intuition atom (progressive: loading → success/error) */}
+          {caip10 && (
+            <div className="pt-4 border-t border-brand/20">
+              <AtomStep
+                signing={atomSigning}
+                mining={atomReceipt.isLoading}
+                success={atomReceipt.isSuccess}
+                error={atomError ?? atomReceipt.error ?? null}
+                atomHash={atomHash}
+                termId={termId}
+                caip10={caip10}
+                triggered={atomTriggered}
+                txExplorer={txExplorer}
+                atomPortal={atomPortal}
+                onRetry={handleRetryAtom}
+              />
+            </div>
+          )}
+
+          <div className="flex gap-4 pt-2 border-t border-brand/20 text-sm">
             <Link
               to={`/proxy/${newProxyAddress}`}
               className="text-brand hover:opacity-80 transition-opacity"
@@ -247,6 +348,165 @@ export default function DeployPage() {
           </p>
         )}
       </form>
+    </div>
+  )
+}
+
+/**
+ * Step-line header used by both "Proxy deployed" and the atom step. Consistent
+ * vertical rhythm (28px row, 6px gutter to details below) keeps the two
+ * stacked steps feeling like one flow, not two disconnected badges.
+ */
+function StepHeader({
+  state,
+  label,
+}: {
+  state: 'pending' | 'success' | 'error'
+  label: string
+}) {
+  const icon =
+    state === 'success' ? (
+      <span className="inline-flex h-4 w-4 items-center justify-center text-green-500">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+          <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    ) : state === 'error' ? (
+      <span className="inline-flex h-4 w-4 items-center justify-center text-rose-400">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+          <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    ) : (
+      <span className="inline-flex h-4 w-4 items-center justify-center text-muted">
+        <Spinner size="sm" ariaLabel={label} />
+      </span>
+    )
+
+  const colorClass =
+    state === 'success'
+      ? 'text-green-500'
+      : state === 'error'
+        ? 'text-rose-400'
+        : 'text-muted'
+
+  return (
+    <div className={`flex items-center gap-2 text-sm font-medium ${colorClass}`}>
+      {icon}
+      <span>{label}</span>
+    </div>
+  )
+}
+
+/**
+ * Progressive status for the identity-atom step. Reveals states in order:
+ * pending (spinner + "Creating Intuition atom…") → success (green check +
+ * CAIP-10 + termId + explorer links) OR error (red × + retry). The CAIP-10
+ * string is shown under the spinner from the start so the user sees what's
+ * being written, not a blind wait.
+ */
+function AtomStep({
+  signing,
+  mining,
+  success,
+  error,
+  atomHash,
+  termId,
+  caip10,
+  triggered,
+  txExplorer,
+  atomPortal,
+  onRetry,
+}: {
+  signing: boolean
+  mining: boolean
+  success: boolean
+  error: Error | null
+  atomHash: Hex | undefined
+  termId: Hex | undefined
+  caip10: string
+  triggered: boolean
+  txExplorer: string | undefined
+  atomPortal: string | undefined
+  onRetry: () => void
+}) {
+  if (success) {
+    return (
+      <div className="space-y-2">
+        <StepHeader state="success" label="Atom created on-chain" />
+        <div className="pl-6 space-y-1.5">
+          <div className="font-mono text-[11px] text-muted break-all">
+            {caip10}
+          </div>
+          {termId && (
+            <div className="flex items-start gap-2">
+              <code className="font-mono text-[11px] text-muted break-all flex-1 leading-relaxed">
+                {termId}
+              </code>
+              <CopyInline value={termId} />
+            </div>
+          )}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs pt-1">
+            {txExplorer && atomHash && (
+              <a
+                href={`${txExplorer}/tx/${atomHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-brand hover:opacity-80 transition-opacity"
+              >
+                Tx receipt →
+              </a>
+            )}
+            {atomPortal && termId && (
+              <a
+                href={`${atomPortal}/${termId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-brand hover:opacity-80 transition-opacity"
+              >
+                View on Intuition portal →
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-2">
+        <StepHeader state="error" label="Atom creation failed" />
+        <div className="pl-6 space-y-1.5">
+          <div className="text-xs text-rose-400 font-mono break-all">
+            {error.message.split('\n')[0]}
+          </div>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="text-xs font-medium text-brand hover:opacity-80 transition-opacity"
+          >
+            Retry atom creation →
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const loadingLabel = signing
+    ? 'Confirm atom tx in wallet…'
+    : mining || atomHash
+      ? 'Mining atom tx…'
+      : triggered
+        ? 'Preparing atom tx…'
+        : 'Creating Intuition atom…'
+
+  return (
+    <div className="space-y-2">
+      <StepHeader state="pending" label={loadingLabel} />
+      <div className="pl-6 font-mono text-[11px] text-muted break-all">
+        {caip10}
+      </div>
     </div>
   )
 }

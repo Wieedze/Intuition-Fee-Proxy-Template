@@ -11,7 +11,7 @@ import {
   useSponsorPool,
 } from '../hooks/useSponsoredProxy'
 import AddressDisplay from './Address'
-import { formatAbsoluteDate } from '../lib/format'
+import { formatDateParts } from '../lib/format'
 
 interface Props {
   proxy: Address
@@ -183,7 +183,7 @@ export function HistoryTab({ proxy, isAdmin, channel }: Props) {
               <tr className="text-left text-xs uppercase tracking-wider text-muted border-b border-line">
                 <th className="px-4 py-2.5 font-medium">Date</th>
                 <th className="px-4 py-2.5 font-medium">Event</th>
-                <th className="px-4 py-2.5 font-medium">Party</th>
+                <th className="px-4 py-2.5 font-medium">From</th>
                 <th className="px-4 py-2.5 font-medium text-right">Amount</th>
                 <th className="px-4 py-2.5 font-medium text-right">Tx</th>
                 <th className="px-4 py-2.5 font-medium text-right">
@@ -305,14 +305,21 @@ function TopUpRowView({
     onRefundDone()
   }
 
-  const dateLabel = timestamp ? formatAbsoluteDate(timestamp) : '—'
+  const dateParts = timestamp ? formatDateParts(timestamp) : null
   const txShort = `${txHash.slice(0, 6)}…${txHash.slice(-4)}`
 
   return (
     <>
       <tr className="border-b border-line/60 last:border-b-0">
         <td className="px-4 py-2.5 text-muted whitespace-nowrap">
-          {dateLabel}
+          {dateParts ? (
+            <div className="leading-tight">
+              <div>{dateParts.date}</div>
+              <div className="text-[10px] text-subtle">{dateParts.time}</div>
+            </div>
+          ) : (
+            '—'
+          )}
         </td>
         <td className="px-4 py-2.5">
           <EventBadge kind="topup" />
@@ -466,12 +473,21 @@ interface WithdrawalRowProps {
 
 function WithdrawalRowView({ row, explorerRoot }: WithdrawalRowProps) {
   const { to, amount, by, timestamp, txHash } = row
-  const dateLabel = timestamp ? formatAbsoluteDate(timestamp) : '—'
+  const dateParts = timestamp ? formatDateParts(timestamp) : null
   const txShort = `${txHash.slice(0, 6)}…${txHash.slice(-4)}`
 
   return (
     <tr className="border-b border-line/60 last:border-b-0">
-      <td className="px-4 py-2.5 text-muted whitespace-nowrap">{dateLabel}</td>
+      <td className="px-4 py-2.5 text-muted whitespace-nowrap">
+        {dateParts ? (
+          <div className="leading-tight">
+            <div>{dateParts.date}</div>
+            <div className="text-[10px] text-subtle">{dateParts.time}</div>
+          </div>
+        ) : (
+          '—'
+        )}
+      </td>
       <td className="px-4 py-2.5">
         <EventBadge kind="withdrawal" />
       </td>

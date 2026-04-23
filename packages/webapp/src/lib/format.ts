@@ -23,6 +23,19 @@ export function formatAbsoluteDate(tsSeconds: number): string {
 }
 
 /**
+ * Split a UNIX seconds timestamp into a "dd/mm/yyyy" date + "HH:MM" time pair.
+ * Lets callers render the date prominently with the time as a smaller line below.
+ */
+export function formatDateParts(tsSeconds: number): { date: string; time: string } {
+  const d = new Date(tsSeconds * 1000)
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = d.getFullYear()
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return { date: `${dd}/${mm}/${yyyy}`, time }
+}
+
+/**
  * Format a positive "seconds ago" delta to a compact relative string.
  * Returns "just now" for < 1 min, or a rounded unit (min / h / d).
  */

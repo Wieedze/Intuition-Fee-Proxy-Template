@@ -2,6 +2,7 @@ import type { Address, Hex } from 'viem'
 
 import type { NetworkName, ProxyFamily } from '@intuition-fee-proxy/sdk'
 import type { ProxyStats } from '../hooks/useProxy'
+import { IntuitionAtomCard } from './IntuitionAtomCard'
 import { Stat } from './Stat'
 import { VersionsPanel } from './VersionsPanel'
 
@@ -39,23 +40,7 @@ export function OverviewTab({
         <Stat label="MultiVault" value={stats.ethMultiVault} mono />
       </section>
 
-      {channel === 'sponsored' && (
-        <div className="card">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-brand mb-2">
-            Sponsored channel
-          </div>
-          <p className="text-sm text-muted leading-relaxed">
-            This proxy runs the sponsored-channel implementation. Admins top
-            the pool up whenever they need to; any user interacting with the
-            proxy draws from it transparently via{' '}
-            <code className="font-mono text-ink">deposit</code> /{' '}
-            <code className="font-mono text-ink">createAtoms</code> with
-            reduced or zero{' '}
-            <code className="font-mono text-ink">msg.value</code>. Rate limits
-            bound drain per user.
-          </p>
-        </div>
-      )}
+      <IntuitionAtomCard proxy={proxy} multiVault={stats.ethMultiVault} />
 
       <VersionsPanel
         proxy={proxy}
