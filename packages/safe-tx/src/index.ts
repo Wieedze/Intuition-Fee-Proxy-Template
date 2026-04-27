@@ -8,3 +8,10 @@ export {
 } from './networks.js'
 export * as ops from './ops/index.js'
 export * as signers from './signers/index.js'
+export * as modes from './modes/index.js'
+export type {
+  SafeTxMessage,
+  SafeTxPayload,
+  SafeTxRequest,
+  SignedSafeTx,
+} from './modes/direct-sign.js'
