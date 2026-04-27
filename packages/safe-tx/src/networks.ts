@@ -1,5 +1,5 @@
-import type { Address } from 'viem'
-import { getAddress } from 'viem'
+import type { Address, Chain } from 'viem'
+import { defineChain, getAddress } from 'viem'
 import type { NetworkName, SafeNetworkConfig } from './types.js'
 
 /**
@@ -48,4 +48,20 @@ export function buildSafeUiUrl(network: SafeNetworkConfig, safeAddress: Address)
  */
 export function buildTxServiceApiUrl(network: SafeNetworkConfig): string {
   return network.txServiceUrl
+}
+
+/** Convert a SafeNetworkConfig into a viem Chain for createPublicClient / createWalletClient. */
+export function getViemChain(network: SafeNetworkConfig): Chain {
+  return defineChain({
+    id: network.chainId,
+    name: network.name,
+    nativeCurrency: { name: 'Trust', symbol: 'TRUST', decimals: 18 },
+    rpcUrls: {
+      default: { http: [network.rpcUrl] },
+      public: { http: [network.rpcUrl] },
+    },
+    blockExplorers: {
+      default: { name: 'Explorer', url: network.blockExplorerUrl },
+    },
+  })
 }
