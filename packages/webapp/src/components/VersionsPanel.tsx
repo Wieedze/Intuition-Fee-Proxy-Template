@@ -248,6 +248,18 @@ export function VersionsPanel({
         </p>
       </div>
 
+      <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-subtle leading-relaxed">
+        <strong className="text-amber-400">Default-version trust:</strong>{' '}
+        the proxy admin can change which logic runs for every fallback
+        caller. The MultiVault does not enforce{' '}
+        <code className="font-mono">receiver = msg.sender</code> — that
+        guarantee is part of the current impl's bytecode, not the protocol.
+        To be fully insulated: (1) pin a specific version via{' '}
+        <code className="font-mono">executeAtVersion</code>, and (2) revoke{' '}
+        <code className="font-mono">MultiVault.approve(thisProxy, DEPOSIT)</code>{' '}
+        when you're not actively transacting.
+      </div>
+
       <ul className="divide-y divide-line rounded-lg border border-line bg-canvas overflow-hidden">
         {rows.length === 0 && (
           <li className="px-4 py-3 text-xs text-subtle">
