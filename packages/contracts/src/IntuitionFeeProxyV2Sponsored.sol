@@ -191,6 +191,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Admin: claim limits ============
 
+    /// @dev Mutating `windowSec` does NOT reset existing per-user
+    ///      `claimWindows` — they keep their stored `windowStart` and are
+    ///      compared against the new `windowSec` on the next call. Shrinking
+    ///      `windowSec` may cause some users to roll into a fresh window
+    ///      earlier than they would have; lengthening it may keep them
+    ///      capped longer. Admins should announce window changes off-chain.
     function setClaimLimits(
         uint256 maxPerTx,
         uint256 maxPerWindow,
@@ -204,6 +210,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
             revert Errors.Sponsored_InvalidLimit();
         }
         if (maxVolumePerWindow > type(uint128).max) {
+            revert Errors.Sponsored_InvalidLimit();
+        }
+        // Coherence: a single tx that hits `maxPerTx` must fit inside the
+        // per-window volume cap, otherwise `_applyRateLimit` would always
+        // revert on a fresh window and the proxy would be unusable.
+        if (maxPerTx > maxVolumePerWindow) {
             revert Errors.Sponsored_InvalidLimit();
         }
         SponsoredLayout storage $ = _s();
