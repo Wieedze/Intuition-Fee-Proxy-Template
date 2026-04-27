@@ -18,6 +18,7 @@ export * from './readers'
 export * from './caip'
 export * from './term'
 export * from './atom'
+export * from './feeQuote'
 
 import IntuitionFeeProxyV2Abi from './abis/IntuitionFeeProxyV2.json'
 import IntuitionFeeProxyV2SponsoredAbi from './abis/IntuitionFeeProxyV2Sponsored.json'
