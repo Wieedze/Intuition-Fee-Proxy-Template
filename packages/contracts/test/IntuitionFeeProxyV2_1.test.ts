@@ -194,7 +194,7 @@ describe("IntuitionFeeProxyV2_1 — canonical versioning demo", function () {
 
     const depositCalldata = proxyAsV2.interface.encodeFunctionData(
       "deposit",
-      [termId, 0, 0],
+      [termId, 0, 0, MAX_FEE_BPS, MAX_FIXED_FEE],
     );
 
     const tx = await versioned
