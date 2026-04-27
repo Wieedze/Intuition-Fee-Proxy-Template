@@ -387,6 +387,8 @@ async function main() {
     atomIds[0],
     1n,
     0n,
+    1000n,
+    ethers.parseEther("10"),
   ]);
   const pinTx = await versioned
     .connect(userA)

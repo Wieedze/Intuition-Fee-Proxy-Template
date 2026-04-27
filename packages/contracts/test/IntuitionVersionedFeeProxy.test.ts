@@ -411,6 +411,8 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
         ethers.zeroPadValue("0x01", 32),
         1n,
         0n,
+        1000n,
+        ethers.parseEther("10"),
       ]);
       await expect(
         versioned.executeAtVersion(V2, callData, { value: 0n }),

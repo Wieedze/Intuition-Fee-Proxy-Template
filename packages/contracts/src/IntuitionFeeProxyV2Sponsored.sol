@@ -212,12 +212,11 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         if (maxVolumePerWindow > type(uint128).max) {
             revert Errors.Sponsored_InvalidLimit();
         }
-        // Coherence: a single tx that hits `maxPerTx` must fit inside the
-        // per-window volume cap, otherwise `_applyRateLimit` would always
-        // revert on a fresh window and the proxy would be unusable.
-        if (maxPerTx > maxVolumePerWindow) {
-            revert Errors.Sponsored_InvalidLimit();
-        }
+        // NOTE: we deliberately allow `maxClaimPerTx > maxClaimVolumePerWindow`.
+        // That config is legit — the volume cap acts as a stricter throttle on
+        // cumulative draw within the window, while the per-tx cap is the
+        // single-call ceiling. Users can still issue multiple small calls up
+        // to the volume cap.
         SponsoredLayout storage $ = _s();
         $.maxClaimPerTx = maxPerTx;
         $.maxClaimsPerWindow = maxPerWindow;
