@@ -61,7 +61,9 @@ export type SignedSafeTx = {
   sig: Hex
 }
 
-const SAFE_TX_TYPES = {
+/** Canonical Safe v1.3.0 EIP-712 SafeTx type. Exported so external code
+ *  (api-kit, tests) can reuse the exact same definition. */
+export const SAFE_TX_TYPES = {
   SafeTx: [
     { name: 'to', type: 'address' },
     { name: 'value', type: 'uint256' },
@@ -111,10 +113,13 @@ const SAFE_EXEC_ABI = [
  * Resolve defaults + fetch nonce if missing, then compute the SafeTx
  * EIP-712 hash. Returns the full payload, ready to be signed by owners
  * or executed once enough signatures are gathered.
+ *
+ * `client` is optional when `request.nonce` is already provided — useful
+ * for offline workflows and tests that don't want to spin up an RPC.
  */
 export async function buildSafeTx(
   request: SafeTxRequest,
-  client: PublicClient,
+  client?: PublicClient,
 ): Promise<SafeTxPayload> {
   const operation = request.operation ?? 0
   const safeTxGas = request.safeTxGas ?? 0n
@@ -123,13 +128,21 @@ export async function buildSafeTx(
   const gasToken = request.gasToken ?? ZERO_ADDRESS
   const refundReceiver = request.refundReceiver ?? ZERO_ADDRESS
 
-  const nonce =
-    request.nonce ??
-    (await client.readContract({
-      address: request.safe,
-      abi: SAFE_NONCE_ABI,
-      functionName: 'nonce',
-    }))
+  let nonce: bigint
+  if (request.nonce !== undefined) {
+    nonce = request.nonce
+  } else {
+    if (!client) {
+      throw new Error('safe-tx: buildSafeTx requires either request.nonce or a publicClient to fetch it')
+    }
+    nonce = BigInt(
+      await client.readContract({
+        address: request.safe,
+        abi: SAFE_NONCE_ABI,
+        functionName: 'nonce',
+      }),
+    )
+  }
 
   const message: SafeTxMessage = {
     to: request.op.to,
@@ -141,7 +154,7 @@ export async function buildSafeTx(
     gasPrice,
     gasToken,
     refundReceiver,
-    nonce: BigInt(nonce),
+    nonce,
   }
 
   const safeTxHash = hashTypedData({
