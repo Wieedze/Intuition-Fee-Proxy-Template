@@ -251,7 +251,7 @@ export function VersionsPanel({
       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-subtle leading-relaxed">
         <strong className="text-amber-400">Heads up:</strong>{' '}
         the proxy admin can switch which version handles new deposits. A
-        Safe as proxy admin makes this dramatically safer.
+        Safe as proxy admin makes this safer.
       </div>
 
       <ul className="divide-y divide-line rounded-lg border border-line bg-canvas overflow-hidden">

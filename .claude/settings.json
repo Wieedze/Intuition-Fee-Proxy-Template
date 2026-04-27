@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chown max:max /home/max/Project/intuition-fee-proxy-template/packages/sdk/src/feeQuote.ts /home/max/Project/intuition-fee-proxy-template/packages/sdk/src/index.ts /home/max/Project/intuition-fee-proxy-template/packages/contracts/src/test/MockMultiVault.sol /home/max/Project/intuition-fee-proxy-template/packages/contracts/test/IntuitionVersionedFeeProxy.test.ts /home/max/Project/intuition-fee-proxy-template/packages/contracts/test/IntuitionFeeProxyV2.test.ts)"
+    ]
+  }
+}
