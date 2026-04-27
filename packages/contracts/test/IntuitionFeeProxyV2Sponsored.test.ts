@@ -239,7 +239,7 @@ describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
       const { proxy, user1 } = await loadFixture(deployFixture);
       const termId = ethers.encodeBytes32String("t");
       await expect(
-        proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") }),
+        proxy.connect(user1).deposit(termId, 1n, 0n, 1000n, ethers.parseEther("10"), { value: ethers.parseEther("1") }),
       ).to.be.revertedWithCustomError(proxy, "Sponsored_UseDepositSponsored");
     });
 
@@ -247,7 +247,7 @@ describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
       const { proxy, user1 } = await loadFixture(deployFixture);
       const termId = ethers.encodeBytes32String("t");
       await expect(
-        proxy.connect(user1).deposit(termId, 1n, 0n, { value: 0 }),
+        proxy.connect(user1).deposit(termId, 1n, 0n, 1000n, ethers.parseEther("10"), { value: 0 }),
       ).to.be.revertedWithCustomError(proxy, "Sponsored_UseDepositSponsored");
     });
   });
@@ -623,7 +623,7 @@ describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
       const totalRequired = multiVaultCost + fee;
 
       const poolBefore = await proxy.sponsorPool();
-      await proxy.connect(user1).createAtoms(data, assets, 1n, { value: 0 });
+      await proxy.connect(user1).createAtoms(data, assets, assets.map(() => 0n), 1n, { value: 0 });
       const poolAfter = await proxy.sponsorPool();
 
       expect(poolBefore - poolAfter).to.equal(totalRequired);
@@ -636,7 +636,7 @@ describe("IntuitionFeeProxyV2Sponsored (B1 full-sponsorship)", function () {
       const data: string[] = [ethers.hexlify(ethers.toUtf8Bytes("a"))];
       const assets = [ethers.parseEther("2")]; // > default cap 1
       await expect(
-        proxy.connect(user1).createAtoms(data, assets, 1n, { value: 0 }),
+        proxy.connect(user1).createAtoms(data, assets, assets.map(() => 0n), 1n, { value: 0 }),
       ).to.be.revertedWithCustomError(proxy, "Sponsored_ExceedsMaxPerTx");
     });
   });

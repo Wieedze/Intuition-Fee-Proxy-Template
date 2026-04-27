@@ -134,7 +134,7 @@ async function main() {
   const atomsRequired = atomCost * 3n + atomsTotalDeposit + atomsFee;
   const atomsTx = await proxy
     .connect(userA)
-    .createAtoms(atomsData, atomsAssets, 1n, { value: atomsRequired });
+    .createAtoms(atomsData, atomsAssets, atomsAssets.map(() => 0n), 1n, { value: atomsRequired });
   const atomsRc = await atomsTx.wait();
   // Grab atom IDs from MultiVault calls (read via static call now that they exist)
   const atomIds: string[] = [];
@@ -174,6 +174,7 @@ async function main() {
         [atomIds[1]],
         [atomIds[2]],
         [tripleAsset],
+        [0n],
         1n,
         { value: tripleRequired },
       )
@@ -229,7 +230,7 @@ async function main() {
   const overpay = ethers.parseEther("0.5");
   const userABefore = await ethers.provider.getBalance(userA.address);
   const accBefore5 = await proxy.accumulatedFees();
-  const opTx = await proxy.connect(userA).createAtoms(opData, opAssets, 1n, {
+  const opTx = await proxy.connect(userA).createAtoms(opData, opAssets, opAssets.map(() => 0n), 1n, {
     value: opRequired + overpay,
   });
   const opRc = await opTx.wait();
@@ -344,7 +345,7 @@ async function main() {
   console.log("\n⑩b userA deposit via fallback → expect VersionUsed(v2.1.0, userA) …");
   const vuTx = await proxy
     .connect(userA)
-    .deposit(atomIds[0], 1n, 0n, { value: ethers.parseEther("0.3") });
+    .deposit(atomIds[0], 1n, 0n, 1000n, ethers.parseEther("10"), { value: ethers.parseEther("0.3") });
   const vuRc = await vuTx.wait();
   const versionUsedTopic = ethers.id("VersionUsed(bytes32,address)");
   const vuLog = vuRc!.logs.find(

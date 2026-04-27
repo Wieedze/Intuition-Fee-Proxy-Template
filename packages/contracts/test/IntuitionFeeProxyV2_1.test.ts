@@ -16,6 +16,8 @@ describe("IntuitionFeeProxyV2_1 — canonical versioning demo", function () {
   const DEPOSIT_FEE = ethers.parseEther("0.1");
   const DEPOSIT_PERCENTAGE = 500n; // 5%
   const FEE_DENOMINATOR = 10_000n;
+  const MAX_FEE_BPS = 1000n;
+  const MAX_FIXED_FEE = ethers.parseEther("10");
 
   const V2_LABEL = ethers.encodeBytes32String("v2.0.0");
   const V2_1_LABEL = ethers.encodeBytes32String("v2.1.0");
@@ -111,7 +113,7 @@ describe("IntuitionFeeProxyV2_1 — canonical versioning demo", function () {
     await expect(
       proxyAsV2
         .connect(user)
-        .deposit(termId, 0, 0, { value: depositAmount + fee }),
+        .deposit(termId, 0, 0, MAX_FEE_BPS, MAX_FIXED_FEE, { value: depositAmount + fee }),
     )
       .to.emit(
         await ethers.getContractAt("IntuitionFeeProxyV2_1", await proxyAsV2.getAddress()),
@@ -129,7 +131,7 @@ describe("IntuitionFeeProxyV2_1 — canonical versioning demo", function () {
 
     const tx = await proxyAsV2
       .connect(user)
-      .deposit(termId, 0, 0, { value: depositAmount + fee });
+      .deposit(termId, 0, 0, MAX_FEE_BPS, MAX_FIXED_FEE, { value: depositAmount + fee });
     const receipt = await tx.wait();
 
     const versionUsedTopic = proxyAsV2_1.interface.getEvent("VersionUsed")!.topicHash;
@@ -146,7 +148,7 @@ describe("IntuitionFeeProxyV2_1 — canonical versioning demo", function () {
     const fee = await proxyAsV2.calculateDepositFee(1, depositAmount);
 
     // Step 1 — a deposit under v2.0.0 (no event, fees accrue normally).
-    await proxyAsV2.connect(user).deposit(termId, 0, 0, { value: depositAmount + fee });
+    await proxyAsV2.connect(user).deposit(termId, 0, 0, MAX_FEE_BPS, MAX_FIXED_FEE, { value: depositAmount + fee });
     const feesAfterV2 = await proxyAsV2.accumulatedFees();
     const depositsAfterV2 = await proxyAsV2.totalDeposits();
 
@@ -157,7 +159,7 @@ describe("IntuitionFeeProxyV2_1 — canonical versioning demo", function () {
     await versioned.connect(admin).setDefaultVersion(V2_1_LABEL);
 
     // Step 3 — a second deposit, now under v2.1.0. Fee delta must be identical.
-    await proxyAsV2.connect(user).deposit(termId, 0, 0, { value: depositAmount + fee });
+    await proxyAsV2.connect(user).deposit(termId, 0, 0, MAX_FEE_BPS, MAX_FIXED_FEE, { value: depositAmount + fee });
     const feesAfterV2_1 = await proxyAsV2.accumulatedFees();
     const depositsAfterV2_1 = await proxyAsV2.totalDeposits();
 
@@ -216,7 +218,7 @@ describe("IntuitionFeeProxyV2_1 — canonical versioning demo", function () {
     const fee = await proxyAsV2.calculateDepositFee(1, depositAmount);
 
     // Run a deposit first to generate non-zero fee state.
-    await proxyAsV2.connect(user).deposit(termId, 0, 0, { value: depositAmount + fee });
+    await proxyAsV2.connect(user).deposit(termId, 0, 0, MAX_FEE_BPS, MAX_FIXED_FEE, { value: depositAmount + fee });
     const feesBefore = await proxyAsV2.accumulatedFees();
     const totalBefore = await proxyAsV2.totalFeesCollectedAllTime();
 

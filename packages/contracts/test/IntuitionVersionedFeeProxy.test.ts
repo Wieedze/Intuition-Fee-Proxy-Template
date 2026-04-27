@@ -270,7 +270,7 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
       const { proxyAsV2, user } = await loadFixture(deployFixture);
       const termId = ethers.zeroPadValue("0x01", 32);
       const total = await proxyAsV2.getTotalDepositCost(ethers.parseEther("1"));
-      await proxyAsV2.connect(user).deposit(termId, 1n, 0n, { value: total });
+      await proxyAsV2.connect(user).deposit(termId, 1n, 0n, 1000n, ethers.parseEther("10"), { value: total });
       expect(await proxyAsV2.accumulatedFees()).to.be.gt(0n);
     });
 

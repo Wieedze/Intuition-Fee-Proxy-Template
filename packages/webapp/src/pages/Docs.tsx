@@ -781,7 +781,7 @@ function Pinning() {
 const depositData = encodeFunctionData({
   abi: IntuitionFeeProxyV2ABI,
   functionName: 'deposit',
-  args: [termId, curveId, minShares],
+  args: [termId, curveId, minShares, maxFeeBps, maxFixedFee],
 })
 
 await walletClient.writeContract({
@@ -820,16 +820,16 @@ function Primitives() {
       <H3>End-user entry points</H3>
       <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
         <Primitive
-          term="deposit(termId, curveId, minShares) payable"
-          desc="Deposit TRUST into a term. Proxy keeps a fixed + percentage fee; forwards the remainder to the MultiVault on behalf of msg.sender."
+          term="deposit(termId, curveId, minShares, maxFeeBps, maxFixedFee) payable"
+          desc="Deposit TRUST into a term. Proxy keeps a fixed + percentage fee (capped by your maxFeeBps / maxFixedFee — front-run protection against an admin bumping fees in the same block); forwards the remainder to the MultiVault on behalf of msg.sender."
         />
         <Primitive
-          term="createAtoms(data[], assets[], curveId) payable"
-          desc="Create one or more atoms. Non-zero assets are immediately deposited into the new atom."
+          term="createAtoms(data[], assets[], minShares[], curveId) payable"
+          desc="Create one or more atoms. Non-zero assets are immediately deposited into the new atom (each constrained by its `minShares[i]` slippage floor)."
         />
         <Primitive
-          term="createTriples(subjectIds[], predicateIds[], objectIds[], assets[], curveId) payable"
-          desc="Create triples linking three existing terms. Optional deposit per triple."
+          term="createTriples(subjectIds[], predicateIds[], objectIds[], assets[], minShares[], curveId) payable"
+          desc="Create triples linking three existing terms. Optional deposit per triple, each gated by `minShares[i]`."
         />
         <Primitive
           term="depositBatch(termIds[], curveIds[], assets[], minShares[]) payable"

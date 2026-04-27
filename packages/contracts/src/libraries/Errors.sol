@@ -57,6 +57,12 @@ library Errors {
     /// @notice `claimRefund` called with no pending refund on the caller's balance
     error IntuitionFeeProxy_NothingToRefund();
 
+    /// @notice The current fee config exceeds the caller-supplied cap on
+    ///         `deposit(…, maxFeeBps, maxFixedFee)`. Front-run protection: the
+    ///         user reads fees off-chain, sends the cap they saw, and the tx
+    ///         reverts if an admin bumps fees in the same block.
+    error IntuitionFeeProxy_FeeExceedsCap();
+
     // ============ Factory errors ============
 
     /// @notice Factory received an invalid implementation (zero address or not a contract)

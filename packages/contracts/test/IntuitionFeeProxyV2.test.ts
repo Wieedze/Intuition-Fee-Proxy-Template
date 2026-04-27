@@ -12,6 +12,12 @@ describe("IntuitionFeeProxyV2", function () {
   const DEPOSIT_PERCENTAGE = 500n; // 5%
   const FEE_DENOMINATOR = 10000n;
 
+  // Worst-case caps the user is willing to accept on `deposit(…)` — passing
+  // these is the "no front-run protection" baseline used by tests that
+  // pre-date the maxFeeBps / maxFixedFee guard.
+  const MAX_FEE_BPS = 1000n;
+  const MAX_FIXED_FEE = ethers.parseEther("10");
+
   const INITIAL_VERSION = ethers.encodeBytes32String("v2.0.0");
 
   async function deployFixture() {
@@ -261,7 +267,7 @@ describe("IntuitionFeeProxyV2", function () {
       const mvCost = atomCost * 2n + totalDeposit;
       const total = fee + mvCost;
 
-      await proxy.connect(user).createAtoms(data, assets, 1n, { value: total });
+      await proxy.connect(user).createAtoms(data, assets, assets.map(() => 0n), 1n, { value: total });
       expect(await mockMultiVault.lastDepositReceiver()).to.equal(user.address);
     });
 
@@ -269,7 +275,7 @@ describe("IntuitionFeeProxyV2", function () {
       const { proxy, mockMultiVault, user } = await loadFixture(deployFixture);
       const termId = ethers.zeroPadValue("0x01", 32);
       const total = await proxy.getTotalDepositCost(ethers.parseEther("1"));
-      await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      await proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: total });
       expect(await mockMultiVault.lastDepositReceiver()).to.equal(user.address);
     });
 
@@ -301,7 +307,7 @@ describe("IntuitionFeeProxyV2", function () {
       const total = await proxy.getTotalDepositCost(amt);
 
       const before = await ethers.provider.getBalance(await proxy.getAddress());
-      await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      await proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: total });
       const after = await ethers.provider.getBalance(await proxy.getAddress());
 
       const fee = await proxy.calculateDepositFee(1n, amt);
@@ -315,14 +321,14 @@ describe("IntuitionFeeProxyV2", function () {
       const termId = ethers.zeroPadValue("0x01", 32);
       const total = await proxy.getTotalDepositCost(ethers.parseEther("1"));
 
-      await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      await proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: total });
       const beforeWithdraw = await proxy.totalFeesCollectedAllTime();
 
       await proxy.connect(admin1).withdrawAll(withdrawTo.address);
       expect(await proxy.accumulatedFees()).to.equal(0n);
       expect(await proxy.totalFeesCollectedAllTime()).to.equal(beforeWithdraw);
 
-      await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      await proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: total });
       expect(await proxy.totalFeesCollectedAllTime()).to.be.gt(beforeWithdraw);
     });
 
@@ -331,7 +337,7 @@ describe("IntuitionFeeProxyV2", function () {
       const termId = ethers.zeroPadValue("0x01", 32);
       const total = await proxy.getTotalDepositCost(ethers.parseEther("1"));
 
-      await expect(proxy.connect(user).deposit(termId, 1n, 0n, { value: total }))
+      await expect(proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: total }))
         .to.emit(proxy, "FeesCollected")
         .and.to.emit(proxy, "TransactionForwarded");
     });
@@ -342,7 +348,7 @@ describe("IntuitionFeeProxyV2", function () {
       const assets = [0n];
       const atomCost = await mockMultiVault.getAtomCost();
 
-      await proxy.connect(user).createAtoms(data, assets, 1n, { value: atomCost });
+      await proxy.connect(user).createAtoms(data, assets, assets.map(() => 0n), 1n, { value: atomCost });
       expect(await proxy.accumulatedFees()).to.equal(0n);
     });
   });
@@ -354,7 +360,7 @@ describe("IntuitionFeeProxyV2", function () {
       const ctx = await loadFixture(deployFixture);
       const termId = ethers.zeroPadValue("0x01", 32);
       const total = await ctx.proxy.getTotalDepositCost(ethers.parseEther("10"));
-      await ctx.proxy.connect(ctx.user).deposit(termId, 1n, 0n, { value: total });
+      await ctx.proxy.connect(ctx.user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: total });
       return ctx;
     }
 
@@ -559,6 +565,7 @@ describe("IntuitionFeeProxyV2", function () {
         proxy.connect(user).createAtoms(
           [ethers.toUtf8Bytes("a")],
           [ethers.parseEther("1"), ethers.parseEther("1")],
+          [0n, 0n],
           1n,
           { value: ethers.parseEther("10") }
         )
@@ -571,6 +578,7 @@ describe("IntuitionFeeProxyV2", function () {
         proxy.connect(user).createAtoms(
           [ethers.toUtf8Bytes("a")],
           [ethers.parseEther("1")],
+          [0n],
           1n,
           { value: 1n }
         )
@@ -585,6 +593,7 @@ describe("IntuitionFeeProxyV2", function () {
           [ethers.zeroPadValue("0x02", 32), ethers.zeroPadValue("0x03", 32)],
           [ethers.zeroPadValue("0x04", 32)],
           [0n],
+          [0n],
           1n,
           { value: ethers.parseEther("1") }
         )
@@ -595,7 +604,7 @@ describe("IntuitionFeeProxyV2", function () {
       const { proxy, user } = await loadFixture(deployFixture);
       const termId = ethers.zeroPadValue("0x01", 32);
       await expect(
-        proxy.connect(user).deposit(termId, 1n, 0n, { value: DEPOSIT_FEE })
+        proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: DEPOSIT_FEE })
       ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_InsufficientValue");
     });
 
@@ -625,7 +634,7 @@ describe("IntuitionFeeProxyV2", function () {
       const totalRequired = atomCost + assets[0] + fee;
       const overpay = ethers.parseEther("0.5");
 
-      await proxy.connect(user).createAtoms(data, assets, 1n, {
+      await proxy.connect(user).createAtoms(data, assets, assets.map(() => 0n), 1n, {
         value: totalRequired + overpay,
       });
 
@@ -646,7 +655,7 @@ describe("IntuitionFeeProxyV2", function () {
       const totalRequired = tripleCost + assets[0] + fee;
       const overpay = ethers.parseEther("1");
 
-      await proxy.connect(user).createTriples([s], [p], [o], assets, 1n, {
+      await proxy.connect(user).createTriples([s], [p], [o], assets, assets.map(() => 0n), 1n, {
         value: totalRequired + overpay,
       });
 
@@ -686,7 +695,7 @@ describe("IntuitionFeeProxyV2", function () {
       const overpay = ethers.parseEther("0.5");
 
       await expect(
-        proxy.connect(user).createAtoms(data, assets, 1n, {
+        proxy.connect(user).createAtoms(data, assets, assets.map(() => 0n), 1n, {
           value: totalRequired + overpay,
         })
       ).to.changeEtherBalance(proxy, fee);
@@ -732,6 +741,7 @@ describe("IntuitionFeeProxyV2", function () {
       const callData = proxy.interface.encodeFunctionData("createAtoms", [
         data,
         assets,
+        assets.map(() => 0n),
         1n,
       ]);
 
@@ -759,6 +769,7 @@ describe("IntuitionFeeProxyV2", function () {
       const callData = proxy.interface.encodeFunctionData("createAtoms", [
         data,
         assets,
+        assets.map(() => 0n),
         1n,
       ]);
 
@@ -809,6 +820,7 @@ describe("IntuitionFeeProxyV2", function () {
       const callData = proxy.interface.encodeFunctionData("createAtoms", [
         data,
         assets,
+        assets.map(() => 0n),
         1n,
       ]);
 
@@ -843,7 +855,7 @@ describe("IntuitionFeeProxyV2", function () {
       const termId = ethers.encodeBytes32String("term1");
       const total = ethers.parseEther("1");
 
-      const tx = await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      const tx = await proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: total });
       const rc = await tx.wait();
 
       const multiVaultAmount = (total - DEPOSIT_FEE) * FEE_DENOMINATOR / (FEE_DENOMINATOR + DEPOSIT_PERCENTAGE);
@@ -871,7 +883,7 @@ describe("IntuitionFeeProxyV2", function () {
       const fee = DEPOSIT_FEE * nonZeroCount + (totalAssets * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
       const value = fee + atomCost * 3n + totalAssets;
 
-      await proxy.connect(user).createAtoms(data, assets, 1n, { value });
+      await proxy.connect(user).createAtoms(data, assets, assets.map(() => 0n), 1n, { value });
 
       expect(await proxy.totalAtomsCreated()).to.equal(3n);
       expect(await proxy.totalDeposits()).to.equal(nonZeroCount);
@@ -889,7 +901,7 @@ describe("IntuitionFeeProxyV2", function () {
       const assets = [0n, 0n];
       const value = tripleCost * 2n;
 
-      await proxy.connect(user).createTriples(subjectIds, predicateIds, objectIds, assets, 1n, { value });
+      await proxy.connect(user).createTriples(subjectIds, predicateIds, objectIds, assets, assets.map(() => 0n), 1n, { value });
 
       expect(await proxy.totalTriplesCreated()).to.equal(2n);
       expect(await proxy.totalDeposits()).to.equal(0n); // all assets zero
@@ -918,11 +930,11 @@ describe("IntuitionFeeProxyV2", function () {
       const termId = ethers.encodeBytes32String("term1");
       const total = ethers.parseEther("1");
 
-      await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
-      await proxy.connect(user).deposit(termId, 1n, 0n, { value: total });
+      await proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: total });
+      await proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: total });
       expect(await proxy.totalUniqueUsers()).to.equal(1n);
 
-      await proxy.connect(admin1).deposit(termId, 1n, 0n, { value: total });
+      await proxy.connect(admin1).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: total });
       expect(await proxy.totalUniqueUsers()).to.equal(2n);
     });
 
@@ -931,7 +943,7 @@ describe("IntuitionFeeProxyV2", function () {
       expect(await proxy.hasInteracted(user.address)).to.be.false;
 
       const termId = ethers.encodeBytes32String("term1");
-      await proxy.connect(user).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") });
+      await proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: ethers.parseEther("1") });
 
       expect(await proxy.hasInteracted(user.address)).to.be.true;
       expect(await proxy.hasInteracted(admin1.address)).to.be.false;
@@ -940,7 +952,7 @@ describe("IntuitionFeeProxyV2", function () {
     it("getMetrics returns the full aggregate tuple", async function () {
       const { proxy, user } = await loadFixture(deployFixture);
       const termId = ethers.encodeBytes32String("term1");
-      await proxy.connect(user).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") });
+      await proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: ethers.parseEther("1") });
 
       const m = await proxy.getMetrics();
       expect(m.totalAtomsCreated).to.equal(0n);
@@ -955,7 +967,7 @@ describe("IntuitionFeeProxyV2", function () {
       const { proxy, user } = await loadFixture(deployFixture);
       const termId = ethers.encodeBytes32String("term1");
       await expect(
-        proxy.connect(user).deposit(termId, 1n, 0n, { value: ethers.parseEther("1") })
+        proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: ethers.parseEther("1") })
       ).to.emit(proxy, "MetricsUpdated");
     });
   });

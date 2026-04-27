@@ -267,12 +267,14 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     // ============ User entry points (override V2) ============
 
     /// @notice Disabled on the sponsored channel — the inverse-formula
-    ///         `deposit(3 args)` cannot convey an explicit `assets` intent to
+    ///         `deposit(…)` cannot convey an explicit `assets` intent to
     ///         the pool. Callers MUST use `depositSponsored(4 args)` instead.
     function deposit(
         bytes32 /* termId */,
         uint256 /* curveId */,
-        uint256 /* minShares */
+        uint256 /* minShares */,
+        uint256 /* maxFeeBps */,
+        uint256 /* maxFixedFee */
     ) external payable override nonReentrant returns (uint256) {
         revert Errors.Sponsored_UseDepositSponsored();
     }
@@ -315,9 +317,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     function createAtoms(
         bytes[] calldata data,
         uint256[] calldata assets,
+        uint256[] calldata minShares,
         uint256 curveId
     ) external payable override nonReentrant returns (bytes32[] memory atomIds) {
-        if (data.length != assets.length) revert Errors.IntuitionFeeProxy_WrongArrayLengths();
+        if (data.length != assets.length || assets.length != minShares.length) {
+            revert Errors.IntuitionFeeProxy_WrongArrayLengths();
+        }
 
         uint256 count = data.length;
         uint256 atomCost = _ethMultiVault.getAtomCost();
@@ -338,7 +343,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
         for (uint256 i = 0; i < count; i++) {
             if (assets[i] > 0) {
-                _ethMultiVault.deposit{value: assets[i]}(msg.sender, atomIds[i], curveId, 0);
+                _ethMultiVault.deposit{value: assets[i]}(msg.sender, atomIds[i], curveId, minShares[i]);
             }
         }
 
@@ -355,12 +360,14 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         bytes32[] calldata predicateIds,
         bytes32[] calldata objectIds,
         uint256[] calldata assets,
+        uint256[] calldata minShares,
         uint256 curveId
     ) external payable override nonReentrant returns (bytes32[] memory tripleIds) {
         if (
             subjectIds.length != predicateIds.length ||
             predicateIds.length != objectIds.length ||
-            objectIds.length != assets.length
+            objectIds.length != assets.length ||
+            assets.length != minShares.length
         ) revert Errors.IntuitionFeeProxy_WrongArrayLengths();
 
         uint256 count = subjectIds.length;
@@ -384,7 +391,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
         for (uint256 i = 0; i < count; i++) {
             if (assets[i] > 0) {
-                _ethMultiVault.deposit{value: assets[i]}(msg.sender, tripleIds[i], curveId, 0);
+                _ethMultiVault.deposit{value: assets[i]}(msg.sender, tripleIds[i], curveId, minShares[i]);
             }
         }
 

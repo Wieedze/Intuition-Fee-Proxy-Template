@@ -26,11 +26,13 @@ import {Errors} from "./libraries/Errors.sol";
 ///    `createAtoms` / `createTriples` MUST have approved this proxy on the
 ///    MultiVault for `DEPOSIT` before invoking them. The per-item deposit
 ///    loop runs AFTER term creation; a missing approval causes the inner
-///    call to revert AFTER atoms/triples are created on-chain (user pays
-///    the creation cost for nothing). The MultiVault v2 `approvals` mapping
-///    is `internal` — we cannot preflight it on-chain, so the check must
-///    live in the frontend / SDK. A future upstream PR may expose the
-///    mapping; once it does, this proxy will gain an on-chain preflight.
+///    deposit call to revert, which reverts the **entire** transaction
+///    (atomic). The user pays only the gas consumed up to the revert
+///    point — no on-chain atom/triple is created in this case. The
+///    MultiVault v2 `approvals` mapping is `internal` — we cannot preflight
+///    it on-chain, so the check must live in the frontend / SDK. A future
+///    upstream PR may expose the mapping; once it does, this proxy will
+///    gain an on-chain preflight.
 contract IntuitionFeeProxyV2 is
     IIntuitionFeeProxyV2,
     Initializable,
@@ -359,9 +361,10 @@ contract IntuitionFeeProxyV2 is
     function createAtoms(
         bytes[] calldata data,
         uint256[] calldata assets,
+        uint256[] calldata minShares,
         uint256 curveId
     ) external payable virtual nonReentrant returns (bytes32[] memory atomIds) {
-        if (data.length != assets.length) {
+        if (data.length != assets.length || assets.length != minShares.length) {
             revert Errors.IntuitionFeeProxy_WrongArrayLengths();
         }
 
@@ -387,7 +390,7 @@ contract IntuitionFeeProxyV2 is
 
         for (uint256 i = 0; i < count; i++) {
             if (assets[i] > 0) {
-                _ethMultiVault.deposit{value: assets[i]}(msg.sender, atomIds[i], curveId, 0);
+                _ethMultiVault.deposit{value: assets[i]}(msg.sender, atomIds[i], curveId, minShares[i]);
             }
         }
 
@@ -405,12 +408,14 @@ contract IntuitionFeeProxyV2 is
         bytes32[] calldata predicateIds,
         bytes32[] calldata objectIds,
         uint256[] calldata assets,
+        uint256[] calldata minShares,
         uint256 curveId
     ) external payable virtual nonReentrant returns (bytes32[] memory tripleIds) {
         if (
             subjectIds.length != predicateIds.length ||
             predicateIds.length != objectIds.length ||
-            objectIds.length != assets.length
+            objectIds.length != assets.length ||
+            assets.length != minShares.length
         ) {
             revert Errors.IntuitionFeeProxy_WrongArrayLengths();
         }
@@ -439,7 +444,7 @@ contract IntuitionFeeProxyV2 is
 
         for (uint256 i = 0; i < count; i++) {
             if (assets[i] > 0) {
-                _ethMultiVault.deposit{value: assets[i]}(msg.sender, tripleIds[i], curveId, 0);
+                _ethMultiVault.deposit{value: assets[i]}(msg.sender, tripleIds[i], curveId, minShares[i]);
             }
         }
 
@@ -453,14 +458,25 @@ contract IntuitionFeeProxyV2 is
     function deposit(
         bytes32 termId,
         uint256 curveId,
-        uint256 minShares
+        uint256 minShares,
+        uint256 maxFeeBps,
+        uint256 maxFixedFee
     ) external payable virtual nonReentrant returns (uint256 shares) {
-        if (msg.value <= depositFixedFee) {
+        // Front-run guard: snapshot the live fees and reject if either exceeds
+        // the caller-supplied cap. The user passes what they read off-chain;
+        // an admin bump in the same block reverts here instead of silently
+        // skimming more.
+        uint256 liveFixed = depositFixedFee;
+        uint256 livePct = depositPercentageFee;
+        if (livePct > maxFeeBps || liveFixed > maxFixedFee) {
+            revert Errors.IntuitionFeeProxy_FeeExceedsCap();
+        }
+        if (msg.value <= liveFixed) {
             revert Errors.IntuitionFeeProxy_InsufficientValue();
         }
 
-        uint256 multiVaultAmount = (msg.value - depositFixedFee) * FEE_DENOMINATOR
-                                   / (FEE_DENOMINATOR + depositPercentageFee);
+        uint256 multiVaultAmount = (msg.value - liveFixed) * FEE_DENOMINATOR
+                                   / (FEE_DENOMINATOR + livePct);
         uint256 fee = msg.value - multiVaultAmount;
 
         _accrueFee(fee, DEPOSIT, multiVaultAmount);
