@@ -47,14 +47,14 @@ export function ProxyAdminSafeBanner({ proxyAdmin }: Props) {
   if (onMainnet) {
     return (
       <div className="rounded-lg border border-rose-400/50 bg-rose-400/5 px-4 py-3 text-xs text-rose-300">
-        <strong>EOA proxyAdmin on mainnet — high risk.</strong> This single key can swap the proxy&apos;s implementation, replacing the entire logic of the contract. A key compromise here means total loss of control. Rotate to a Gnosis Safe before any production use (see <code className="font-mono text-rose-200">SAFE_TX_RUNBOOK.md</code> in the repo).
+        <strong>EOA proxyAdmin on mainnet — high risk.</strong> This single key can swap the proxy&apos;s implementation, replacing the entire logic of the contract. A key compromise here means total loss of control. Rotate to a Gnosis Safe before any production use.
       </div>
     )
   }
 
   return (
     <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-4 py-2.5 text-xs text-amber-300">
-      <strong>EOA proxyAdmin.</strong> Fine for dev / testing. Rotate to a Safe before this proxy goes near mainnet (see <code className="font-mono text-amber-200">SAFE_TX_RUNBOOK.md</code> in the repo).
+      <strong>EOA proxyAdmin.</strong> Fine for dev / testing. Rotate to a Safe before this proxy goes near mainnet.
     </div>
   )
 }
