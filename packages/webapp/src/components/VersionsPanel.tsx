@@ -250,14 +250,8 @@ export function VersionsPanel({
 
       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-subtle leading-relaxed">
         <strong className="text-amber-400">Heads up:</strong>{' '}
-        whoever holds the proxy admin role can switch the version your
-        deposits are routed through. If they install a bad version, future
-        deposits could be redirected — past deposits are unaffected.
-        <br />
-        Two ways to stay protected: lock yourself to a specific version when
-        you transact (instead of using the default), and remove your
-        MultiVault approval when you&apos;re not using this proxy. A Safe
-        multisig as proxy admin makes a malicious switch dramatically harder.
+        the proxy admin can switch which version handles new deposits. A
+        Safe as proxy admin makes this dramatically safer.
       </div>
 
       <ul className="divide-y divide-line rounded-lg border border-line bg-canvas overflow-hidden">
