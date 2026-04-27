@@ -8,7 +8,6 @@ import {
   useSetWhitelistedAdmin,
 } from '../hooks/useProxy'
 import AddressDisplay from './Address'
-import { SafeAdminHealthBanner } from './SafeAdminHealthBanner'
 import { SafeBadge } from './SafeBadge'
 import { Spinner } from './Spinner'
 
@@ -135,8 +134,6 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
           Failed to load admins: {error.message.split('\n')[0]}
         </p>
       )}
-
-      {admins.length > 0 && <SafeAdminHealthBanner admins={admins} />}
 
       {admins.length > 0 && (
         <ul className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">

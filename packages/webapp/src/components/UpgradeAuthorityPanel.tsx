@@ -9,6 +9,8 @@ import {
 import AddressDisplay from './Address'
 import { useProxyAdminRotation } from '../hooks/useProxyAdminRotation'
 import { usePostTxRefreshing } from '../hooks/usePostTxRefreshing'
+import { ProxyAdminSafeBanner } from './ProxyAdminSafeBanner'
+import { SafeBadge } from './SafeBadge'
 import { Spinner } from './Spinner'
 
 const ZERO = '0x0000000000000000000000000000000000000000'
@@ -144,6 +146,8 @@ export function UpgradeAuthorityPanel({
         without the contract knowing anything about it.
       </p>
 
+      <ProxyAdminSafeBanner proxyAdmin={proxyAdmin} />
+
       {acceptedFlash && (
         <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 flex items-center gap-2 animate-fade-in">
           <span
@@ -166,6 +170,10 @@ export function UpgradeAuthorityPanel({
         {proxyAdmin ? (
           <>
             <AddressDisplay value={proxyAdmin} variant="short" />
+            <SafeBadge
+              address={proxyAdmin}
+              safeUiUrl={`https://safe.onchainden.com/home?safe=int:${proxyAdmin}`}
+            />
             {isYou && (
               <span className="text-[10px] px-2 py-0.5 rounded bg-brand/10 text-brand uppercase tracking-wide">
                 you
