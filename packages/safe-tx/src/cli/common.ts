@@ -1,7 +1,8 @@
 import { getAddress, type Address } from 'viem'
-import { INTUITION_MAINNET, type SafeNetworkConfig } from '../networks.js'
+import { INTUITION_MAINNET } from '../networks.js'
 import { getSigner, type SignerStrategy } from '../signers/factory.js'
 import type { Signer } from '../signers/types.js'
+import type { SafeNetworkConfig } from '../types.js'
 
 /** Common flags shared by every CLI subcommand. */
 export type CommonOpts = {
