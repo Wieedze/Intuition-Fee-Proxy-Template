@@ -8,11 +8,11 @@ interface Props {
 }
 
 /**
- * Tiny inline badge: 🛡 Safe / 👤 EOA / 📄 Contract.
+ * Tiny inline badge: SAFE / EOA / CONTRACT.
  *
- * Non-blocking — purely visual. Used in the AdminsPanel to make it
- * obvious which admins are EOAs (single key, fragile) vs Safes
- * (multisig, recommended for production).
+ * Non-blocking — purely visual. Used in the AdminsPanel and
+ * UpgradeAuthorityPanel to make it obvious which admins are EOAs
+ * (single key, fragile) vs Safes (multisig, recommended for prod).
  */
 export function SafeBadge({ address, safeUiUrl }: Props) {
   const status = useSafeStatus(address)
@@ -58,7 +58,7 @@ export function SafeBadge({ address, safeUiUrl }: Props) {
   // Generic contract (smart wallet, module, etc.)
   return (
     <span
-      className="text-[10px] font-mono uppercase tracking-wider text-sky-400 border border-sky-400/40 rounded px-1.5 py-0.5"
+      className="text-[10px] font-mono uppercase tracking-wider text-subtle border border-line rounded px-1.5 py-0.5"
       title="Smart contract — not detected as a Safe. Could be another smart-wallet, module, or proxy."
     >
       Contract
