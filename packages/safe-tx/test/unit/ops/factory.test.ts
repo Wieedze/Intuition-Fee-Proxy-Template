@@ -52,7 +52,8 @@ describe('factory AdminOp builders', () => {
     expect(op.data.length).toBe(10)
     const decoded = decodeFunctionData({ abi: ABI, data: op.data })
     expect(decoded.functionName).toBe('acceptOwnership')
-    expect(decoded.args).toEqual([])
+    // viem returns args === undefined for no-input functions (not [])
+    expect(decoded.args ?? []).toEqual([])
   })
 
   it('all builders target the factory address with value 0n', () => {
