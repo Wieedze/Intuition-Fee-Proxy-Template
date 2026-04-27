@@ -19,7 +19,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "propose": "bun bin/safe-propose.ts"
+    "propose": "bun bin/safe-propose.ts",
+    "rotate-admin": "bun scripts/transferAdminToSafe.ts"
   },
   "dependencies": {
     "commander": "^12.0.0"

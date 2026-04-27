@@ -33,7 +33,8 @@
     "webapp:preview": "bun --filter @intuition-fee-proxy/webapp preview",
     "safe:tx": "bun packages/safe-tx/bin/safe-propose.ts",
     "safe:tx:test": "bun --filter @intuition-fee-proxy/safe-tx test",
-    "safe:tx:typecheck": "bun --filter @intuition-fee-proxy/safe-tx typecheck"
+    "safe:tx:typecheck": "bun --filter @intuition-fee-proxy/safe-tx typecheck",
+    "safe:rotate-admin": "bun packages/safe-tx/scripts/transferAdminToSafe.ts"
   },
   "license": "MIT",
   "devDependencies": {
