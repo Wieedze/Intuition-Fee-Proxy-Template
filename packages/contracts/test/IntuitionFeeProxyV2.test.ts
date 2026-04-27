@@ -585,6 +585,44 @@ describe("IntuitionFeeProxyV2", function () {
       ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_InsufficientValue");
     });
 
+    it("createAtoms reverts atomically when minShares[i] > received shares (slippage)", async function () {
+      // F3 guard: a sandwich attacker pushes the bonding curve so the inner
+      // deposit returns fewer shares than the user's minShares[i]. Inner
+      // deposit reverts → entire tx reverts → atom creation rolled back.
+      const { proxy, mockMultiVault, user, mockMultiVault: mv } = await loadFixture(deployFixture);
+      const atomCost = await mockMultiVault.getAtomCost();
+      const data = [ethers.toUtf8Bytes("a")];
+      const assets = [ethers.parseEther("1")];                  // → 1 ETH sent to inner deposit
+      const minSharesArr = [ethers.parseEther("1") + 1n];       // require strictly more than what mock returns
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = atomCost + assets[0] + fee;
+
+      const atomsBefore = await proxy.totalAtomsCreated();
+      const createCallsBefore = await mv.createAtomsCallCount();
+
+      await expect(
+        proxy.connect(user).createAtoms(data, assets, minSharesArr, 1n, { value: totalRequired }),
+      ).to.be.revertedWithCustomError(mockMultiVault, "MockMultiVault_SlippageExceeded");
+
+      // Atomicity: createAtoms call must have been rolled back too
+      expect(await proxy.totalAtomsCreated()).to.equal(atomsBefore);
+      expect(await mv.createAtomsCallCount()).to.equal(createCallsBefore);
+      expect(await proxy.accumulatedFees()).to.equal(0n);
+    });
+
+    it("createAtoms with minShares[i] == 0 disables slippage (back-compat)", async function () {
+      const { proxy, mockMultiVault, user } = await loadFixture(deployFixture);
+      const atomCost = await mockMultiVault.getAtomCost();
+      const data = [ethers.toUtf8Bytes("a")];
+      const assets = [ethers.parseEther("1")];
+      const fee = DEPOSIT_FEE + (assets[0] * DEPOSIT_PERCENTAGE) / FEE_DENOMINATOR;
+      const totalRequired = atomCost + assets[0] + fee;
+      // Explicit zero — no slippage protection
+      await expect(
+        proxy.connect(user).createAtoms(data, assets, [0n], 1n, { value: totalRequired }),
+      ).to.not.be.reverted;
+    });
+
     it("createTriples reverts on mismatched arrays", async function () {
       const { proxy, user } = await loadFixture(deployFixture);
       await expect(
@@ -606,6 +644,60 @@ describe("IntuitionFeeProxyV2", function () {
       await expect(
         proxy.connect(user).deposit(termId, 1n, 0n, MAX_FEE_BPS, MAX_FIXED_FEE, { value: DEPOSIT_FEE })
       ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_InsufficientValue");
+    });
+
+    it("deposit reverts FeeExceedsCap when livePct > maxFeeBps (admin front-run)", async function () {
+      // F5 guard: simulate admin bumping percentageFee above what the user
+      // saw off-chain. The user's stale `maxFeeBps` should reject the tx
+      // instead of silently being charged the new (higher) rate.
+      const { proxy, admin1, user } = await loadFixture(deployFixture);
+      // User saw 5% (500 bps) and signed for "max 5%". Admin bumps to 7%
+      // (700 bps) before user's tx mines.
+      await proxy.connect(admin1).setDepositPercentageFee(700n);
+      const termId = ethers.zeroPadValue("0x01", 32);
+      await expect(
+        proxy.connect(user).deposit(
+          termId,
+          1n,
+          0n,
+          500n,                  // user's stale cap (5%)
+          MAX_FIXED_FEE,
+          { value: ethers.parseEther("1") },
+        ),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_FeeExceedsCap");
+    });
+
+    it("deposit reverts FeeExceedsCap when liveFixed > maxFixedFee", async function () {
+      const { proxy, admin1, user } = await loadFixture(deployFixture);
+      // User signed for max 0.1 TRUST fixed; admin bumps to 0.2.
+      await proxy.connect(admin1).setDepositFixedFee(ethers.parseEther("0.2"));
+      const termId = ethers.zeroPadValue("0x01", 32);
+      await expect(
+        proxy.connect(user).deposit(
+          termId,
+          1n,
+          0n,
+          MAX_FEE_BPS,
+          ethers.parseEther("0.1"),  // user's stale cap
+          { value: ethers.parseEther("1") },
+        ),
+      ).to.be.revertedWithCustomError(proxy, "IntuitionFeeProxy_FeeExceedsCap");
+    });
+
+    it("deposit succeeds when livePct == maxFeeBps (boundary check)", async function () {
+      // Equality is allowed — the cap is "no higher than", not "strictly less".
+      const { proxy, user } = await loadFixture(deployFixture);
+      const termId = ethers.zeroPadValue("0x01", 32);
+      await expect(
+        proxy.connect(user).deposit(
+          termId,
+          1n,
+          0n,
+          DEPOSIT_PERCENTAGE,        // exactly the live value
+          DEPOSIT_FEE,               // exactly the live value
+          { value: ethers.parseEther("1") },
+        ),
+      ).to.not.be.reverted;
     });
 
     it("depositBatch reverts on mismatched arrays", async function () {

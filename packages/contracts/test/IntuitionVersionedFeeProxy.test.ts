@@ -134,6 +134,23 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
         VersionedFactory.deploy(proxyAdmin.address, V2, await impl.getAddress(), badInit, ethers.ZeroHash),
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_FeePercentageTooHigh");
     });
+
+    it("reverts on empty initData even when admin/version/impl are valid", async function () {
+      // F9 guard: a direct deploy without initData would leave the impl
+      // storage uninitialized, letting anyone front-run an
+      // `executeAtVersion(v, initialize_calldata)` call to seize first-admin.
+      const { proxyAdmin, implV2 } = await loadFixture(deployFixture);
+      const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
+      await expect(
+        VersionedFactory.deploy(
+          proxyAdmin.address,
+          V2,
+          await implV2.getAddress(),
+          "0x",
+          ethers.ZeroHash,
+        ),
+      ).to.be.revertedWithCustomError(VersionedFactory, "VersionedFeeProxy_InvalidImplementation");
+    });
   });
 
   // ============ registerVersion / setDefault / remove ============

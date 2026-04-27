@@ -77,11 +77,14 @@ contract MockMultiVault is IEthMultiVault {
         return tripleIds;
     }
 
+    /// @dev Slippage error matching the real MV's `Slippage`-class revert.
+    error MockMultiVault_SlippageExceeded(uint256 received, uint256 minShares);
+
     function deposit(
         address receiver,
         bytes32 termId,
         uint256 curveId,
-        uint256 /* minShares */
+        uint256 minShares
     ) external payable override returns (uint256 sharesOut) {
         depositCallCount++;
         lastDepositAmount = msg.value;
@@ -91,6 +94,10 @@ contract MockMultiVault is IEthMultiVault {
 
         // Mock shares calculation: 1:1 ratio
         sharesOut = msg.value;
+        // Enforce slippage so tests can exercise minShares > received
+        if (sharesOut < minShares) {
+            revert MockMultiVault_SlippageExceeded(sharesOut, minShares);
+        }
         shares[receiver][termId][curveId] += sharesOut;
 
         return sharesOut;
