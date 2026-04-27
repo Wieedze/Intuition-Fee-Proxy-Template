@@ -1,4 +1,18 @@
-import type { Address } from 'viem'
+import type { Address, Hex } from 'viem'
+
+/**
+ * A single admin operation to be executed by the Safe.
+ *
+ * Shape is compatible with Safe SDK `MetaTransactionData` once `value` is
+ * stringified. `description` is for logs / CLI output / audit trail —
+ * not consumed by the chain.
+ */
+export type AdminOp = {
+  to: Address
+  value: bigint
+  data: Hex
+  description: string
+}
 
 /**
  * Safe contract addresses deployed on a given chain.

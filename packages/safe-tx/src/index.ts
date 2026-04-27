@@ -1,4 +1,4 @@
-export type { NetworkName, SafeContracts, SafeNetworkConfig } from './types.js'
+export type { AdminOp, NetworkName, SafeContracts, SafeNetworkConfig } from './types.js'
 export {
   INTUITION_MAINNET,
   NETWORKS,
@@ -6,3 +6,4 @@ export {
   buildTxServiceApiUrl,
   getNetwork,
 } from './networks.js'
+export * as ops from './ops/index.js'
