@@ -5,24 +5,27 @@ import type { Signer } from './types.js'
 export type LedgerSignerOptions = {
   /** BIP-44 path. Default: "44'/60'/0'/0/0" (first Ethereum account). */
   derivationPath?: string
+  /** Max time to wait for USB transport open. Default: 3000ms. */
+  transportTimeoutMs?: number
 }
 
 /**
  * Hardware-wallet signing via Ledger over USB. Uses dynamic imports of
- * `@ledgerhq/hw-app-eth` + `@ledgerhq/hw-transport-node-hid` so the
- * deps stay optional — install them only if you actually use this:
+ * `@ledgerhq/hw-app-eth` + `@ledgerhq/hw-transport-node-hid` (declared
+ * as `optionalDependencies`) so the heavy native bindings only need to
+ * resolve when this signer is actually selected.
  *
- *   bun add @ledgerhq/hw-app-eth @ledgerhq/hw-transport-node-hid
- *
- * EIP-712 signing uses `signEIP712Message` (full JSON, displays the
- * struct on-device). Requires Ledger Ethereum app v1.10+. Older app
- * versions can be updated via Ledger Live.
+ * EIP-712 signing uses `signEIP712Message` (full struct on-device,
+ * requires Ledger Ethereum app v1.10+). For Intuition mainnet
+ * (chain id 1155, not in Ledger's pre-shipped chain list), the device's
+ * Ethereum app must have "Blind signing" enabled in Settings.
  *
  * Pre-flight: device unlocked, Ethereum app open, Ledger Live closed
  * (Live grabs the USB transport and blocks other clients).
  */
 export async function ledgerSigner(opts: LedgerSignerOptions = {}): Promise<Signer> {
   const derivationPath = opts.derivationPath ?? "44'/60'/0'/0/0"
+  const transportTimeoutMs = opts.transportTimeoutMs ?? 3000
 
   let TransportNodeHid: typeof import('@ledgerhq/hw-transport-node-hid').default
   let Eth: typeof import('@ledgerhq/hw-app-eth').default
@@ -38,9 +41,24 @@ export async function ledgerSigner(opts: LedgerSignerOptions = {}): Promise<Sign
     )
   }
 
+  // TransportNodeHid.create() can hang indefinitely on machines with no
+  // Ledger plugged in (and on some Linux configs without udev rules).
+  // Race it with a timeout so we surface a usable error instead of a
+  // 30s freeze.
   let transport: Awaited<ReturnType<typeof TransportNodeHid.create>>
   try {
-    transport = await TransportNodeHid.create()
+    transport = await Promise.race([
+      TransportNodeHid.create(),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(`USB transport open timed out after ${transportTimeoutMs}ms`),
+            ),
+          transportTimeoutMs,
+        ),
+      ),
+    ])
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     throw new Error(
@@ -61,12 +79,15 @@ export async function ledgerSigner(opts: LedgerSignerOptions = {}): Promise<Sign
     address: account,
 
     async signTypedData(typedData) {
-      // viem may pass bigints in the typed data — JSON.stringify needs
-      // help. Pass as decimal strings; the Ledger Eth app accepts that.
-      const json = JSON.stringify(typedData, (_k, v) =>
-        typeof v === 'bigint' ? v.toString() : v,
-      )
-      const sig = await eth.signEIP712Message(derivationPath, json)
+      // The Ledger SDK takes an EIP712Message *object* (not JSON string),
+      // and all numeric values must be decimal strings (no bigints). Round-
+      // trip through JSON to coerce bigints while preserving structure.
+      const eip712Message = JSON.parse(
+        JSON.stringify(typedData, (_k, v) =>
+          typeof v === 'bigint' ? v.toString() : v,
+        ),
+      ) as Parameters<typeof eth.signEIP712Message>[1]
+      const sig = await eth.signEIP712Message(derivationPath, eip712Message)
       return packSig(sig.r, sig.s, sig.v)
     },
 
