@@ -250,10 +250,15 @@ export function UpgradeAuthorityPanel({
       )}
 
       {(isYou || proxyAdminSafe) && (
-        <div className="space-y-2 pt-2 border-t border-line">
-          <label className="block text-[10px] uppercase tracking-wide text-subtle">
-            Grant Role 1 to a new address (2-step)
-          </label>
+        <div className="space-y-2 pt-3 border-t border-line">
+          <div className="flex items-baseline justify-between gap-2 flex-wrap">
+            <label className="block text-[10px] uppercase tracking-wide text-subtle">
+              Grant Role 1 to a new address
+            </label>
+            <span className="text-[10px] text-subtle">
+              2-step · target then signs <code className="font-mono">acceptProxyAdmin()</code>
+            </span>
+          </div>
           <div className="flex flex-wrap gap-2">
             <input
               type="text"
@@ -270,14 +275,14 @@ export function UpgradeAuthorityPanel({
                   inputValid && transferAdmin(newAdminInput.trim() as Address)
                 }
                 disabled={!inputValid || transferPending || transferReceipt.isLoading}
-                className="btn-secondary text-xs px-3 py-1.5"
+                className="btn-primary text-xs px-3 py-1.5"
               >
                 {transferPending
                   ? 'Sign…'
                   : transferReceipt.isLoading
                     ? 'Mining…'
                     : hasPending
-                      ? 'Grant (replace pending)'
+                      ? 'Replace pending'
                       : 'Grant'}
               </button>
             )}
@@ -310,25 +315,30 @@ export function UpgradeAuthorityPanel({
               {transferError.message.split('\n')[0]}
             </p>
           )}
-          <p className="text-[11px] text-subtle leading-relaxed">
-            Grants Role 1 only — the target must then call{' '}
-            <code className="font-mono text-ink">acceptProxyAdmin()</code>.
-            Fee admin rights (Role 2) are untouched. Use the combined grant
-            below if you hold both roles.
-          </p>
         </div>
       )}
 
-      {hasBothRoles && <RotateBothRolesForm rotation={rotation} />}
+      {hasBothRoles && (
+        <details className="group rounded-md border border-line bg-surface open:bg-brand/5 open:border-brand/30 transition-colors">
+          <summary className="cursor-pointer list-none px-3 py-2 flex items-center justify-between gap-2 text-xs select-none">
+            <span className="inline-flex items-baseline gap-2">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-brand">
+                Advanced
+              </span>
+              <span className="font-medium text-ink">
+                Grant both roles to a single address
+              </span>
+            </span>
+            <span className="text-[10px] text-subtle group-open:hidden">expand</span>
+            <span className="text-[10px] text-subtle hidden group-open:inline">collapse</span>
+          </summary>
+          <div className="border-t border-line/60 p-3">
+            <RotateBothRolesForm rotation={rotation} />
+          </div>
+        </details>
+      )}
 
       <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
-
-      <p className="text-xs text-subtle leading-relaxed pt-1">
-        Role 1 controls <em>which logic</em> the proxy delegates to —
-        register new implementations, change default version, rename. It{' '}
-        <strong>cannot</strong> touch fees, withdrawals, or the sponsor
-        pool; those are Role 2 below.
-      </p>
     </section>
   )
 }
@@ -355,23 +365,20 @@ function RotateBothRolesForm({
     }
   })()
 
+  const stepDone = (s: 'grant' | 'transfer' | 'accept') => {
+    if (s === 'grant')
+      return rotation.grantConfirmed || rotation.stage === 'transfer' || rotation.stage === 'done'
+    if (s === 'transfer') return rotation.stage === 'done'
+    return false
+  }
+
   return (
-    <div className="rounded-md border border-brand/30 bg-brand/5 p-3 space-y-2">
-      <div className="flex items-baseline gap-2 flex-wrap">
-        <span className="text-[10px] font-mono uppercase tracking-widest text-brand">
-          Convenience
-        </span>
-        <strong className="text-sm">
-          Grant both roles to a single address
-        </strong>
-      </div>
+    <div className="space-y-3">
       <p className="text-[11px] text-subtle leading-relaxed">
-        You currently hold both roles. This runs{' '}
-        <code className="font-mono text-ink">setWhitelistedAdmin(new, true)</code>{' '}
-        then <code className="font-mono text-ink">transferProxyAdmin(new)</code>{' '}
-        back-to-back (2 signatures). After the new admin calls{' '}
-        <code className="font-mono text-ink">acceptProxyAdmin()</code>, they
-        can revoke you as fee admin from their wallet.
+        Two signatures: <code className="font-mono text-ink">setWhitelistedAdmin</code>{' '}
+        then <code className="font-mono text-ink">transferProxyAdmin</code>. The
+        new admin then calls{' '}
+        <code className="font-mono text-ink">acceptProxyAdmin()</code>.
       </p>
       {rotation.stage !== 'complete' && (
         <div className="flex flex-wrap gap-2">
@@ -395,38 +402,24 @@ function RotateBothRolesForm({
         </div>
       )}
       {rotation.stage !== 'idle' && rotation.stage !== 'complete' && (
-        <ol className="text-[11px] text-subtle space-y-1 list-decimal list-inside">
-          <li className={rotation.stage === 'grant' ? 'text-ink' : ''}>
-            {rotation.grantConfirmed ? '✓ ' : ''}Grant fee admin to new
-            address (immediate)
+        <ol className="text-[11px] space-y-1 list-decimal list-inside">
+          <li className={stepDone('grant') ? 'text-emerald-400' : rotation.stage === 'grant' ? 'text-ink' : 'text-subtle'}>
+            Grant fee admin (immediate)
           </li>
-          <li
-            className={
-              rotation.stage === 'transfer' || rotation.stage === 'done'
-                ? 'text-ink'
-                : ''
-            }
-          >
-            {rotation.stage === 'done' ? '✓ ' : ''}Initiate proxyAdmin
-            transfer (pending until accepted)
+          <li className={stepDone('transfer') ? 'text-emerald-400' : (rotation.stage === 'transfer' || rotation.stage === 'done') ? 'text-ink' : 'text-subtle'}>
+            Transfer proxyAdmin (pending)
           </li>
-          <li className={rotation.stage === 'done' ? 'text-ink' : ''}>
+          <li className={rotation.stage === 'done' ? 'text-ink' : 'text-subtle'}>
             New admin calls{' '}
-            <code className="font-mono text-ink">acceptProxyAdmin()</code>{' '}
-            <span className="text-subtle">(auto-detected)</span>
-          </li>
-          <li>
-            (optional) Revoke your old fee admin rights from the new
-            admin&apos;s wallet
+            <code className="font-mono text-ink">acceptProxyAdmin()</code>
           </li>
         </ol>
       )}
       {rotation.stage === 'complete' && (
         <div className="space-y-2">
-          <p className="text-xs text-ink">
-            ✓ Rotation complete — the new address is now proxyAdmin + fee
-            admin. You can optionally revoke yourself as fee admin from the
-            new admin&apos;s wallet.
+          <p className="text-xs text-emerald-400">
+            Rotation complete. Optionally revoke your fee admin rights from
+            the new admin&apos;s wallet.
           </p>
           <button
             type="button"

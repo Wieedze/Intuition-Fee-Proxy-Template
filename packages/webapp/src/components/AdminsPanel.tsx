@@ -143,10 +143,8 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
         </span>
       </div>
       <p className="text-xs text-muted leading-relaxed">
-        Controls money flow — withdraw accumulated fees, change fee settings,
-        add / revoke other fee admins, and on sponsored proxies fundPool /
-        reclaim / setClaimLimits. <strong>Cannot</strong> register new
-        implementation versions. List is reconstructed from on-chain events.
+        Controls fees, withdrawals and (sponsored) pool funding. Cannot
+        register new implementations.
       </p>
 
       {isLoading && admins.length === 0 && (
@@ -228,13 +226,12 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
 
       {canInteract ? (
         <div className="rounded-xl border border-line bg-surface p-5 space-y-3">
-          <div>
+          <div className="flex items-baseline justify-between gap-2 flex-wrap">
             <div className="text-sm font-medium text-ink">
               Grant Role 2 to a new address
             </div>
-            <div className="text-xs text-subtle">
-              Grants fee admin rights. Use a Safe or multisig address for
-              production deployments — granting to an EOA concentrates trust.
+            <div className="text-[10px] text-subtle">
+              Prefer a Safe — granting to an EOA concentrates trust
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">

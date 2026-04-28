@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { formatEther, isAddress, parseEther, type Address } from 'viem'
+import { isAddress, parseEther, type Address } from 'viem'
 import { useWaitForTransactionReceipt } from 'wagmi'
 
 import { ops } from '@intuition-fee-proxy/safe-tx'
@@ -10,11 +10,10 @@ import { SafeProposeFeedback } from './SafeProposeFeedback'
 
 interface Props {
   proxy: Address
-  poolBalance: bigint | undefined
   onDone: () => void
 }
 
-export function ReclaimFromPoolPanel({ proxy, poolBalance, onDone }: Props) {
+export function ReclaimFromPoolPanel({ proxy, onDone }: Props) {
   const [amount, setAmount] = useState('')
   const [to, setTo] = useState('')
   const { reclaim, hash, isPending, error, reset } = useReclaimFromPool(proxy)
@@ -56,15 +55,11 @@ export function ReclaimFromPoolPanel({ proxy, poolBalance, onDone }: Props) {
   }
 
   return (
-    <section className="card space-y-4">
+    <section className="card flex flex-col gap-4 h-full">
       <div>
-        <div className="text-[10px] font-mono uppercase tracking-wider text-subtle">
-          Counterpart to Fund pool
-        </div>
-        <h3 className="font-semibold mt-1">Reclaim from pool</h3>
-        <p className="text-xs text-subtle mt-1 leading-relaxed">
-          Withdraw TRUST you previously funded but that users haven&apos;t
-          spent yet.
+        <h3 className="font-semibold">Reclaim from pool</h3>
+        <p className="text-xs text-subtle">
+          Withdraw unspent TRUST you previously funded.
         </p>
       </div>
 
@@ -89,41 +84,38 @@ export function ReclaimFromPoolPanel({ proxy, poolBalance, onDone }: Props) {
           placeholder="1.0"
           className="input"
         />
-        {poolBalance !== undefined && (
-          <div className="text-xs text-subtle mt-1">
-            Pool balance: {formatEther(poolBalance)} TRUST
-          </div>
-        )}
       </label>
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={onSubmit}
-          disabled={!toValid || !amountValid || isPending || receipt.isLoading || safePropose.isProposing}
-          className="btn-primary"
-        >
-          {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Reclaim from pool'}
-        </button>
-        {safe && (
+      <div className="mt-auto space-y-2">
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={onProposeReclaim}
+            onClick={onSubmit}
             disabled={!toValid || !amountValid || isPending || receipt.isLoading || safePropose.isProposing}
-            className="btn-secondary text-xs px-3"
+            className="btn-primary"
           >
-            {safePropose.isProposing ? 'Proposing…' : 'Propose via Safe'}
+            {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Reclaim from pool'}
           </button>
+          {safe && (
+            <button
+              type="button"
+              onClick={onProposeReclaim}
+              disabled={!toValid || !amountValid || isPending || receipt.isLoading || safePropose.isProposing}
+              className="btn-secondary text-xs px-3"
+            >
+              {safePropose.isProposing ? 'Proposing…' : 'Propose via Safe'}
+            </button>
+          )}
+        </div>
+
+        <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
+
+        {error && (
+          <p className="text-xs text-rose-400 font-mono">
+            {error.message.split('\n')[0]}
+          </p>
         )}
       </div>
-
-      <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
-
-      {error && (
-        <p className="text-xs text-rose-400 font-mono">
-          {error.message.split('\n')[0]}
-        </p>
-      )}
     </section>
   )
 }

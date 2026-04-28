@@ -34,13 +34,11 @@ export function FundPoolPanel({ proxy, onDone }: Props) {
   }
 
   return (
-    <section className="card space-y-4">
+    <section className="card flex flex-col gap-4 h-full">
       <div>
         <h3 className="font-semibold">Fund the pool</h3>
         <p className="text-xs text-subtle">
-          Top up the shared sponsorship pool with TRUST from your wallet.
-          Any user interacting with this proxy will draw from the pool
-          transparently (bounded by the per-user rate limits).
+          Permissionless — anyone can top up the shared pool.
         </p>
       </div>
 
@@ -57,20 +55,22 @@ export function FundPoolPanel({ proxy, onDone }: Props) {
         />
       </label>
 
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={!amountValid || isPending || receipt.isLoading}
-        className="btn-primary"
-      >
-        {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Fund pool'}
-      </button>
+      <div className="mt-auto space-y-2">
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={!amountValid || isPending || receipt.isLoading}
+          className="btn-primary"
+        >
+          {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Fund pool'}
+        </button>
 
-      {error && (
-        <p className="text-xs text-rose-400 font-mono">
-          {error.message.split('\n')[0]}
-        </p>
-      )}
+        {error && (
+          <p className="text-xs text-rose-400 font-mono">
+            {error.message.split('\n')[0]}
+          </p>
+        )}
+      </div>
     </section>
   )
 }

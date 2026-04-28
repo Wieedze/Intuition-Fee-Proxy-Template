@@ -67,12 +67,6 @@ export function MetricsTab({
         <h2 className="text-sm font-medium uppercase tracking-wider text-subtle">
           On-chain metrics
         </h2>
-        <p className="mt-1 text-sm text-muted">
-          Aggregate counters read from the proxy itself. Every write-path
-          call updates these and emits a{' '}
-          <code className="font-mono text-ink">MetricsUpdated</code> event —
-          single-source-of-truth for dashboards and off-chain indexers.
-        </p>
       </div>
 
       {unsupported && (
@@ -130,11 +124,6 @@ export function MetricsTab({
             <h3 className="text-sm font-medium uppercase tracking-wider text-subtle">
               Sponsored activity
             </h3>
-            <p className="mt-1 text-sm text-muted">
-              Subset of the metrics above that went through the sponsor pool
-              (fully or partially covered by{' '}
-              <code className="font-mono text-ink">sponsorPool</code>).
-            </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-3">
             <Metric
