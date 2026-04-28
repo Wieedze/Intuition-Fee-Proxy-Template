@@ -13,7 +13,7 @@ export function buildConfirmCommand(): Command {
     .option('--network <name>', 'Target network', 'intuition-mainnet')
     .addOption(
       new Option('--signer <strategy>', 'Signer strategy')
-        .choices(['env', 'walletconnect', 'ledger'])
+        .choices(['env', 'walletconnect', 'ledger', 'trezor'])
         .default('env'),
     )
     .action(

@@ -27,7 +27,8 @@
   },
   "optionalDependencies": {
     "@ledgerhq/hw-app-eth": "^6.39.0",
-    "@ledgerhq/hw-transport-node-hid": "^6.29.5"
+    "@ledgerhq/hw-transport-node-hid": "^6.29.5",
+    "@trezor/connect": "^9.4.0"
   },
   "peerDependencies": {
     "viem": "^2.0.0"
