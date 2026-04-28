@@ -28,10 +28,8 @@ export function AdminsTab({
   return (
     <div className="space-y-6">
       <p className="text-xs text-muted leading-relaxed max-w-3xl">
-        Two independent admin roles — disjoint by design so that a compromise
-        of one cannot be leveraged into the other. Most setups use a single
-        Safe for both; splitting is an option if your dev team and ops team
-        are distinct.
+        Two independent roles. A single Safe can hold both, or split them
+        between dev and ops.
       </p>
       <UpgradeAuthorityPanel
         proxy={proxy}

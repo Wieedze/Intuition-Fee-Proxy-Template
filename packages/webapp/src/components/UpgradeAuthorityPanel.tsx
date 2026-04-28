@@ -2,15 +2,19 @@ import { useEffect, useState } from 'react'
 import { isAddress, type Address } from 'viem'
 import { useWaitForTransactionReceipt } from 'wagmi'
 
+import { ops } from '@intuition-fee-proxy/safe-tx'
 import {
   useAcceptProxyAdmin,
   useTransferProxyAdmin,
 } from '../hooks/useVersionedProxy'
+import { useSafePropose } from '../hooks/useSafePropose'
+import { useSafeStatus } from '../hooks/useSafeStatus'
 import AddressDisplay from './Address'
 import { useProxyAdminRotation } from '../hooks/useProxyAdminRotation'
 import { usePostTxRefreshing } from '../hooks/usePostTxRefreshing'
 import { ProxyAdminSafeBanner } from './ProxyAdminSafeBanner'
 import { SafeBadge } from './SafeBadge'
+import { SafeProposeFeedback } from './SafeProposeFeedback'
 import { Spinner } from './Spinner'
 
 const ZERO = '0x0000000000000000000000000000000000000000'
@@ -48,6 +52,18 @@ export function UpgradeAuthorityPanel({
       account.toLowerCase() === pendingProxyAdmin.toLowerCase(),
   )
   const hasBothRoles = isYou && isConnectedFeeAdmin
+
+  // Detect if proxyAdmin is itself a Safe — then we can propose
+  // transferProxyAdmin / acceptProxyAdmin via that Safe.
+  const proxyAdminStatus = useSafeStatus(proxyAdmin)
+  const proxyAdminSafe = proxyAdminStatus.kind === 'safe' ? proxyAdmin : undefined
+  // Same for the pending admin — useful when the new owner is a Safe
+  // and needs to acceptProxyAdmin via that Safe's quorum.
+  const pendingStatus = useSafeStatus(pendingProxyAdmin)
+  const pendingIsSafe = pendingStatus.kind === 'safe'
+  const safePropose = useSafePropose({
+    safeAddress: proxyAdminSafe ?? (pendingIsSafe ? pendingProxyAdmin : undefined),
+  })
 
   // Standalone "Grant Role 1" — separate write instance from the rotation.
   const [newAdminInput, setNewAdminInput] = useState('')
@@ -139,26 +155,17 @@ export function UpgradeAuthorityPanel({
       </div>
 
       <p className="text-[11px] text-muted leading-relaxed -mt-2">
-        Only <strong>one</strong> address can hold this role at a time.
-        For production, put a <strong>Gnosis Safe multisig</strong> here —
-        the Safe itself handles N signers / threshold / signer rotation
-        internally, so you get &ldquo;multi-human proxyAdmin&rdquo;
-        without the contract knowing anything about it.
+        Single slot. Controls implementation registration only — fees and
+        withdrawals are Role 2. Use a Safe for production.
       </p>
 
       <ProxyAdminSafeBanner proxyAdmin={proxyAdmin} />
 
       {acceptedFlash && (
-        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 flex items-center gap-2 animate-fade-in">
-          <span
-            aria-hidden
-            className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400"
-          >
-            ✓
-          </span>
+        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 animate-fade-in">
           <span className="text-sm text-emerald-300">
-            You are now <strong>proxyAdmin</strong> — the transfer has been
-            finalised on-chain.
+            You are now <strong>proxyAdmin</strong> — transfer finalised
+            on-chain.
           </span>
         </div>
       )}
@@ -199,10 +206,9 @@ export function UpgradeAuthorityPanel({
             )}
           </div>
           <p className="text-xs text-subtle leading-relaxed">
-            A transfer has been initiated. The pending address must sign{' '}
-            <code className="font-mono text-ink">acceptProxyAdmin()</code> from
-            their wallet to finalise. Until then the current admin keeps all
-            powers and can overwrite the pending candidate.
+            Pending must call{' '}
+            <code className="font-mono text-ink">acceptProxyAdmin()</code> to
+            finalise. Current admin can still overwrite.
           </p>
           {isPendingYou && (
             <button
@@ -218,6 +224,23 @@ export function UpgradeAuthorityPanel({
                   : 'Accept proxyAdmin role'}
             </button>
           )}
+          {pendingIsSafe && pendingProxyAdmin && (
+            <button
+              type="button"
+              onClick={async () => {
+                safePropose.reset()
+                try {
+                  await safePropose.propose(ops.versionedProxy.acceptProxyAdmin(proxy))
+                } catch (e) {
+                  console.error(e)
+                }
+              }}
+              disabled={safePropose.isProposing}
+              className="btn-secondary text-xs px-3 py-1.5"
+            >
+              {safePropose.isProposing ? 'Proposing…' : 'Propose acceptProxyAdmin via Safe'}
+            </button>
+          )}
           {acceptError && (
             <p className="text-xs text-rose-400 font-mono break-words">
               {acceptError.message.split('\n')[0]}
@@ -226,11 +249,16 @@ export function UpgradeAuthorityPanel({
         </div>
       )}
 
-      {isYou && (
-        <div className="space-y-2 pt-2 border-t border-line">
-          <label className="block text-[10px] uppercase tracking-wide text-subtle">
-            Grant Role 1 to a new address (2-step)
-          </label>
+      {(isYou || proxyAdminSafe) && (
+        <div className="space-y-2 pt-3 border-t border-line">
+          <div className="flex items-baseline justify-between gap-2 flex-wrap">
+            <label className="block text-[10px] uppercase tracking-wide text-subtle">
+              Grant Role 1 to a new address
+            </label>
+            <span className="text-[10px] text-subtle">
+              2-step · target then signs <code className="font-mono">acceptProxyAdmin()</code>
+            </span>
+          </div>
           <div className="flex flex-wrap gap-2">
             <input
               type="text"
@@ -240,45 +268,77 @@ export function UpgradeAuthorityPanel({
               onChange={(e) => setNewAdminInput(e.target.value)}
               className="input flex-1 min-w-[18rem] font-mono text-xs"
             />
-            <button
-              type="button"
-              onClick={() =>
-                inputValid && transferAdmin(newAdminInput.trim() as Address)
-              }
-              disabled={!inputValid || transferPending || transferReceipt.isLoading}
-              className="btn-secondary text-xs px-3 py-1.5"
-            >
-              {transferPending
-                ? 'Sign…'
-                : transferReceipt.isLoading
-                  ? 'Mining…'
-                  : hasPending
-                    ? 'Grant (replace pending)'
-                    : 'Grant'}
-            </button>
+            {isYou && (
+              <button
+                type="button"
+                onClick={() =>
+                  inputValid && transferAdmin(newAdminInput.trim() as Address)
+                }
+                disabled={!inputValid || transferPending || transferReceipt.isLoading}
+                className="btn-primary text-xs px-3 py-1.5"
+              >
+                {transferPending
+                  ? 'Sign…'
+                  : transferReceipt.isLoading
+                    ? 'Mining…'
+                    : hasPending
+                      ? 'Replace pending'
+                      : 'Grant'}
+              </button>
+            )}
+            {proxyAdminSafe && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!inputValid) return
+                  safePropose.reset()
+                  try {
+                    await safePropose.propose(
+                      ops.versionedProxy.transferProxyAdmin(
+                        proxy,
+                        newAdminInput.trim() as Address,
+                      ),
+                    )
+                  } catch (e) {
+                    console.error(e)
+                  }
+                }}
+                disabled={!inputValid || safePropose.isProposing}
+                className="btn-secondary text-xs px-3 py-1.5"
+              >
+                {safePropose.isProposing ? 'Proposing…' : 'Propose via Safe'}
+              </button>
+            )}
           </div>
           {transferError && (
             <p className="text-xs text-rose-400 font-mono break-words">
               {transferError.message.split('\n')[0]}
             </p>
           )}
-          <p className="text-[11px] text-subtle leading-relaxed">
-            Grants Role 1 only — the target must then call{' '}
-            <code className="font-mono text-ink">acceptProxyAdmin()</code>.
-            Fee admin rights (Role 2) are untouched. Use the combined grant
-            below if you hold both roles.
-          </p>
         </div>
       )}
 
-      {hasBothRoles && <RotateBothRolesForm rotation={rotation} />}
+      {hasBothRoles && (
+        <details className="group rounded-md border border-line bg-surface open:bg-brand/5 open:border-brand/30 transition-colors">
+          <summary className="cursor-pointer list-none px-3 py-2 flex items-center justify-between gap-2 text-xs select-none">
+            <span className="inline-flex items-baseline gap-2">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-brand">
+                Advanced
+              </span>
+              <span className="font-medium text-ink">
+                Grant both roles to a single address
+              </span>
+            </span>
+            <span className="text-[10px] text-subtle group-open:hidden">expand</span>
+            <span className="text-[10px] text-subtle hidden group-open:inline">collapse</span>
+          </summary>
+          <div className="border-t border-line/60 p-3">
+            <RotateBothRolesForm rotation={rotation} />
+          </div>
+        </details>
+      )}
 
-      <p className="text-xs text-subtle leading-relaxed pt-1">
-        Role 1 controls <em>which logic</em> the proxy delegates to —
-        register new implementations, change default version, rename. It{' '}
-        <strong>cannot</strong> touch fees, withdrawals, or the sponsor
-        pool; those are Role 2 below.
-      </p>
+      <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
     </section>
   )
 }
@@ -305,23 +365,20 @@ function RotateBothRolesForm({
     }
   })()
 
+  const stepDone = (s: 'grant' | 'transfer' | 'accept') => {
+    if (s === 'grant')
+      return rotation.grantConfirmed || rotation.stage === 'transfer' || rotation.stage === 'done'
+    if (s === 'transfer') return rotation.stage === 'done'
+    return false
+  }
+
   return (
-    <div className="rounded-md border border-brand/30 bg-brand/5 p-3 space-y-2">
-      <div className="flex items-baseline gap-2 flex-wrap">
-        <span className="text-[10px] font-mono uppercase tracking-widest text-brand">
-          Convenience
-        </span>
-        <strong className="text-sm">
-          Grant both roles to a single address
-        </strong>
-      </div>
+    <div className="space-y-3">
       <p className="text-[11px] text-subtle leading-relaxed">
-        You currently hold both roles. This runs{' '}
-        <code className="font-mono text-ink">setWhitelistedAdmin(new, true)</code>{' '}
-        then <code className="font-mono text-ink">transferProxyAdmin(new)</code>{' '}
-        back-to-back (2 signatures). After the new admin calls{' '}
-        <code className="font-mono text-ink">acceptProxyAdmin()</code>, they
-        can revoke you as fee admin from their wallet.
+        Two signatures: <code className="font-mono text-ink">setWhitelistedAdmin</code>{' '}
+        then <code className="font-mono text-ink">transferProxyAdmin</code>. The
+        new admin then calls{' '}
+        <code className="font-mono text-ink">acceptProxyAdmin()</code>.
       </p>
       {rotation.stage !== 'complete' && (
         <div className="flex flex-wrap gap-2">
@@ -345,38 +402,24 @@ function RotateBothRolesForm({
         </div>
       )}
       {rotation.stage !== 'idle' && rotation.stage !== 'complete' && (
-        <ol className="text-[11px] text-subtle space-y-1 list-decimal list-inside">
-          <li className={rotation.stage === 'grant' ? 'text-ink' : ''}>
-            {rotation.grantConfirmed ? '✓ ' : ''}Grant fee admin to new
-            address (immediate)
+        <ol className="text-[11px] space-y-1 list-decimal list-inside">
+          <li className={stepDone('grant') ? 'text-emerald-400' : rotation.stage === 'grant' ? 'text-ink' : 'text-subtle'}>
+            Grant fee admin (immediate)
           </li>
-          <li
-            className={
-              rotation.stage === 'transfer' || rotation.stage === 'done'
-                ? 'text-ink'
-                : ''
-            }
-          >
-            {rotation.stage === 'done' ? '✓ ' : ''}Initiate proxyAdmin
-            transfer (pending until accepted)
+          <li className={stepDone('transfer') ? 'text-emerald-400' : (rotation.stage === 'transfer' || rotation.stage === 'done') ? 'text-ink' : 'text-subtle'}>
+            Transfer proxyAdmin (pending)
           </li>
-          <li className={rotation.stage === 'done' ? 'text-ink' : ''}>
+          <li className={rotation.stage === 'done' ? 'text-ink' : 'text-subtle'}>
             New admin calls{' '}
-            <code className="font-mono text-ink">acceptProxyAdmin()</code>{' '}
-            <span className="text-subtle">(auto-detected)</span>
-          </li>
-          <li>
-            (optional) Revoke your old fee admin rights from the new
-            admin&apos;s wallet
+            <code className="font-mono text-ink">acceptProxyAdmin()</code>
           </li>
         </ol>
       )}
       {rotation.stage === 'complete' && (
         <div className="space-y-2">
-          <p className="text-xs text-ink">
-            ✓ Rotation complete — the new address is now proxyAdmin + fee
-            admin. You can optionally revoke yourself as fee admin from the
-            new admin&apos;s wallet.
+          <p className="text-xs text-emerald-400">
+            Rotation complete. Optionally revoke your fee admin rights from
+            the new admin&apos;s wallet.
           </p>
           <button
             type="button"

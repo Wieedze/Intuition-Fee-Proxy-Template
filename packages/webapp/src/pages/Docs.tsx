@@ -1396,6 +1396,56 @@ await walletClient.writeContract({
   value: parseEther('25'),
 })`}</Block>
 
+      <H3>Call deposit() with front-run protection</H3>
+      <P>
+        V2&apos;s <Code>deposit(termId, receiver, amount, maxFeeBps,
+        maxFixedFee)</Code> takes two caller-supplied caps. If the
+        proxy admin bumps fees between the moment your user signs and
+        the moment the tx mines, the call reverts with{' '}
+        <Code>FeeExceedsCap</Code> instead of charging the inflated
+        fee. The SDK ships ergonomic helpers so you never have to
+        hard-code the bytecode <Code>MAX_FEE_PERCENTAGE</Code> /{' '}
+        <Code>MAX_FIXED_FEE</Code> (which would defeat the protection).
+      </P>
+      <Block>{`import { parseEther } from 'viem'
+import {
+  IntuitionFeeProxyV2ABI,
+  fetchLiveFees,
+  feeCapsExact,
+  feeCapsWithBuffer,
+} from '@intuition-fee-proxy/sdk'
+
+// 1. Snapshot live fees just before signing
+const live = await fetchLiveFees(client, yourProxyAddress)
+
+// 2. Pick a strategy:
+//    - exact = strict, any admin bump in the same block reverts
+const caps = feeCapsExact(live)
+//    - buffer = tolerate small re-pricing (here +10% bumpsallowed)
+// const caps = feeCapsWithBuffer(live, 1000n)
+
+// 3. Splice the caps into your deposit args
+await walletClient.writeContract({
+  abi: IntuitionFeeProxyV2ABI,
+  address: yourProxyAddress,
+  functionName: 'deposit',
+  args: [
+    termId,
+    receiver,
+    amount,
+    caps.maxFeeBps,
+    caps.maxFixedFee,
+  ],
+  value: amount + (amount * caps.maxFeeBps) / 10000n + caps.maxFixedFee,
+})`}</Block>
+      <Callout title="Why not just pass MAX_FEE_PERCENTAGE / MAX_FIXED_FEE?">
+        Hard-coding the bytecode maxima is opting out of front-run
+        protection. The deposit will always succeed even if the admin
+        spikes fees from 0% to 10% between sign and execute. Use these
+        helpers (or compute equivalent caps yourself) on every
+        deposit path.
+      </Callout>
+
       <H3>Canonical versions</H3>
       <P>
         This table is sourced directly from the SDK&apos;s{' '}

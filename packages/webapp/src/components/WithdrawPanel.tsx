@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react'
 import { formatEther, isAddress, parseEther, type Address } from 'viem'
 import { useAccount, useWaitForTransactionReceipt } from 'wagmi'
 
+import { ops } from '@intuition-fee-proxy/safe-tx'
 import { useWithdraw } from '../hooks/useProxy'
+import { useSafeAdmin } from '../hooks/useSafeAdmin'
+import { useSafePropose } from '../hooks/useSafePropose'
+import { SafeProposeFeedback } from './SafeProposeFeedback'
 
 interface Props {
   proxy: Address
@@ -17,6 +21,9 @@ export function WithdrawPanel({ proxy, accumulated, onDone }: Props) {
 
   const { withdraw, hash, isPending, error } = useWithdraw(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
+
+  const { safe } = useSafeAdmin(proxy)
+  const safePropose = useSafePropose({ safeAddress: safe })
 
   useEffect(() => {
     if (receipt.isSuccess) onDone()
@@ -34,12 +41,26 @@ export function WithdrawPanel({ proxy, accumulated, onDone }: Props) {
     }
   }
 
+  async function onProposeWithdraw() {
+    if (!toValid || !amountValid || !safe) return
+    safePropose.reset()
+    try {
+      await safePropose.propose(
+        ops.v2Admin.withdraw(proxy, to as Address, parseEther(amount)),
+      )
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   return (
     <section className="card space-y-4">
       <div>
         <h2 className="font-semibold">Withdraw fees</h2>
         <p className="text-xs text-subtle">
-          Pull accumulated fees to any address. Admin-only.
+          Pull accumulated fees to any address. Admin-only. Direct write
+          takes effect immediately. Safe propose opens a multisig
+          transaction for owners to co-sign in Den.
         </p>
       </div>
 
@@ -88,17 +109,32 @@ export function WithdrawPanel({ proxy, accumulated, onDone }: Props) {
         </div>
       </label>
 
-      <button
-        type="button"
-        onClick={onWithdraw}
-        disabled={!toValid || !amountValid || isPending}
-        className="btn-primary"
-      >
-        Withdraw
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onWithdraw}
+          disabled={!toValid || !amountValid || isPending || safePropose.isProposing}
+          className="btn-primary"
+        >
+          Withdraw
+        </button>
+        {safe && (
+          <button
+            type="button"
+            onClick={onProposeWithdraw}
+            disabled={!toValid || !amountValid || isPending || safePropose.isProposing}
+            className="btn-secondary text-xs px-3"
+          >
+            {safePropose.isProposing ? 'Proposing…' : 'Propose via Safe'}
+          </button>
+        )}
+      </div>
 
       {isPending && <p className="text-xs text-muted">Confirm in wallet…</p>}
       {receipt.isLoading && <p className="text-xs text-muted">Mining…</p>}
+
+      <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
+
       {error && (
         <p className="text-xs text-rose-400 font-mono">
           {error.message.split('\n')[0]}

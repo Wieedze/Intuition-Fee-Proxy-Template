@@ -5,6 +5,9 @@
 **/typechain-types/
 **/dist/
 **/.next/
+**/*.tsbuildinfo
+**/vite.config.d.ts
+**/vite.config.js
 
 # Ignores development broadcast logs
 !/broadcast

@@ -11,9 +11,30 @@ describe('getSigner factory', () => {
     expect(signer.address).toBe(TEST_ADDR)
   })
 
-  it('rejects with "not yet implemented" for ledger strategy', async () => {
-    await expect(getSigner('ledger')).rejects.toThrow(/ledger.*not yet implemented/i)
-  })
+  it('rejects with an actionable error when ledger has no device + no deps', async () => {
+    // Two valid failure paths depending on whether @ledgerhq/* optional
+    // deps were installed by bun:
+    //   - deps missing -> "ledger signer requires optional deps"
+    //   - deps installed but no device plugged -> "cannot open USB transport"
+    // Both are user-actionable and resolve quickly thanks to the 3s
+    // transport open timeout in the signer.
+    await expect(
+      getSigner('ledger', { ledger: { transportTimeoutMs: 1500 } }),
+    ).rejects.toThrow(
+      /ledger signer requires optional deps|cannot open USB transport/i,
+    )
+  }, 5000)
+
+  it('rejects with an actionable error when trezor has no bridge + no deps', async () => {
+    // Same dual-path as ledger:
+    //   - deps missing -> "trezor signer requires optional dep"
+    //   - deps installed but no Trezor Bridge running -> init timeout
+    await expect(
+      getSigner('trezor', { trezor: { initTimeoutMs: 1500 } }),
+    ).rejects.toThrow(
+      /trezor signer requires optional dep|trezor init failed|trezor connect init timed out/i,
+    )
+  }, 5000)
 
   it('rejects with "not yet implemented" for walletconnect strategy', async () => {
     await expect(getSigner('walletconnect')).rejects.toThrow(/walletconnect.*not yet implemented/i)
