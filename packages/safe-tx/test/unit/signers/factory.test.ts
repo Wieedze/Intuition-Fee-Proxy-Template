@@ -11,8 +11,14 @@ describe('getSigner factory', () => {
     expect(signer.address).toBe(TEST_ADDR)
   })
 
-  it('rejects with "not yet implemented" for ledger strategy', async () => {
-    await expect(getSigner('ledger')).rejects.toThrow(/ledger.*not yet implemented/i)
+  it('rejects clearly when ledger optional deps are not installed', async () => {
+    // The signer dynamically imports @ledgerhq/* — if they're not in
+    // node_modules (default in this repo since they're optional), the
+    // signer should fail with an actionable install hint, not a cryptic
+    // "Cannot find module" stack trace.
+    await expect(getSigner('ledger')).rejects.toThrow(
+      /ledger signer requires optional deps|@ledgerhq/i,
+    )
   })
 
   it('rejects with "not yet implemented" for walletconnect strategy', async () => {
