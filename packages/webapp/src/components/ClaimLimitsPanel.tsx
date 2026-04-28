@@ -122,14 +122,19 @@ export function ClaimLimitsPanel({ proxy, current, onDone }: Props) {
   return (
     <section className="card space-y-6">
       {/* ── Header + intro ─────────────────────────────── */}
-      <div>
-        <h3 className="font-semibold">Claim limits</h3>
-        <p className="text-sm text-subtle mt-1.5 leading-relaxed">
-          Your sponsor pool is a shared reserve of TRUST you fund. When users
-          interact with this proxy, the pool pays for their transactions
-          instead of their wallet. These four caps control how much any single
-          user can consume — so one person can&apos;t drain your whole pool.
-        </p>
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <span className="text-[10px] font-mono uppercase tracking-widest text-muted">
+          Admin only
+        </span>
+        <div>
+          <h2 className="font-semibold">Claim limits</h2>
+          <p className="text-sm text-subtle mt-1.5 leading-relaxed">
+            Your sponsor pool is a shared reserve of TRUST you fund. When users
+            interact with this proxy, the pool pays for their transactions
+            instead of their wallet. These four caps control how much any single
+            user can consume — so one person can&apos;t drain your whole pool.
+          </p>
+        </div>
       </div>
 
       {/* ── Per-tx block ───────────────────────────────── */}

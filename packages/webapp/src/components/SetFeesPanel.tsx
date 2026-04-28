@@ -76,12 +76,17 @@ export function SetFeesPanel({ proxy, currentFixed, currentPct, onDone }: Props)
 
   return (
     <section className="card space-y-4">
-      <div>
-        <h2 className="font-semibold">Update fees</h2>
-        <p className="text-xs text-subtle">
-          Admin-only. Direct write takes effect immediately. Safe propose
-          opens a multisig transaction for owners to co-sign in Den.
-        </p>
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <span className="text-[10px] font-mono uppercase tracking-widest text-muted">
+          Admin only
+        </span>
+        <div>
+          <h2 className="font-semibold">Update fees</h2>
+          <p className="text-xs text-subtle">
+            Direct write takes effect immediately. Safe propose opens a
+            multisig transaction for owners to co-sign in Den.
+          </p>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

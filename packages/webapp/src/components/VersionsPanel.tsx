@@ -254,40 +254,39 @@ export function VersionsPanel({
 
   return (
     <section className="card space-y-4">
-      <div>
-        <h2 className="font-semibold">
-          Versions (
-          <a
-            href="https://eips.ethereum.org/EIPS/eip-7936"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-0.5 text-brand underline decoration-brand/60 decoration-from-font hover:decoration-brand"
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <a
+          href="https://eips.ethereum.org/EIPS/eip-7936"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-0.5 text-[10px] font-mono uppercase tracking-widest text-muted hover:text-brand transition-colors"
+        >
+          ERC-7936
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            aria-hidden="true"
+            className="-translate-y-px"
           >
-            ERC-7936
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              aria-hidden="true"
-              className="-translate-y-px"
-            >
-              <path
-                d="M7 17L17 7M17 7H9M17 7v8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </a>
-          )
-        </h2>
-        <p className="text-xs text-subtle leading-relaxed">
-          Every implementation this proxy has registered + the canonical
-          directory published by the team. Pin any past version with{' '}
-          <code className="font-mono">executeAtVersion(v, data)</code>.
-        </p>
+            <path
+              d="M7 17L17 7M17 7H9M17 7v8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </a>
+        <div>
+          <h2 className="font-semibold">Versions</h2>
+          <p className="text-xs text-subtle leading-relaxed">
+            Every implementation this proxy has registered + the canonical
+            directory published by the team. Pin any past version with{' '}
+            <code className="font-mono">executeAtVersion(v, data)</code>.
+          </p>
+        </div>
       </div>
 
       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-subtle leading-relaxed">

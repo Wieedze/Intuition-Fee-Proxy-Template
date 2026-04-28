@@ -35,11 +35,16 @@ export function FundPoolPanel({ proxy, onDone }: Props) {
 
   return (
     <section className="card flex flex-col gap-4 h-full">
-      <div>
-        <h3 className="font-semibold">Fund the pool</h3>
-        <p className="text-xs text-subtle">
-          Permissionless — anyone can top up the shared pool.
-        </p>
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <span className="text-[10px] font-mono uppercase tracking-widest text-muted">
+          Public
+        </span>
+        <div>
+          <h2 className="font-semibold">Fund the pool</h2>
+          <p className="text-xs text-subtle">
+            Permissionless — anyone can top up the shared pool.
+          </p>
+        </div>
       </div>
 
       <label className="block space-y-1">
