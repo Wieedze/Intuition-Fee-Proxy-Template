@@ -15,3 +15,9 @@ export type {
   SafeTxRequest,
   SignedSafeTx,
 } from './modes/direct-sign.js'
+export type {
+  ApiKitClient,
+  ApiKitClientOptions,
+  StsConfirmation,
+  StsTxRecord,
+} from './modes/api-kit.js'
