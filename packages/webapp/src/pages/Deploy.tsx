@@ -20,7 +20,7 @@ import { Spinner } from '../components/Spinner'
 const FEE_DENOMINATOR = 10_000n
 
 export default function DeployPage() {
-  const { isConnected } = useAccount()
+  const { address: connectedAddress, isConnected } = useAccount()
   const chainId = useChainId()
   const network = networkFor(chainId)
   const navigate = useNavigate()
@@ -32,7 +32,29 @@ export default function DeployPage() {
   const [ethMultiVault, setEthMultiVault] = useState<string>(defaultMV)
   const [fixedFeeEth, setFixedFeeEth] = useState<string>('0.1')
   const [percentageBps, setPercentageBps] = useState<string>('500')
-  const [adminsRaw, setAdminsRaw] = useState<string>('')
+  const [admins, setAdmins] = useState<Address[]>([])
+  const [adminInput, setAdminInput] = useState<string>('')
+  const [adminInputError, setAdminInputError] = useState<string | null>(null)
+
+  function tryAddAdmin(raw: string): void {
+    const trimmed = raw.trim()
+    if (!trimmed) return
+    if (!isAddress(trimmed)) {
+      setAdminInputError('Invalid address.')
+      return
+    }
+    if (admins.some((a) => a.toLowerCase() === trimmed.toLowerCase())) {
+      setAdminInputError('Already added.')
+      return
+    }
+    setAdmins((prev) => [...prev, trimmed as Address])
+    setAdminInput('')
+    setAdminInputError(null)
+  }
+
+  function removeAdmin(addr: Address): void {
+    setAdmins((prev) => prev.filter((a) => a.toLowerCase() !== addr.toLowerCase()))
+  }
 
   const { deploy, hash, isPending, error, factory } = useDeployProxy()
   const receipt = useWaitForTransactionReceipt({ hash })
@@ -48,12 +70,7 @@ export default function DeployPage() {
   const atomReceipt = useWaitForTransactionReceipt({ hash: atomHash })
   const [atomTriggered, setAtomTriggered] = useState(false)
 
-  const admins = adminsRaw
-    .split(/[,\s\n]+/)
-    .map((a) => a.trim())
-    .filter(Boolean)
-
-  const adminsValid = admins.length > 0 && admins.every((a) => isAddress(a))
+  const adminsValid = admins.length > 0
   const mvValid = isAddress(ethMultiVault)
   const pctValid = (() => {
     const n = Number(percentageBps)
@@ -302,28 +319,87 @@ export default function DeployPage() {
           </Field>
         </div>
 
-        <Field
-          label="Admins"
-          hint="One address per line or comma-separated. At least one required."
-        >
-          <textarea
-            value={adminsRaw}
-            onChange={(e) => setAdminsRaw(e.target.value)}
-            rows={3}
-            className="input font-mono text-xs"
-            placeholder="0x…&#10;0x…"
-          />
-          <div className="mt-2 rounded-md border border-brand/30 bg-brand/10 px-3 py-2 text-xs text-ink">
-            <span className="font-medium text-brand">Heads up — </span>
-            use a multisig (e.g. a Safe) as admin. A single EOA is a single
-            point of failure for fee withdrawals and version upgrades.
+        <div className="block space-y-2">
+          <div className="text-sm font-medium text-ink">Admins</div>
+          <div className="text-xs text-subtle">
+            Add one or more addresses. EOA for dev, Gnosis Safe for production.
           </div>
-          {adminsRaw && !adminsValid && (
-            <p className="text-xs text-rose-400 mt-1">
-              Every line must be a valid address.
-            </p>
+
+          {admins.length > 0 && (
+            <ul className="flex flex-wrap gap-2">
+              {admins.map((addr) => (
+                <li
+                  key={addr}
+                  className="inline-flex items-center gap-2 rounded-full border border-line bg-surface pl-3 pr-1 py-1"
+                >
+                  <code className="font-mono text-xs text-ink">
+                    {addr.slice(0, 6)}…{addr.slice(-4)}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => removeAdmin(addr)}
+                    aria-label={`Remove ${addr}`}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted hover:text-rose-400 hover:bg-rose-400/10 transition-colors"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
-        </Field>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={adminInput}
+              onChange={(e) => {
+                setAdminInput(e.target.value)
+                if (adminInputError) setAdminInputError(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  tryAddAdmin(adminInput)
+                }
+              }}
+              placeholder="0x… (paste an EOA or Safe address)"
+              className="input font-mono text-xs flex-1 min-w-[260px]"
+            />
+            <button
+              type="button"
+              onClick={() => tryAddAdmin(adminInput)}
+              disabled={!adminInput.trim()}
+              className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Add
+            </button>
+            {connectedAddress && !admins.some((a) => a.toLowerCase() === connectedAddress.toLowerCase()) && (
+              <button
+                type="button"
+                onClick={() => tryAddAdmin(connectedAddress)}
+                className="text-[11px] px-2 py-1.5 rounded border border-line text-muted hover:text-ink hover:border-ink/40 transition-colors"
+              >
+                + my wallet
+              </button>
+            )}
+          </div>
+          {adminInputError && (
+            <p className="text-xs text-rose-400">{adminInputError}</p>
+          )}
+
+          <div className="rounded-md border border-brand/30 bg-brand/10 px-3 py-2 text-xs text-ink">
+            <span className="font-medium text-brand">Heads up — </span>
+            use a multisig (e.g. a Safe) as admin for production. A single
+            EOA is a single point of failure for fee withdrawals and version
+            upgrades.{' '}
+            <Link
+              to="/docs/safe-admin"
+              className="underline decoration-brand/60 hover:decoration-brand"
+            >
+              See the Safe multisig admin guide
+            </Link>
+            .
+          </div>
+        </div>
 
         <div className="flex items-center gap-3 pt-1">
           <button

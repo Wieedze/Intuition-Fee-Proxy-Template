@@ -12,25 +12,20 @@ const DEV_MULTIVAULT = import.meta.env.VITE_MULTIVAULT_ADDRESS as
  * Factory + MultiVault addresses per network. Standard / sponsored impls
  * are read live from the Factory on-chain — no SDK snapshot (single
  * source of truth).
+ *
  * Dev overrides via `VITE_FACTORY_ADDRESS` and `VITE_MULTIVAULT_ADDRESS`
- * take precedence on testnet so you can point the webapp at a
- * local/hardhat deploy without touching the SDK. On a fresh local node,
- * the real testnet MV has no code — using its address would trip the
- * V2 initializer's `code.length > 0` guard and revert.
+ * take precedence on either network when set — set them in
+ * packages/webapp/.env.local to point the webapp at a local hardhat /
+ * Anvil-fork deploy without touching the SDK. The .env.local is
+ * gitignored and never ships in a prod build.
  */
 export function addressesFor(network: Network): {
   factory: Address
   multiVault: Address
 } {
-  if (network === 'testnet') {
-    return {
-      factory: (DEV_FACTORY ?? V2_ADDRESSES[network].factory) as Address,
-      multiVault: (DEV_MULTIVAULT ?? MULTIVAULT_ADDRESSES[network]) as Address,
-    }
-  }
   return {
-    factory: V2_ADDRESSES[network].factory as Address,
-    multiVault: MULTIVAULT_ADDRESSES[network] as Address,
+    factory: (DEV_FACTORY ?? V2_ADDRESSES[network].factory) as Address,
+    multiVault: (DEV_MULTIVAULT ?? MULTIVAULT_ADDRESSES[network]) as Address,
   }
 }
 

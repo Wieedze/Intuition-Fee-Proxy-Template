@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react'
 import { formatEther, parseEther, type Address } from 'viem'
 import { useWaitForTransactionReceipt } from 'wagmi'
 
+import { ops } from '@intuition-fee-proxy/safe-tx'
 import { useSetFees } from '../hooks/useProxy'
+import { useSafeAdmin } from '../hooks/useSafeAdmin'
+import { useSafePropose } from '../hooks/useSafePropose'
 
 interface Props {
   proxy: Address
@@ -18,6 +21,9 @@ export function SetFeesPanel({ proxy, currentFixed, currentPct, onDone }: Props)
   const { setDepositFixedFee, setDepositPercentageFee, hash, isPending, error } =
     useSetFees(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
+
+  const { safe } = useSafeAdmin(proxy)
+  const safePropose = useSafePropose({ safeAddress: safe })
 
   useEffect(() => {
     if (receipt.isSuccess) onDone()
@@ -47,12 +53,33 @@ export function SetFeesPanel({ proxy, currentFixed, currentPct, onDone }: Props)
     }
   }
 
+  async function onProposeFixed() {
+    if (!fixedValid || !safe) return
+    safePropose.reset()
+    try {
+      await safePropose.propose(ops.v2Admin.setDepositFixedFee(proxy, parseEther(fixedEth)))
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  async function onProposePct() {
+    if (!pctValid || !safe) return
+    safePropose.reset()
+    try {
+      await safePropose.propose(ops.v2Admin.setDepositPercentageFee(proxy, BigInt(pctBps)))
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   return (
     <section className="card space-y-4">
       <div>
         <h2 className="font-semibold">Update fees</h2>
         <p className="text-xs text-subtle">
-          Admin-only. Takes effect immediately.
+          Admin-only. Direct write takes effect immediately. Safe propose
+          opens a multisig transaction for owners to co-sign in Den.
         </p>
       </div>
 
@@ -70,11 +97,21 @@ export function SetFeesPanel({ proxy, currentFixed, currentPct, onDone }: Props)
           <button
             type="button"
             onClick={onUpdateFixed}
-            disabled={!fixedValid || isPending}
+            disabled={!fixedValid || isPending || safePropose.isProposing}
             className="btn-primary w-full mt-1"
           >
             Update fixed
           </button>
+          {safe && (
+            <button
+              type="button"
+              onClick={onProposeFixed}
+              disabled={!fixedValid || isPending || safePropose.isProposing}
+              className="btn-secondary w-full mt-1 text-xs"
+            >
+              {safePropose.isProposing ? 'Proposing…' : 'Propose via Safe'}
+            </button>
+          )}
         </label>
 
         <label className="block space-y-1">
@@ -91,13 +128,50 @@ export function SetFeesPanel({ proxy, currentFixed, currentPct, onDone }: Props)
           <button
             type="button"
             onClick={onUpdatePct}
-            disabled={!pctValid || isPending}
+            disabled={!pctValid || isPending || safePropose.isProposing}
             className="btn-primary w-full mt-1"
           >
             Update percentage
           </button>
+          {safe && (
+            <button
+              type="button"
+              onClick={onProposePct}
+              disabled={!pctValid || isPending || safePropose.isProposing}
+              className="btn-secondary w-full mt-1 text-xs"
+            >
+              {safePropose.isProposing ? 'Proposing…' : 'Propose via Safe'}
+            </button>
+          )}
         </label>
       </div>
+
+      {safePropose.proposed && (
+        <div className="rounded-md border border-emerald-400/30 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-300 space-y-1">
+          <div>
+            <strong>Proposed.</strong> safeTxHash:{' '}
+            <code className="font-mono break-all">{safePropose.proposed.safeTxHash}</code>
+          </div>
+          <div>
+            Owners can co-sign and execute in{' '}
+            <a
+              href={safePropose.proposed.denUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="underline decoration-emerald-400/60 hover:decoration-emerald-200"
+            >
+              Den
+            </a>
+            .
+          </div>
+        </div>
+      )}
+
+      {safePropose.error && (
+        <p className="text-xs text-rose-400 font-mono">
+          Safe propose: {safePropose.error}
+        </p>
+      )}
 
       {error && (
         <p className="text-xs text-rose-400 font-mono">

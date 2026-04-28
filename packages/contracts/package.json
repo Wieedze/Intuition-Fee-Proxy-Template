@@ -12,6 +12,7 @@
     "clean": "hardhat clean",
     "node": "hardhat node",
     "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
+    "deploy:fork": "hardhat run scripts/deploy.ts --network intuitionFork",
     "deploy:testnet": "hardhat run scripts/deploy.ts --network intuitionTestnet",
     "deploy:mainnet": "hardhat run scripts/deploy.ts --network intuition",
     "e2e:local": "hardhat run scripts/e2e-validate.ts --network localhost",

@@ -41,6 +41,15 @@ const config: HardhatUserConfig = {
       url: "http://127.0.0.1:8545",
       chainId: 31337,
     },
+    // Anvil fork of Intuition mainnet — used to test Safe-aware webapp
+    // flows that require the real mainnet state (the Safe at 0xf10D...
+    // exists in the fork, real proxies don't because none are deployed
+    // on Intuition mainnet yet).
+    intuitionFork: {
+      url: "http://127.0.0.1:8545",
+      chainId: 1155,
+      accounts: [LOCAL_DEV_KEY],
+    },
     // Intuition Mainnet
     intuition: {
       url: process.env.INTUITION_RPC_URL || "https://rpc.intuition.systems",
