@@ -2,13 +2,17 @@ import { useEffect, useState } from 'react'
 import { isAddress, type Address } from 'viem'
 import { useWaitForTransactionReceipt } from 'wagmi'
 
+import { ops } from '@intuition-fee-proxy/safe-tx'
 import {
   useAdmins,
   useIsAdmin,
   useSetWhitelistedAdmin,
 } from '../hooks/useProxy'
+import { useSafeAdmin } from '../hooks/useSafeAdmin'
+import { useSafePropose } from '../hooks/useSafePropose'
 import AddressDisplay from './Address'
 import { SafeBadge } from './SafeBadge'
+import { SafeProposeFeedback } from './SafeProposeFeedback'
 import { Spinner } from './Spinner'
 
 interface Props {
@@ -28,18 +32,15 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
   } = useSetWhitelistedAdmin(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
   const [addDraft, setAddDraft] = useState('')
-  // Tracks which row (or 'ADD') owns the in-flight tx, so only that button
-  // shows "Signing…" / "Mining…" state. Other rows stay idle (but disabled).
   const [pendingTarget, setPendingTarget] = useState<Address | 'ADD' | null>(
     null,
   )
-  // True between "receipt mined" and "admins list refetched" — bridges the
-  // gap where the tx is done but the event-log-derived list hasn't caught
-  // up yet. Drives the discrete title spinner + keeps the row button
-  // spinner alive so the UI never looks idle during that window.
   const [postTxRefreshing, setPostTxRefreshing] = useState(false)
 
-  const busy = isPending || receipt.isLoading || postTxRefreshing
+  const { safe } = useSafeAdmin(proxy)
+  const safePropose = useSafePropose({ safeAddress: safe })
+
+  const busy = isPending || receipt.isLoading || postTxRefreshing || safePropose.isProposing
 
   useEffect(() => {
     if (receipt.isSuccess) {
@@ -50,7 +51,6 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
     }
   }, [hash, receipt.isSuccess])
 
-  // Release the spinner once the admins refetch settles.
   useEffect(() => {
     if (postTxRefreshing && !isLoading) {
       setPostTxRefreshing(false)
@@ -58,8 +58,6 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
     }
   }, [postTxRefreshing, isLoading])
 
-  // If the write errored or the user rejected the signature, release the
-  // per-row pending marker so the buttons become clickable again.
   useEffect(() => {
     if (
       !isPending &&
@@ -87,6 +85,18 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
     }
   }
 
+  async function onProposeAdd() {
+    if (!addValid || !safe) return
+    safePropose.reset()
+    try {
+      await safePropose.propose(
+        ops.v2Admin.setWhitelistedAdmin(proxy, addDraft as Address, true),
+      )
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   async function onRevoke(addr: Address) {
     setPendingTarget(addr)
     try {
@@ -96,6 +106,23 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
       setPendingTarget(null)
     }
   }
+
+  async function onProposeRevoke(addr: Address) {
+    if (!safe) return
+    safePropose.reset()
+    try {
+      await safePropose.propose(
+        ops.v2Admin.setWhitelistedAdmin(proxy, addr, false),
+      )
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  // The form is visible if the user can either direct-write (already an
+  // admin) or propose via Safe (a Safe is in the admin list — Safe owners
+  // who aren't direct admins can still propose).
+  const canInteract = connectedIsAdmin || Boolean(safe)
 
   return (
     <section className="card border-l-4 border-l-line-strong space-y-5">
@@ -142,7 +169,8 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
               connectedAccount &&
               addr.toLowerCase() === connectedAccount.toLowerCase()
             const isLastAdmin = admins.length === 1
-            const canRevoke = connectedIsAdmin && !(isSelf && isLastAdmin)
+            const canDirectRevoke = connectedIsAdmin && !(isSelf && isLastAdmin)
+            const canProposeRevoke = Boolean(safe) && !isLastAdmin
             return (
               <li
                 key={addr}
@@ -160,33 +188,45 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
                     </span>
                   )}
                 </div>
-                {canRevoke && (
-                  <button
-                    type="button"
-                    onClick={() => onRevoke(addr)}
-                    disabled={busy}
-                    className="text-xs text-muted hover:text-rose-400 transition-colors inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {pendingTarget === addr && <Spinner />}
-                    {pendingTarget === addr
-                      ? isPending
-                        ? 'Sign…'
-                        : 'Revoking…'
-                      : 'Revoke'}
-                  </button>
-                )}
-                {isSelf && isLastAdmin && (
-                  <span className="text-[11px] text-subtle">
-                    Last admin — cannot self-revoke
-                  </span>
-                )}
+                <div className="flex items-center gap-3">
+                  {canDirectRevoke && (
+                    <button
+                      type="button"
+                      onClick={() => onRevoke(addr)}
+                      disabled={busy}
+                      className="text-xs text-muted hover:text-rose-400 transition-colors inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {pendingTarget === addr && <Spinner />}
+                      {pendingTarget === addr
+                        ? isPending
+                          ? 'Sign…'
+                          : 'Revoking…'
+                        : 'Revoke'}
+                    </button>
+                  )}
+                  {canProposeRevoke && (
+                    <button
+                      type="button"
+                      onClick={() => onProposeRevoke(addr)}
+                      disabled={busy}
+                      className="text-xs text-muted hover:text-ink transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Propose revoke via Safe
+                    </button>
+                  )}
+                  {isSelf && isLastAdmin && (
+                    <span className="text-[11px] text-subtle">
+                      Last admin — cannot self-revoke
+                    </span>
+                  )}
+                </div>
               </li>
             )
           })}
         </ul>
       )}
 
-      {connectedIsAdmin ? (
+      {canInteract ? (
         <div className="rounded-xl border border-line bg-surface p-5 space-y-3">
           <div>
             <div className="text-sm font-medium text-ink">
@@ -204,19 +244,31 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
               placeholder="0x…"
               className="input font-mono text-xs flex-1 min-w-[260px]"
             />
-            <button
-              type="button"
-              onClick={onAdd}
-              disabled={!addValid || busy}
-              className="btn-primary text-xs px-4 py-2 inline-flex items-center gap-1.5"
-            >
-              {pendingTarget === 'ADD' && <Spinner />}
-              {pendingTarget === 'ADD'
-                ? isPending
-                  ? 'Sign…'
-                  : 'Mining…'
-                : 'Grant'}
-            </button>
+            {connectedIsAdmin && (
+              <button
+                type="button"
+                onClick={onAdd}
+                disabled={!addValid || busy}
+                className="btn-primary text-xs px-4 py-2 inline-flex items-center gap-1.5"
+              >
+                {pendingTarget === 'ADD' && <Spinner />}
+                {pendingTarget === 'ADD'
+                  ? isPending
+                    ? 'Sign…'
+                    : 'Mining…'
+                  : 'Grant'}
+              </button>
+            )}
+            {safe && (
+              <button
+                type="button"
+                onClick={onProposeAdd}
+                disabled={!addValid || busy}
+                className="btn-secondary text-xs px-4 py-2 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {safePropose.isProposing ? 'Proposing…' : 'Propose via Safe'}
+              </button>
+            )}
           </div>
           {addDraft && !isAddress(addDraft) && (
             <p className="text-xs text-rose-400">Invalid address.</p>
@@ -232,9 +284,11 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
         </div>
       ) : (
         <p className="text-sm text-subtle border-l-2 border-line pl-3">
-          Connect as a whitelisted admin to add or revoke admins.
+          Connect as a whitelisted admin (or as a Safe owner of a Safe in the admin list) to add or revoke admins.
         </p>
       )}
+
+      <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
     </section>
   )
 }
