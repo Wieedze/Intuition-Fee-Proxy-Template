@@ -1,6 +1,8 @@
 import type { Address } from 'viem'
 
+import { useSafeAdmin } from '../hooks/useSafeAdmin'
 import { AdminsPanel } from './AdminsPanel'
+import { PendingSafeTxsPanel } from './PendingSafeTxsPanel'
 import { UpgradeAuthorityPanel } from './UpgradeAuthorityPanel'
 
 interface Props {
@@ -22,6 +24,7 @@ export function AdminsTab({
   isVersionsFetching,
   onWriteDone,
 }: Props) {
+  const { safe: feeAdminSafe } = useSafeAdmin(proxy)
   return (
     <div className="space-y-6">
       <p className="text-xs text-muted leading-relaxed max-w-3xl">
@@ -40,6 +43,7 @@ export function AdminsTab({
         isRefreshing={isVersionsFetching}
       />
       <AdminsPanel proxy={proxy} connectedAccount={account} />
+      {feeAdminSafe && <PendingSafeTxsPanel safe={feeAdminSafe} />}
     </div>
   )
 }
