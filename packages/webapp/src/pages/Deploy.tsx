@@ -32,18 +32,28 @@ export default function DeployPage() {
   const [ethMultiVault, setEthMultiVault] = useState<string>(defaultMV)
   const [fixedFeeEth, setFixedFeeEth] = useState<string>('0.1')
   const [percentageBps, setPercentageBps] = useState<string>('500')
-  const [adminsRaw, setAdminsRaw] = useState<string>('')
-  const [safeInput, setSafeInput] = useState<string>('')
-  const [showSafeInput, setShowSafeInput] = useState<boolean>(false)
+  const [admins, setAdmins] = useState<Address[]>([])
+  const [adminInput, setAdminInput] = useState<string>('')
+  const [adminInputError, setAdminInputError] = useState<string | null>(null)
 
-  function appendAdmin(addr: string): void {
-    setAdminsRaw((prev) => {
-      const trimmed = prev.trim()
-      if (!trimmed) return addr
-      const existing = trimmed.split(/[,\s\n]+/).map((a) => a.toLowerCase())
-      if (existing.includes(addr.toLowerCase())) return prev
-      return `${trimmed}\n${addr}`
-    })
+  function tryAddAdmin(raw: string): void {
+    const trimmed = raw.trim()
+    if (!trimmed) return
+    if (!isAddress(trimmed)) {
+      setAdminInputError('Invalid address.')
+      return
+    }
+    if (admins.some((a) => a.toLowerCase() === trimmed.toLowerCase())) {
+      setAdminInputError('Already added.')
+      return
+    }
+    setAdmins((prev) => [...prev, trimmed as Address])
+    setAdminInput('')
+    setAdminInputError(null)
+  }
+
+  function removeAdmin(addr: Address): void {
+    setAdmins((prev) => prev.filter((a) => a.toLowerCase() !== addr.toLowerCase()))
   }
 
   const { deploy, hash, isPending, error, factory } = useDeployProxy()
@@ -60,12 +70,7 @@ export default function DeployPage() {
   const atomReceipt = useWaitForTransactionReceipt({ hash: atomHash })
   const [atomTriggered, setAtomTriggered] = useState(false)
 
-  const admins = adminsRaw
-    .split(/[,\s\n]+/)
-    .map((a) => a.trim())
-    .filter(Boolean)
-
-  const adminsValid = admins.length > 0 && admins.every((a) => isAddress(a))
+  const adminsValid = admins.length > 0
   const mvValid = isAddress(ethMultiVault)
   const pctValid = (() => {
     const n = Number(percentageBps)
@@ -314,59 +319,73 @@ export default function DeployPage() {
           </Field>
         </div>
 
-        <div className="block space-y-1.5">
+        <div className="block space-y-2">
           <div className="text-sm font-medium text-ink">Admins</div>
           <div className="text-xs text-subtle">
-            One address per line or comma-separated. At least one required.
+            Add one or more addresses. EOA for dev, Gnosis Safe for production.
           </div>
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            {connectedAddress && (
-              <button
-                type="button"
-                onClick={() => appendAdmin(connectedAddress)}
-                className="text-[11px] px-2 py-1 rounded border border-line text-muted hover:text-ink hover:border-ink/40 transition-colors"
-              >
-                + Add my wallet ({connectedAddress.slice(0, 6)}…{connectedAddress.slice(-4)})
-              </button>
-            )}
+
+          {admins.length > 0 && (
+            <ul className="flex flex-wrap gap-2">
+              {admins.map((addr) => (
+                <li
+                  key={addr}
+                  className="inline-flex items-center gap-2 rounded-full border border-line bg-surface pl-3 pr-1 py-1"
+                >
+                  <code className="font-mono text-xs text-ink">
+                    {addr.slice(0, 6)}…{addr.slice(-4)}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => removeAdmin(addr)}
+                    aria-label={`Remove ${addr}`}
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted hover:text-rose-400 hover:bg-rose-400/10 transition-colors"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={adminInput}
+              onChange={(e) => {
+                setAdminInput(e.target.value)
+                if (adminInputError) setAdminInputError(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  tryAddAdmin(adminInput)
+                }
+              }}
+              placeholder="0x… (paste an EOA or Safe address)"
+              className="input font-mono text-xs flex-1 min-w-[260px]"
+            />
             <button
               type="button"
-              onClick={() => setShowSafeInput((v) => !v)}
-              className="text-[11px] px-2 py-1 rounded border border-line text-muted hover:text-ink hover:border-ink/40 transition-colors"
+              onClick={() => tryAddAdmin(adminInput)}
+              disabled={!adminInput.trim()}
+              className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {showSafeInput ? '− Cancel Safe input' : '+ Add Safe address'}
+              Add
             </button>
-          </div>
-          {showSafeInput && (
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                value={safeInput}
-                onChange={(e) => setSafeInput(e.target.value)}
-                placeholder="0x… (Gnosis Safe address)"
-                className="input font-mono text-xs flex-1 min-w-[260px]"
-              />
+            {connectedAddress && !admins.some((a) => a.toLowerCase() === connectedAddress.toLowerCase()) && (
               <button
                 type="button"
-                disabled={!isAddress(safeInput.trim())}
-                onClick={() => {
-                  if (!isAddress(safeInput.trim())) return
-                  appendAdmin(safeInput.trim())
-                  setSafeInput('')
-                  setShowSafeInput(false)
-                }}
-                className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => tryAddAdmin(connectedAddress)}
+                className="text-[11px] px-2 py-1.5 rounded border border-line text-muted hover:text-ink hover:border-ink/40 transition-colors"
               >
-                Add
+                + my wallet
               </button>
-            </div>
+            )}
+          </div>
+          {adminInputError && (
+            <p className="text-xs text-rose-400">{adminInputError}</p>
           )}
-          <textarea
-            value={adminsRaw}
-            onChange={(e) => setAdminsRaw(e.target.value)}
-            rows={3}
-            className="input font-mono text-xs"
-            placeholder="0x…&#10;0x…"
-          />
+
           <div className="rounded-md border border-brand/30 bg-brand/10 px-3 py-2 text-xs text-ink">
             <span className="font-medium text-brand">Heads up — </span>
             use a multisig (e.g. a Safe) as admin for production. A single
@@ -380,11 +399,6 @@ export default function DeployPage() {
             </Link>
             .
           </div>
-          {adminsRaw && !adminsValid && (
-            <p className="text-xs text-rose-400">
-              Every line must be a valid address.
-            </p>
-          )}
         </div>
 
         <div className="flex items-center gap-3 pt-1">
