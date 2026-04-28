@@ -6,6 +6,15 @@ import {Errors} from "./libraries/Errors.sol";
 
 /// @title IntuitionFeeProxy
 /// @notice Proxy contract for Intuition MultiVault with fee collection
+/// @custom:deprecated V1 is preserved for historical/test reference only. **Do
+///                   not deploy.** All production deployments must use
+///                   `IntuitionFeeProxyV2` (or a later registered version) via
+///                   `IntuitionFeeProxyFactory`. V1 lacks reentrancy guards on
+///                   payable entry points, has no per-proxy storage isolation
+///                   (not upgradeable), takes a user-controlled `receiver`
+///                   parameter, and has no withdraw mechanism for misdirected
+///                   ETH. Listed here so the test suite can keep validating
+///                   migration scenarios.
 /// @dev Collects fees on deposits and forwards them to a configurable recipient
 contract IntuitionFeeProxy {
     // ============ Constants ============
@@ -541,6 +550,8 @@ contract IntuitionFeeProxy {
         }
     }
 
-    /// @notice Receive function to accept ETH (for refunds)
-    receive() external payable {}
+    // No `receive()` / `fallback()`. V1 is push-based — fees are forwarded
+    // immediately via `_transferFee` and there is no per-contract balance to
+    // accumulate. A bare ETH transfer would have been silently locked
+    // forever (no withdraw path), so direct sends now revert.
 }

@@ -16,6 +16,7 @@ type SectionId =
   | 'pinning'
   | 'sponsoring'
   | 'admin-rotation'
+  | 'safe-admin'
   | 'governance'
   | 'primitives'
   | 'events'
@@ -45,6 +46,7 @@ const GROUPS = [
     label: 'Security',
     items: [
       { id: 'admin-rotation' as SectionId, label: 'Admin rotation' },
+      { id: 'safe-admin' as SectionId, label: 'Safe multisig admin' },
       { id: 'governance' as SectionId, label: 'Governance' },
     ],
   },
@@ -136,6 +138,8 @@ function SectionContent({ id }: { id: SectionId }) {
       return <Sponsoring />
     case 'admin-rotation':
       return <AdminRotation />
+    case 'safe-admin':
+      return <SafeAdmin />
     case 'governance':
       return <Governance />
     case 'primitives':
@@ -781,7 +785,7 @@ function Pinning() {
 const depositData = encodeFunctionData({
   abi: IntuitionFeeProxyV2ABI,
   functionName: 'deposit',
-  args: [termId, curveId, minShares],
+  args: [termId, curveId, minShares, maxFeeBps, maxFixedFee],
 })
 
 await walletClient.writeContract({
@@ -820,16 +824,16 @@ function Primitives() {
       <H3>End-user entry points</H3>
       <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
         <Primitive
-          term="deposit(termId, curveId, minShares) payable"
-          desc="Deposit TRUST into a term. Proxy keeps a fixed + percentage fee; forwards the remainder to the MultiVault on behalf of msg.sender."
+          term="deposit(termId, curveId, minShares, maxFeeBps, maxFixedFee) payable"
+          desc="Deposit TRUST into a term. Proxy keeps a fixed + percentage fee (capped by your maxFeeBps / maxFixedFee — front-run protection against an admin bumping fees in the same block); forwards the remainder to the MultiVault on behalf of msg.sender."
         />
         <Primitive
-          term="createAtoms(data[], assets[], curveId) payable"
-          desc="Create one or more atoms. Non-zero assets are immediately deposited into the new atom."
+          term="createAtoms(data[], assets[], minShares[], curveId) payable"
+          desc="Create one or more atoms. Non-zero assets are immediately deposited into the new atom (each constrained by its `minShares[i]` slippage floor)."
         />
         <Primitive
-          term="createTriples(subjectIds[], predicateIds[], objectIds[], assets[], curveId) payable"
-          desc="Create triples linking three existing terms. Optional deposit per triple."
+          term="createTriples(subjectIds[], predicateIds[], objectIds[], assets[], minShares[], curveId) payable"
+          desc="Create triples linking three existing terms. Optional deposit per triple, each gated by `minShares[i]`."
         />
         <Primitive
           term="depositBatch(termIds[], curveIds[], assets[], minShares[]) payable"
@@ -1010,6 +1014,143 @@ function AdminRotation() {
         A compromise of one role does not cascade into the other. Keep
         fee admins (money flow) and the proxyAdmin (logic upgrades) on
         different wallets / Safes whenever possible.
+      </Callout>
+    </div>
+  )
+}
+
+// ---- Safe multisig admin (Security) ----
+
+function SafeAdmin() {
+  return (
+    <div className="space-y-5">
+      <PageHeader kicker="Security" title="Safe multisig admin" />
+      <P>
+        Both admin roles accept a Gnosis Safe address — there is no
+        contract-level distinction between an EOA admin and a Safe
+        admin. The benefit is operational: a Safe replaces a single
+        private key with an N-of-M multisig, so a key loss or
+        compromise no longer drains your admin role.
+      </P>
+      <P>
+        On Intuition mainnet (chain id 1155), Safes are deployed by{' '}
+        <a
+          href="https://onchainden.com"
+          target="_blank"
+          rel="noreferrer"
+          className="text-brand underline decoration-brand/60 hover:decoration-brand"
+        >
+          Den
+        </a>{' '}
+        — they host the canonical Safe v1.3.0 L2 contracts plus a
+        whitelabel UI at{' '}
+        <Code>safe.onchainden.com/home?safe=int:&lt;addr&gt;</Code>.
+        There is no Safe support on Intuition testnet — the testnet
+        path stays on EOA admins.
+      </P>
+
+      <H3>The three deployment patterns</H3>
+      <dl className="divide-y divide-line rounded-xl border border-line bg-surface overflow-hidden">
+        <Actor
+          term="Pure Safe — most rigorous"
+          desc={
+            <>
+              Pass <Code>[safeAddress]</Code> as <Code>initialAdmins</Code>{' '}
+              when calling <Code>Factory.createProxy</Code>. The Safe is
+              the sole admin from genesis. Every admin op (even setting
+              the initial fee) requires multisig quorum. Use when the
+              proxy goes straight to production.
+            </>
+          }
+        />
+        <Actor
+          term="EOA + Safe — pragmatic"
+          desc={
+            <>
+              Pass <Code>[yourEOA, safeAddress]</Code>. Both addresses
+              hold the role from day one. The EOA is fast for dev / iter
+              / setup; the Safe is wired for handover. When you&apos;re
+              ready, the Safe revokes the EOA via a single proposal.
+              <strong className="text-ink">Recommended for new proxies.</strong>
+            </>
+          }
+        />
+        <Actor
+          term="EOA-only, migrate later"
+          desc={
+            <>
+              Pass <Code>[yourEOA]</Code>. Use{' '}
+              <Code>bun safe:rotate-admin</Code> later to grant the Safe
+              and propose the EOA revoke in one shot. Only useful when
+              the proxy already exists or was deployed by someone else.
+            </>
+          }
+        />
+      </dl>
+
+      <H3>What you see in the webapp</H3>
+      <P>
+        On any Proxy detail page, the <strong>Admins</strong> tab tags
+        each address with a small badge:
+      </P>
+      <ul className="text-sm text-muted leading-relaxed list-disc list-inside space-y-1.5">
+        <li>
+          <strong className="text-emerald-400">SAFE</strong> — detected
+          Gnosis Safe (cliquable: opens the Den UI for that Safe)
+        </li>
+        <li>
+          <strong className="text-amber-400">EOA</strong> — externally
+          owned account, single key
+        </li>
+        <li>
+          <strong className="text-subtle">CONTRACT</strong> — smart
+          contract that isn&apos;t a recognized Safe singleton
+        </li>
+      </ul>
+      <P>
+        Above the proxy admin (Role 1), an inline banner escalates by
+        context: green &ldquo;Safe-managed&rdquo; if it&apos;s a Safe,
+        amber &ldquo;fine for dev&rdquo; for an EOA on testnet, and
+        red &ldquo;high risk&rdquo; for an EOA on mainnet.
+      </P>
+
+      <H3>Performing admin ops via the Safe</H3>
+      <P>
+        Once a Safe holds the admin role, any admin op (changing fees,
+        rotating admins, upgrading the implementation, etc.) goes
+        through the standard Safe propose/co-sign/execute flow. The
+        repo ships a CLI that wraps every supported op:
+      </P>
+      <pre className="rounded-md border border-line bg-canvas p-3 text-xs font-mono leading-relaxed overflow-x-auto text-muted">
+        <code>{`# Propose (one Safe owner runs this)
+bun safe:tx set-deposit-fixed-fee \\
+  --proxy 0xPROXY --value 100 \\
+  --safe 0xSAFE --signer env
+
+# Co-sign (other owners — via CLI or directly in Den UI)
+bun safe:tx confirm --hash 0xSAFETXHASH --safe 0xSAFE
+
+# Execute once quorum is reached (anyone)
+bun safe:tx execute --hash 0xSAFETXHASH --safe 0xSAFE
+
+# List pending proposals
+bun safe:tx list --safe 0xSAFE
+
+# One-shot rotation: EOA admin -> Safe admin
+bun safe:rotate-admin --proxy 0xPROXY --safe 0xSAFE --eoa 0xEOA --dry-run`}</code>
+      </pre>
+      <P>
+        <Code>bun safe:tx --help</Code> lists every available op
+        (5 V2 admin + 4 Factory owner + 1 UUPS upgrade). Set{' '}
+        <Code>PROPOSER_PK</Code> in your env to a Safe owner&apos;s
+        private key.
+      </P>
+
+      <Callout title="Full reference: SAFE_TX_RUNBOOK.md">
+        Procedures, dry-run guidance, fallback when Den is down, and
+        validation checklists live in <Code>SAFE_TX_RUNBOOK.md</Code>{' '}
+        at the repo root. The webapp covers what you see; the runbook
+        covers what you do.
       </Callout>
     </div>
   )

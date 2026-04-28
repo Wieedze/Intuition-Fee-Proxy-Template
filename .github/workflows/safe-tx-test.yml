@@ -1,0 +1,56 @@
+name: safe-tx tests
+
+# Run the @intuition-fee-proxy/safe-tx test suite (unit + Anvil fork
+# integration + mock STS) on every PR touching the package or the
+# workflow itself, plus on pushes to main as a regression guard.
+on:
+  pull_request:
+    paths:
+      - 'packages/safe-tx/**'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/safe-tx-test.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/safe-tx/**'
+      - '.github/workflows/safe-tx-test.yml'
+  workflow_dispatch:
+
+# Only the latest in-flight run per branch matters.
+concurrency:
+  group: safe-tx-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Foundry brings `anvil` — required by the integration tests
+      # (Anvil fork of Intuition mainnet + impersonateAccount RPCs).
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Verify anvil is on PATH
+        run: anvil --version
+
+      - name: Install workspace deps
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck @intuition-fee-proxy/safe-tx
+        run: bun --filter @intuition-fee-proxy/safe-tx typecheck
+
+      - name: Run safe-tx test suite (unit + integration + e2e)
+        # The integration tests fork from rpc.intuition.systems. CI
+        # gets occasional throttling; allow override via secret if needed.
+        env:
+          INTUITION_RPC: ${{ secrets.INTUITION_RPC || 'https://rpc.intuition.systems' }}
+        run: bun --filter @intuition-fee-proxy/safe-tx test

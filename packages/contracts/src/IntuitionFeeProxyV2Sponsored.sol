@@ -191,6 +191,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
     // ============ Admin: claim limits ============
 
+    /// @dev Mutating `windowSec` does NOT reset existing per-user
+    ///      `claimWindows` — they keep their stored `windowStart` and are
+    ///      compared against the new `windowSec` on the next call. Shrinking
+    ///      `windowSec` may cause some users to roll into a fresh window
+    ///      earlier than they would have; lengthening it may keep them
+    ///      capped longer. Admins should announce window changes off-chain.
     function setClaimLimits(
         uint256 maxPerTx,
         uint256 maxPerWindow,
@@ -206,6 +212,11 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         if (maxVolumePerWindow > type(uint128).max) {
             revert Errors.Sponsored_InvalidLimit();
         }
+        // NOTE: we deliberately allow `maxClaimPerTx > maxClaimVolumePerWindow`.
+        // That config is legit — the volume cap acts as a stricter throttle on
+        // cumulative draw within the window, while the per-tx cap is the
+        // single-call ceiling. Users can still issue multiple small calls up
+        // to the volume cap.
         SponsoredLayout storage $ = _s();
         $.maxClaimPerTx = maxPerTx;
         $.maxClaimsPerWindow = maxPerWindow;
@@ -255,12 +266,14 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     // ============ User entry points (override V2) ============
 
     /// @notice Disabled on the sponsored channel — the inverse-formula
-    ///         `deposit(3 args)` cannot convey an explicit `assets` intent to
+    ///         `deposit(…)` cannot convey an explicit `assets` intent to
     ///         the pool. Callers MUST use `depositSponsored(4 args)` instead.
     function deposit(
         bytes32 /* termId */,
         uint256 /* curveId */,
-        uint256 /* minShares */
+        uint256 /* minShares */,
+        uint256 /* maxFeeBps */,
+        uint256 /* maxFixedFee */
     ) external payable override nonReentrant returns (uint256) {
         revert Errors.Sponsored_UseDepositSponsored();
     }
@@ -303,9 +316,12 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
     function createAtoms(
         bytes[] calldata data,
         uint256[] calldata assets,
+        uint256[] calldata minShares,
         uint256 curveId
     ) external payable override nonReentrant returns (bytes32[] memory atomIds) {
-        if (data.length != assets.length) revert Errors.IntuitionFeeProxy_WrongArrayLengths();
+        if (data.length != assets.length || assets.length != minShares.length) {
+            revert Errors.IntuitionFeeProxy_WrongArrayLengths();
+        }
 
         uint256 count = data.length;
         uint256 atomCost = _ethMultiVault.getAtomCost();
@@ -326,7 +342,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
         for (uint256 i = 0; i < count; i++) {
             if (assets[i] > 0) {
-                _ethMultiVault.deposit{value: assets[i]}(msg.sender, atomIds[i], curveId, 0);
+                _ethMultiVault.deposit{value: assets[i]}(msg.sender, atomIds[i], curveId, minShares[i]);
             }
         }
 
@@ -343,12 +359,14 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
         bytes32[] calldata predicateIds,
         bytes32[] calldata objectIds,
         uint256[] calldata assets,
+        uint256[] calldata minShares,
         uint256 curveId
     ) external payable override nonReentrant returns (bytes32[] memory tripleIds) {
         if (
             subjectIds.length != predicateIds.length ||
             predicateIds.length != objectIds.length ||
-            objectIds.length != assets.length
+            objectIds.length != assets.length ||
+            assets.length != minShares.length
         ) revert Errors.IntuitionFeeProxy_WrongArrayLengths();
 
         uint256 count = subjectIds.length;
@@ -372,7 +390,7 @@ contract IntuitionFeeProxyV2Sponsored is IntuitionFeeProxyV2 {
 
         for (uint256 i = 0; i < count; i++) {
             if (assets[i] > 0) {
-                _ethMultiVault.deposit{value: assets[i]}(msg.sender, tripleIds[i], curveId, 0);
+                _ethMultiVault.deposit{value: assets[i]}(msg.sender, tripleIds[i], curveId, minShares[i]);
             }
         }
 

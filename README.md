@@ -105,9 +105,23 @@ What has been done is **two internal security-review passes** (self-review guide
 
 | Role | Holder (recommended) | Powers | Limits |
 |---|---|---|---|
-| `proxyAdmin` (per-proxy) | Safe multisig | Register new impl versions, switch default, rename, transfer admin (2-step) | Cannot drain user shares (MultiVault enforces `receiver = msg.sender`). Cannot silently raise fees above `MAX_FEE_PERCENTAGE = 10%` (bytecode constant, requires a new reviewed impl registration to bump). |
+| `proxyAdmin` (per-proxy) | Safe multisig (M-of-N, M ≥ 3) | Register new impl versions, switch default, rename, transfer admin (2-step) | Cannot raise fees above `MAX_FEE_PERCENTAGE = 10%` / `MAX_FIXED_FEE = 10 TRUST` without registering a new reviewed impl (bytecode constants). **Can change what fallback callers receive by activating a new default version** — see "Default-version trust" below. |
 | Factory `owner` | Project Safe multisig | Update the default impl used for FUTURE deployments, UUPS-upgrade the Factory, rotate ownership (2-step via `Ownable2Step`) | Existing proxies untouched — each carries its own `proxyAdmin`. |
-| `whitelistedAdmin` | Per-proxy operator | Adjust fees (bounded 0–10%), add/remove admins, withdraw accumulated fees, fund/reclaim sponsor pool | Cannot mint shares on behalf of users (every write path forces `receiver = msg.sender`). Cannot drain the sponsor pool via the fee-withdraw path: `withdraw` / `withdrawAll` only touch `accumulatedFees`, `reclaimFromPool` only touches `sponsorPool` — the two counters are accounted separately. |
+| `whitelistedAdmin` | Per-proxy operator | Adjust fees (bounded 0–10%), add/remove admins, withdraw accumulated fees, fund/reclaim sponsor pool | Cannot mint shares on behalf of users in the **current** impls (every write path forces `receiver = msg.sender`). Cannot drain the sponsor pool via the fee-withdraw path: `withdraw` / `withdrawAll` only touch `accumulatedFees`, `reclaimFromPool` only touches `sponsorPool` — the two counters are accounted separately. |
+
+### Default-version trust (the honest version)
+
+The MultiVault does **not** enforce `receiver == msg.sender`. It enforces `receiver == msg.sender || approvals[receiver][msg.sender] & DEPOSIT != 0`. From the MultiVault's point of view, `msg.sender` is always the proxy contract — never the EOA.
+
+The current `IntuitionFeeProxyV2` impl always passes the EOA caller as `receiver`. This is enforced **by the impl's bytecode**, not by the MultiVault. A future logic version registered by `proxyAdmin` and activated via `setDefaultVersion` could legally pass any address that has approved the proxy on the MultiVault — including an admin-controlled treasury.
+
+The defense is layered:
+
+1. **`proxyAdmin` is a Safe multisig.** Switching the default requires M-of-N signatures. We recommend M ≥ 3 with diverse signers.
+2. **Pin a specific version to be immune.** Users who never want to be exposed to default-version changes can call `executeAtVersion(versionTheyTrust, calldata)` instead of using the fallback. The pinned version's bytecode never changes.
+3. **Revoke `MultiVault.approve(proxy, DEPOSIT)` when idle.** A user with no standing approval cannot have funds redirected — every deposit re-grants approval scoped to that single tx (or via a multicall pattern: approve → deposit → revoke). We recommend this for any user not actively transacting.
+
+If all three defenses are bypassed simultaneously (Safe compromised + user not pinned + standing MV approval), the worst case is that the user's in-flight `msg.value` for new fallback calls gets routed to an admin-controlled receiver. **Existing minted shares are not at risk** — those require a separate `REDEMPTION` approval that the proxy does not request.
 
 
 ### Defensive guarantees in the code

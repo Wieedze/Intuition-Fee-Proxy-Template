@@ -134,6 +134,23 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
         VersionedFactory.deploy(proxyAdmin.address, V2, await impl.getAddress(), badInit, ethers.ZeroHash),
       ).to.be.revertedWithCustomError(impl, "IntuitionFeeProxy_FeePercentageTooHigh");
     });
+
+    it("reverts on empty initData even when admin/version/impl are valid", async function () {
+      // F9 guard: a direct deploy without initData would leave the impl
+      // storage uninitialized, letting anyone front-run an
+      // `executeAtVersion(v, initialize_calldata)` call to seize first-admin.
+      const { proxyAdmin, implV2 } = await loadFixture(deployFixture);
+      const VersionedFactory = await ethers.getContractFactory("IntuitionVersionedFeeProxy");
+      await expect(
+        VersionedFactory.deploy(
+          proxyAdmin.address,
+          V2,
+          await implV2.getAddress(),
+          "0x",
+          ethers.ZeroHash,
+        ),
+      ).to.be.revertedWithCustomError(VersionedFactory, "VersionedFeeProxy_InvalidImplementation");
+    });
   });
 
   // ============ registerVersion / setDefault / remove ============
@@ -270,7 +287,7 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
       const { proxyAsV2, user } = await loadFixture(deployFixture);
       const termId = ethers.zeroPadValue("0x01", 32);
       const total = await proxyAsV2.getTotalDepositCost(ethers.parseEther("1"));
-      await proxyAsV2.connect(user).deposit(termId, 1n, 0n, { value: total });
+      await proxyAsV2.connect(user).deposit(termId, 1n, 0n, 1000n, ethers.parseEther("10"), { value: total });
       expect(await proxyAsV2.accumulatedFees()).to.be.gt(0n);
     });
 
@@ -411,6 +428,8 @@ describe("IntuitionVersionedFeeProxy (ERC-7936)", function () {
         ethers.zeroPadValue("0x01", 32),
         1n,
         0n,
+        1000n,
+        ethers.parseEther("10"),
       ]);
       await expect(
         versioned.executeAtVersion(V2, callData, { value: 0n }),

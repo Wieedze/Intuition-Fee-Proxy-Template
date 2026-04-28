@@ -67,34 +67,54 @@ interface IIntuitionFeeProxyV2 {
     /// @dev    **PREREQUISITE**: the caller MUST have approved this proxy on
     ///         the MultiVault for at least `DEPOSIT` before calling — i.e.
     ///         `multiVault.approve(address(this), ApprovalTypes.DEPOSIT)`.
-    ///         The per-atom deposit loop runs AFTER atom creation; a missing
-    ///         approval causes the inner call to revert at that point, but
-    ///         the atoms are already created (cost: `atomCost * count`).
-    ///         Frontend / SDK: always call `approve()` upstream of this.
+    ///         A missing approval causes the inner deposit loop to revert,
+    ///         which reverts the entire transaction — atom creation is rolled
+    ///         back too (atomic). The user pays only the gas they consumed
+    ///         up to the revert point. Frontend / SDK: always call
+    ///         `approve()` upstream of this.
+    /// @param  data       atom payloads (one per atom)
+    /// @param  assets     extra-deposit per atom (0 = creation only)
+    /// @param  minShares  per-atom slippage floor for the inner deposit loop;
+    ///                    pass 0 only for atoms whose seed-curve value is
+    ///                    known to be safe (typically only fresh atoms).
+    /// @param  curveId    bonding curve to use for the inner deposits
     function createAtoms(
         bytes[] calldata data,
         uint256[] calldata assets,
+        uint256[] calldata minShares,
         uint256 curveId
     ) external payable returns (bytes32[] memory atomIds);
 
     /// @notice Create triples + deposit `assets[i]` on each.
     /// @dev    **PREREQUISITE**: same approval requirement as `createAtoms`.
-    ///         Missing approval → inner deposit loop reverts after triples are
-    ///         already created (cost: `tripleCost * count` consumed). Frontend
-    ///         / SDK must always call `multiVault.approve(proxy, DEPOSIT)`
-    ///         before invoking this.
+    ///         Missing approval → inner deposit loop reverts → entire tx
+    ///         reverts (atomic). Frontend / SDK must always call
+    ///         `multiVault.approve(proxy, DEPOSIT)` before invoking this.
+    /// @param  minShares  per-triple slippage floor for the inner deposit
+    ///                    loop. Triples reference existing atom curves so a
+    ///                    sandwich attack is feasible — set this aggressively.
     function createTriples(
         bytes32[] calldata subjectIds,
         bytes32[] calldata predicateIds,
         bytes32[] calldata objectIds,
         uint256[] calldata assets,
+        uint256[] calldata minShares,
         uint256 curveId
     ) external payable returns (bytes32[] memory tripleIds);
 
+    /// @notice Inverse-formula deposit. The proxy reads the live fee config
+    ///         and splits `msg.value` into `multiVaultAmount + fee`.
+    /// @dev    The caller passes `maxFeeBps` and `maxFixedFee` as front-run
+    ///         protection: if an admin bumps either fee above what the
+    ///         caller saw off-chain, the tx reverts with `FeeExceedsCap`
+    ///         instead of silently charging more. Pass `MAX_FEE_PERCENTAGE`
+    ///         and `MAX_FIXED_FEE` to opt out (worst case acceptance).
     function deposit(
         bytes32 termId,
         uint256 curveId,
-        uint256 minShares
+        uint256 minShares,
+        uint256 maxFeeBps,
+        uint256 maxFixedFee
     ) external payable returns (uint256 shares);
 
     function depositBatch(

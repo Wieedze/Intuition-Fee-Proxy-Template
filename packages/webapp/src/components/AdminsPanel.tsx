@@ -8,6 +8,7 @@ import {
   useSetWhitelistedAdmin,
 } from '../hooks/useProxy'
 import AddressDisplay from './Address'
+import { SafeBadge } from './SafeBadge'
 import { Spinner } from './Spinner'
 
 interface Props {
@@ -149,6 +150,10 @@ export function AdminsPanel({ proxy, connectedAccount }: Props) {
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <AddressDisplay value={addr} variant="short" />
+                  <SafeBadge
+                    address={addr}
+                    safeUiUrl={`https://safe.onchainden.com/home?safe=int:${addr}`}
+                  />
                   {isSelf && (
                     <span className="text-[10px] font-mono uppercase tracking-wider text-subtle border border-line rounded px-1.5 py-0.5">
                       you

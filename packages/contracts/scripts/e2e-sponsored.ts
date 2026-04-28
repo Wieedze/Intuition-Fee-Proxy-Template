@@ -330,7 +330,7 @@ async function main() {
   await (
     await proxy
       .connect(user4)
-      .createAtoms(atomsData, atomsAssets, 1n, { value: 0 })
+      .createAtoms(atomsData, atomsAssets, atomsAssets.map(() => 0n), 1n, { value: 0 })
   ).wait();
   const m9 = await proxy.getMetrics();
   assertEq(m9.totalAtomsCreated, 2n, "totalAtomsCreated = 2");
@@ -383,7 +383,7 @@ async function main() {
   console.log("\n⑪ disabled paths …");
   console.log("   deposit(3 args) on sponsored → Sponsored_UseDepositSponsored");
   await expectRevertWithName(
-    () => proxy.connect(user1).deposit(termId, 1n, 0n, { value: ethers.parseEther("0.2") }),
+    () => proxy.connect(user1).deposit(termId, 1n, 0n, 1000n, ethers.parseEther("10"), { value: ethers.parseEther("0.2") }),
     "Sponsored_UseDepositSponsored",
     "3-arg deposit disabled on sponsored",
   );

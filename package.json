@@ -30,7 +30,11 @@
     "sdk:sync": "bun run scripts/sync-abis.ts",
     "webapp:dev": "bun --filter @intuition-fee-proxy/webapp dev",
     "webapp:build": "bun --filter @intuition-fee-proxy/webapp build",
-    "webapp:preview": "bun --filter @intuition-fee-proxy/webapp preview"
+    "webapp:preview": "bun --filter @intuition-fee-proxy/webapp preview",
+    "safe:tx": "bun packages/safe-tx/bin/safe-propose.ts",
+    "safe:tx:test": "bun --filter @intuition-fee-proxy/safe-tx test",
+    "safe:tx:typecheck": "bun --filter @intuition-fee-proxy/safe-tx typecheck",
+    "safe:rotate-admin": "bun packages/safe-tx/scripts/transferAdminToSafe.ts"
   },
   "license": "MIT",
   "devDependencies": {

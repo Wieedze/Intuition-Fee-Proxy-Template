@@ -1,0 +1,37 @@
+{
+  "name": "@intuition-fee-proxy/safe-tx",
+  "version": "2.0.0-alpha",
+  "private": true,
+  "type": "module",
+  "description": "Safe multisig admin tooling — propose, sign, and execute admin operations against IntuitionFeeProxy V2 + Factory via Den Safe Transaction Service or direct on-chain signing.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "bin": {
+    "safe-propose": "./bin/safe-propose.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "propose": "bun bin/safe-propose.ts",
+    "rotate-admin": "bun scripts/transferAdminToSafe.ts"
+  },
+  "dependencies": {
+    "commander": "^12.0.0"
+  },
+  "peerDependencies": {
+    "viem": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "viem": "^2.21.0",
+    "vitest": "^2.0.0"
+  }
+}

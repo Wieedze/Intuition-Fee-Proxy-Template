@@ -97,6 +97,14 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
         if (initialImpl == address(0) || initialImpl.code.length == 0) {
             revert Errors.VersionedFeeProxy_InvalidImplementation();
         }
+        // Reject empty initData. Without it, the impl's storage stays in its
+        // pre-init state — anyone could front-run an `executeAtVersion(v,
+        // initialize_calldata)` call and become the first admin. The Factory
+        // always passes a populated `initialize(...)` blob; a direct deploy
+        // that skips it would be a footgun.
+        if (initData.length == 0) {
+            revert Errors.VersionedFeeProxy_InvalidImplementation();
+        }
 
         Layout storage s = _layout();
         s.proxyAdmin = admin;
@@ -197,6 +205,19 @@ contract IntuitionVersionedFeeProxy is IIntuitionVersionedFeeProxy {
     }
 
     /// @inheritdoc IIntuitionVersionedFeeProxy
+    /// @dev ⚠️ Switching the default version changes what every fallback
+    ///      caller receives. Users who hold a long-lived
+    ///      `MultiVault.approve(thisProxy, DEPOSIT)` will, on their next
+    ///      fallback deposit, run the new logic. The MultiVault does NOT
+    ///      enforce `receiver == msg.sender` — it enforces
+    ///      `receiver == msg.sender || approvals[receiver][msg.sender] & DEPOSIT`,
+    ///      and `msg.sender` from the MultiVault's POV is this proxy. A new
+    ///      impl could legally route deposits to any address that has approved
+    ///      this proxy on the MultiVault. The trust model relies on
+    ///      `proxyAdmin` being a Safe multisig (M-of-N, M ≥ 3 recommended).
+    ///      Users who want to be insulated from default-version switches MUST
+    ///      pin a specific version via `executeAtVersion(version, …)` rather
+    ///      than relying on the fallback.
     function setDefaultVersion(bytes32 version) external onlyProxyAdmin {
         Layout storage s = _layout();
         if (!s.versionExists[version]) revert Errors.VersionedFeeProxy_VersionNotFound();
