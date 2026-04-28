@@ -1,5 +1,4 @@
 import {
-  encodeFunctionData,
   hashTypedData,
   pad,
   type Address,
