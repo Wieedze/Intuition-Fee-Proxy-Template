@@ -41,9 +41,15 @@ export async function trezorSigner(opts: TrezorSignerOptions = {}): Promise<Sign
   }
   const initTimeoutMs = opts.initTimeoutMs ?? 30_000
 
-  let TrezorConnect: typeof import('@trezor/connect').default
+  // Optional dep — typed `any` so the typecheck doesn't fail when
+  // @trezor/connect isn't installed in node_modules (the whole point of
+  // optionalDependencies). Runtime types are checked at the use sites
+  // through the SDK's response shape.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let TrezorConnect: any
   try {
-    const mod = await import('@trezor/connect')
+    // @vite-ignore — optional dep, may not be installed in webapp builds.
+    const mod = await import(/* @vite-ignore */ '@trezor/connect' as string)
     TrezorConnect = mod.default
   } catch {
     throw new Error(
@@ -90,11 +96,12 @@ export async function trezorSigner(opts: TrezorSignerOptions = {}): Promise<Sign
       // Trezor's ethereumSignTypedData with metamask_v4_compat accepts
       // the EIP-712 v4 structure. Need to coerce bigints to decimal
       // strings so JSON-serializable.
-      const data = JSON.parse(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const data: any = JSON.parse(
         JSON.stringify(typedData, (_k, v) =>
           typeof v === 'bigint' ? v.toString() : v,
         ),
-      ) as Parameters<typeof TrezorConnect.ethereumSignTypedData>[0]['data']
+      )
       const res = await TrezorConnect.ethereumSignTypedData({
         path: derivationPath,
         data,

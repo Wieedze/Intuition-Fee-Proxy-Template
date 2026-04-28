@@ -27,11 +27,15 @@ export async function ledgerSigner(opts: LedgerSignerOptions = {}): Promise<Sign
   const derivationPath = opts.derivationPath ?? "44'/60'/0'/0/0"
   const transportTimeoutMs = opts.transportTimeoutMs ?? 3000
 
-  let TransportNodeHid: typeof import('@ledgerhq/hw-transport-node-hid').default
-  let Eth: typeof import('@ledgerhq/hw-app-eth').default
+  // Optional deps — typed `any` so typecheck doesn't depend on them
+  // being installed (the whole point of optionalDependencies).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let TransportNodeHid: any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let Eth: any
   try {
-    const transportMod = await import('@ledgerhq/hw-transport-node-hid')
-    const ethMod = await import('@ledgerhq/hw-app-eth')
+    const transportMod = await import(/* @vite-ignore */ '@ledgerhq/hw-transport-node-hid' as string)
+    const ethMod = await import(/* @vite-ignore */ '@ledgerhq/hw-app-eth' as string)
     TransportNodeHid = transportMod.default
     Eth = ethMod.default
   } catch {
@@ -45,7 +49,8 @@ export async function ledgerSigner(opts: LedgerSignerOptions = {}): Promise<Sign
   // Ledger plugged in (and on some Linux configs without udev rules).
   // Race it with a timeout so we surface a usable error instead of a
   // 30s freeze.
-  let transport: Awaited<ReturnType<typeof TransportNodeHid.create>>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let transport: any
   try {
     transport = await Promise.race([
       TransportNodeHid.create(),
@@ -82,11 +87,12 @@ export async function ledgerSigner(opts: LedgerSignerOptions = {}): Promise<Sign
       // The Ledger SDK takes an EIP712Message *object* (not JSON string),
       // and all numeric values must be decimal strings (no bigints). Round-
       // trip through JSON to coerce bigints while preserving structure.
-      const eip712Message = JSON.parse(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const eip712Message: any = JSON.parse(
         JSON.stringify(typedData, (_k, v) =>
           typeof v === 'bigint' ? v.toString() : v,
         ),
-      ) as Parameters<typeof eth.signEIP712Message>[1]
+      )
       const sig = await eth.signEIP712Message(derivationPath, eip712Message)
       return packSig(sig.r, sig.s, sig.v)
     },
