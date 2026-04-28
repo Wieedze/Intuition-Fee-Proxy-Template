@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import type { Address } from 'viem'
 import { useChainId } from 'wagmi'
 import { useSafeStatus } from '../hooks/useSafeStatus'
@@ -47,14 +48,28 @@ export function ProxyAdminSafeBanner({ proxyAdmin }: Props) {
   if (onMainnet) {
     return (
       <div className="rounded-lg border border-rose-400/50 bg-rose-400/5 px-4 py-3 text-xs text-rose-300">
-        <strong>EOA proxyAdmin on mainnet — high risk.</strong> This single key can swap the proxy&apos;s implementation, replacing the entire logic of the contract. A key compromise here means total loss of control. Rotate to a Gnosis Safe before any production use.
+        <strong>EOA proxyAdmin on mainnet — high risk.</strong> This single key can swap the proxy&apos;s implementation, replacing the entire logic of the contract. A key compromise here means total loss of control. Rotate to a Gnosis Safe before any production use.{' '}
+        <Link
+          to="/docs/safe-admin"
+          className="underline decoration-rose-400/60 hover:decoration-rose-200 font-medium"
+        >
+          Read the Safe admin guide
+        </Link>
+        .
       </div>
     )
   }
 
   return (
     <div className="rounded-lg border border-amber-400/30 bg-amber-400/5 px-4 py-2.5 text-xs text-amber-300">
-      <strong>EOA proxyAdmin.</strong> Fine for dev / testing. Rotate to a Safe before this proxy goes near mainnet.
+      <strong>EOA proxyAdmin.</strong> Fine for dev / testing. Rotate to a Safe before this proxy goes near mainnet.{' '}
+      <Link
+        to="/docs/safe-admin"
+        className="underline decoration-amber-400/60 hover:decoration-amber-200"
+      >
+        Safe admin guide
+      </Link>
+      .
     </div>
   )
 }

@@ -20,7 +20,7 @@ import { Spinner } from '../components/Spinner'
 const FEE_DENOMINATOR = 10_000n
 
 export default function DeployPage() {
-  const { isConnected } = useAccount()
+  const { address: connectedAddress, isConnected } = useAccount()
   const chainId = useChainId()
   const network = networkFor(chainId)
   const navigate = useNavigate()
@@ -33,6 +33,18 @@ export default function DeployPage() {
   const [fixedFeeEth, setFixedFeeEth] = useState<string>('0.1')
   const [percentageBps, setPercentageBps] = useState<string>('500')
   const [adminsRaw, setAdminsRaw] = useState<string>('')
+  const [safeInput, setSafeInput] = useState<string>('')
+  const [showSafeInput, setShowSafeInput] = useState<boolean>(false)
+
+  function appendAdmin(addr: string): void {
+    setAdminsRaw((prev) => {
+      const trimmed = prev.trim()
+      if (!trimmed) return addr
+      const existing = trimmed.split(/[,\s\n]+/).map((a) => a.toLowerCase())
+      if (existing.includes(addr.toLowerCase())) return prev
+      return `${trimmed}\n${addr}`
+    })
+  }
 
   const { deploy, hash, isPending, error, factory } = useDeployProxy()
   const receipt = useWaitForTransactionReceipt({ hash })
@@ -306,6 +318,47 @@ export default function DeployPage() {
           label="Admins"
           hint="One address per line or comma-separated. At least one required."
         >
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            {connectedAddress && (
+              <button
+                type="button"
+                onClick={() => appendAdmin(connectedAddress)}
+                className="text-[11px] px-2 py-1 rounded border border-line text-muted hover:text-ink hover:border-ink/40 transition-colors"
+              >
+                + Add my wallet ({connectedAddress.slice(0, 6)}…{connectedAddress.slice(-4)})
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowSafeInput((v) => !v)}
+              className="text-[11px] px-2 py-1 rounded border border-line text-muted hover:text-ink hover:border-ink/40 transition-colors"
+            >
+              {showSafeInput ? '− Cancel Safe input' : '+ Add Safe address'}
+            </button>
+          </div>
+          {showSafeInput && (
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <input
+                value={safeInput}
+                onChange={(e) => setSafeInput(e.target.value)}
+                placeholder="0x… (Gnosis Safe address)"
+                className="input font-mono text-xs flex-1 min-w-[260px]"
+              />
+              <button
+                type="button"
+                disabled={!isAddress(safeInput.trim())}
+                onClick={() => {
+                  if (!isAddress(safeInput.trim())) return
+                  appendAdmin(safeInput.trim())
+                  setSafeInput('')
+                  setShowSafeInput(false)
+                }}
+                className="btn-secondary text-xs px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Add
+              </button>
+            </div>
+          )}
           <textarea
             value={adminsRaw}
             onChange={(e) => setAdminsRaw(e.target.value)}
@@ -315,8 +368,16 @@ export default function DeployPage() {
           />
           <div className="mt-2 rounded-md border border-brand/30 bg-brand/10 px-3 py-2 text-xs text-ink">
             <span className="font-medium text-brand">Heads up — </span>
-            use a multisig (e.g. a Safe) as admin. A single EOA is a single
-            point of failure for fee withdrawals and version upgrades.
+            use a multisig (e.g. a Safe) as admin for production. A single
+            EOA is a single point of failure for fee withdrawals and version
+            upgrades.{' '}
+            <Link
+              to="/docs/safe-admin"
+              className="underline decoration-brand/60 hover:decoration-brand"
+            >
+              See the Safe multisig admin guide
+            </Link>
+            .
           </div>
           {adminsRaw && !adminsValid && (
             <p className="text-xs text-rose-400 mt-1">
