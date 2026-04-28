@@ -2,15 +2,19 @@ import { useEffect, useState } from 'react'
 import { isAddress, type Address } from 'viem'
 import { useWaitForTransactionReceipt } from 'wagmi'
 
+import { ops } from '@intuition-fee-proxy/safe-tx'
 import {
   useAcceptProxyAdmin,
   useTransferProxyAdmin,
 } from '../hooks/useVersionedProxy'
+import { useSafePropose } from '../hooks/useSafePropose'
+import { useSafeStatus } from '../hooks/useSafeStatus'
 import AddressDisplay from './Address'
 import { useProxyAdminRotation } from '../hooks/useProxyAdminRotation'
 import { usePostTxRefreshing } from '../hooks/usePostTxRefreshing'
 import { ProxyAdminSafeBanner } from './ProxyAdminSafeBanner'
 import { SafeBadge } from './SafeBadge'
+import { SafeProposeFeedback } from './SafeProposeFeedback'
 import { Spinner } from './Spinner'
 
 const ZERO = '0x0000000000000000000000000000000000000000'
@@ -48,6 +52,18 @@ export function UpgradeAuthorityPanel({
       account.toLowerCase() === pendingProxyAdmin.toLowerCase(),
   )
   const hasBothRoles = isYou && isConnectedFeeAdmin
+
+  // Detect if proxyAdmin is itself a Safe — then we can propose
+  // transferProxyAdmin / acceptProxyAdmin via that Safe.
+  const proxyAdminStatus = useSafeStatus(proxyAdmin)
+  const proxyAdminSafe = proxyAdminStatus.kind === 'safe' ? proxyAdmin : undefined
+  // Same for the pending admin — useful when the new owner is a Safe
+  // and needs to acceptProxyAdmin via that Safe's quorum.
+  const pendingStatus = useSafeStatus(pendingProxyAdmin)
+  const pendingIsSafe = pendingStatus.kind === 'safe'
+  const safePropose = useSafePropose({
+    safeAddress: proxyAdminSafe ?? (pendingIsSafe ? pendingProxyAdmin : undefined),
+  })
 
   // Standalone "Grant Role 1" — separate write instance from the rotation.
   const [newAdminInput, setNewAdminInput] = useState('')
@@ -139,26 +155,17 @@ export function UpgradeAuthorityPanel({
       </div>
 
       <p className="text-[11px] text-muted leading-relaxed -mt-2">
-        Only <strong>one</strong> address can hold this role at a time.
-        For production, put a <strong>Gnosis Safe multisig</strong> here —
-        the Safe itself handles N signers / threshold / signer rotation
-        internally, so you get &ldquo;multi-human proxyAdmin&rdquo;
-        without the contract knowing anything about it.
+        Single slot. Controls implementation registration only — fees and
+        withdrawals are Role 2. Use a Safe for production.
       </p>
 
       <ProxyAdminSafeBanner proxyAdmin={proxyAdmin} />
 
       {acceptedFlash && (
-        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 flex items-center gap-2 animate-fade-in">
-          <span
-            aria-hidden
-            className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400"
-          >
-            ✓
-          </span>
+        <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 animate-fade-in">
           <span className="text-sm text-emerald-300">
-            You are now <strong>proxyAdmin</strong> — the transfer has been
-            finalised on-chain.
+            You are now <strong>proxyAdmin</strong> — transfer finalised
+            on-chain.
           </span>
         </div>
       )}
@@ -199,10 +206,9 @@ export function UpgradeAuthorityPanel({
             )}
           </div>
           <p className="text-xs text-subtle leading-relaxed">
-            A transfer has been initiated. The pending address must sign{' '}
-            <code className="font-mono text-ink">acceptProxyAdmin()</code> from
-            their wallet to finalise. Until then the current admin keeps all
-            powers and can overwrite the pending candidate.
+            Pending must call{' '}
+            <code className="font-mono text-ink">acceptProxyAdmin()</code> to
+            finalise. Current admin can still overwrite.
           </p>
           {isPendingYou && (
             <button
@@ -218,6 +224,23 @@ export function UpgradeAuthorityPanel({
                   : 'Accept proxyAdmin role'}
             </button>
           )}
+          {pendingIsSafe && pendingProxyAdmin && (
+            <button
+              type="button"
+              onClick={async () => {
+                safePropose.reset()
+                try {
+                  await safePropose.propose(ops.versionedProxy.acceptProxyAdmin(proxy))
+                } catch (e) {
+                  console.error(e)
+                }
+              }}
+              disabled={safePropose.isProposing}
+              className="btn-secondary text-xs px-3 py-1.5"
+            >
+              {safePropose.isProposing ? 'Proposing…' : 'Propose acceptProxyAdmin via Safe'}
+            </button>
+          )}
           {acceptError && (
             <p className="text-xs text-rose-400 font-mono break-words">
               {acceptError.message.split('\n')[0]}
@@ -226,7 +249,7 @@ export function UpgradeAuthorityPanel({
         </div>
       )}
 
-      {isYou && (
+      {(isYou || proxyAdminSafe) && (
         <div className="space-y-2 pt-2 border-t border-line">
           <label className="block text-[10px] uppercase tracking-wide text-subtle">
             Grant Role 1 to a new address (2-step)
@@ -240,22 +263,47 @@ export function UpgradeAuthorityPanel({
               onChange={(e) => setNewAdminInput(e.target.value)}
               className="input flex-1 min-w-[18rem] font-mono text-xs"
             />
-            <button
-              type="button"
-              onClick={() =>
-                inputValid && transferAdmin(newAdminInput.trim() as Address)
-              }
-              disabled={!inputValid || transferPending || transferReceipt.isLoading}
-              className="btn-secondary text-xs px-3 py-1.5"
-            >
-              {transferPending
-                ? 'Sign…'
-                : transferReceipt.isLoading
-                  ? 'Mining…'
-                  : hasPending
-                    ? 'Grant (replace pending)'
-                    : 'Grant'}
-            </button>
+            {isYou && (
+              <button
+                type="button"
+                onClick={() =>
+                  inputValid && transferAdmin(newAdminInput.trim() as Address)
+                }
+                disabled={!inputValid || transferPending || transferReceipt.isLoading}
+                className="btn-secondary text-xs px-3 py-1.5"
+              >
+                {transferPending
+                  ? 'Sign…'
+                  : transferReceipt.isLoading
+                    ? 'Mining…'
+                    : hasPending
+                      ? 'Grant (replace pending)'
+                      : 'Grant'}
+              </button>
+            )}
+            {proxyAdminSafe && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!inputValid) return
+                  safePropose.reset()
+                  try {
+                    await safePropose.propose(
+                      ops.versionedProxy.transferProxyAdmin(
+                        proxy,
+                        newAdminInput.trim() as Address,
+                      ),
+                    )
+                  } catch (e) {
+                    console.error(e)
+                  }
+                }}
+                disabled={!inputValid || safePropose.isProposing}
+                className="btn-secondary text-xs px-3 py-1.5"
+              >
+                {safePropose.isProposing ? 'Proposing…' : 'Propose via Safe'}
+              </button>
+            )}
           </div>
           {transferError && (
             <p className="text-xs text-rose-400 font-mono break-words">
@@ -272,6 +320,8 @@ export function UpgradeAuthorityPanel({
       )}
 
       {hasBothRoles && <RotateBothRolesForm rotation={rotation} />}
+
+      <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
 
       <p className="text-xs text-subtle leading-relaxed pt-1">
         Role 1 controls <em>which logic</em> the proxy delegates to —
