@@ -2,8 +2,12 @@ import { useEffect, useState } from 'react'
 import { formatEther, parseEther, type Address } from 'viem'
 import { useWaitForTransactionReceipt } from 'wagmi'
 
+import { ops } from '@intuition-fee-proxy/safe-tx'
 import { useSetClaimLimits } from '../hooks/useSponsoredProxy'
+import { useSafeAdmin } from '../hooks/useSafeAdmin'
+import { useSafePropose } from '../hooks/useSafePropose'
 import { WINDOW_PRESETS, formatWindow } from '../lib/format'
+import { SafeProposeFeedback } from './SafeProposeFeedback'
 
 interface Limits {
   maxClaimPerTx: bigint
@@ -38,6 +42,9 @@ export function ClaimLimitsPanel({ proxy, current, onDone }: Props) {
   const { setClaimLimits, hash, isPending, error, reset } =
     useSetClaimLimits(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
+
+  const { safe } = useSafeAdmin(proxy)
+  const safePropose = useSafePropose({ safeAddress: safe })
 
   useEffect(() => {
     if (current) {
@@ -79,6 +86,24 @@ export function ClaimLimitsPanel({ proxy, current, onDone }: Props) {
         BigInt(maxPerWindow),
         parseEther(maxVolume),
         BigInt(windowSec),
+      )
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  async function onProposeSetLimits() {
+    if (!allValid || !safe) return
+    safePropose.reset()
+    try {
+      await safePropose.propose(
+        ops.sponsored.setClaimLimits(
+          proxy,
+          parseEther(maxPerTx),
+          BigInt(maxPerWindow),
+          parseEther(maxVolume),
+          BigInt(windowSec),
+        ),
       )
     } catch (e) {
       console.error(e)
@@ -285,14 +310,28 @@ export function ClaimLimitsPanel({ proxy, current, onDone }: Props) {
         </p>
       </div>
 
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={!allValid || isPending || receipt.isLoading}
-        className="btn-primary"
-      >
-        {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Update limits'}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={!allValid || isPending || receipt.isLoading || safePropose.isProposing}
+          className="btn-primary"
+        >
+          {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Update limits'}
+        </button>
+        {safe && (
+          <button
+            type="button"
+            onClick={onProposeSetLimits}
+            disabled={!allValid || isPending || receipt.isLoading || safePropose.isProposing}
+            className="btn-secondary text-xs px-3"
+          >
+            {safePropose.isProposing ? 'Proposing…' : 'Propose via Safe'}
+          </button>
+        )}
+      </div>
+
+      <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
 
       {error && (
         <p className="text-xs text-rose-400 font-mono">

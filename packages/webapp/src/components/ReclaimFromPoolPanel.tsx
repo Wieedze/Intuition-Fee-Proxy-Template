@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react'
 import { formatEther, isAddress, parseEther, type Address } from 'viem'
 import { useWaitForTransactionReceipt } from 'wagmi'
 
+import { ops } from '@intuition-fee-proxy/safe-tx'
 import { useReclaimFromPool } from '../hooks/useSponsoredProxy'
+import { useSafeAdmin } from '../hooks/useSafeAdmin'
+import { useSafePropose } from '../hooks/useSafePropose'
+import { SafeProposeFeedback } from './SafeProposeFeedback'
 
 interface Props {
   proxy: Address
@@ -15,6 +19,9 @@ export function ReclaimFromPoolPanel({ proxy, poolBalance, onDone }: Props) {
   const [to, setTo] = useState('')
   const { reclaim, hash, isPending, error, reset } = useReclaimFromPool(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
+
+  const { safe } = useSafeAdmin(proxy)
+  const safePropose = useSafePropose({ safeAddress: safe })
 
   useEffect(() => {
     if (receipt.isSuccess) {
@@ -31,6 +38,18 @@ export function ReclaimFromPoolPanel({ proxy, poolBalance, onDone }: Props) {
     if (!toValid || !amountValid) return
     try {
       await reclaim(parseEther(amount), to as Address)
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  async function onProposeReclaim() {
+    if (!toValid || !amountValid || !safe) return
+    safePropose.reset()
+    try {
+      await safePropose.propose(
+        ops.sponsored.reclaimFromPool(proxy, parseEther(amount), to as Address),
+      )
     } catch (e) {
       console.error(e)
     }
@@ -77,14 +96,28 @@ export function ReclaimFromPoolPanel({ proxy, poolBalance, onDone }: Props) {
         )}
       </label>
 
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={!toValid || !amountValid || isPending || receipt.isLoading}
-        className="btn-primary"
-      >
-        {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Reclaim from pool'}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={!toValid || !amountValid || isPending || receipt.isLoading || safePropose.isProposing}
+          className="btn-primary"
+        >
+          {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Reclaim from pool'}
+        </button>
+        {safe && (
+          <button
+            type="button"
+            onClick={onProposeReclaim}
+            disabled={!toValid || !amountValid || isPending || receipt.isLoading || safePropose.isProposing}
+            className="btn-secondary text-xs px-3"
+          >
+            {safePropose.isProposing ? 'Proposing…' : 'Propose via Safe'}
+          </button>
+        )}
+      </div>
+
+      <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
 
       {error && (
         <p className="text-xs text-rose-400 font-mono">
