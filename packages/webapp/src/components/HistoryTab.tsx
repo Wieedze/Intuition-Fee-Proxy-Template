@@ -124,11 +124,18 @@ export function HistoryTab({ proxy, isAdmin, channel }: Props) {
   return (
     <section className="space-y-4">
       <div className="card space-y-2">
-        <h3 className="font-semibold">History</h3>
-        <p className="text-sm text-subtle leading-relaxed">
-          Chronological log of every public event on this proxy — pool
-          contributions, refunds, and fee withdrawals.
-        </p>
+        <div className="flex items-baseline gap-3 flex-wrap">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-muted">
+            Activity
+          </span>
+          <div>
+            <h2 className="font-semibold">History</h2>
+            <p className="text-sm text-subtle leading-relaxed">
+              Chronological log of every public event on this proxy — pool
+              contributions, refunds, and fee withdrawals.
+            </p>
+          </div>
+        </div>
         {isSponsored && (
           <div className="text-xs text-muted">
             Current pool balance:{' '}

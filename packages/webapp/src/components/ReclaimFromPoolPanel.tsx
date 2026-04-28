@@ -56,11 +56,16 @@ export function ReclaimFromPoolPanel({ proxy, onDone }: Props) {
 
   return (
     <section className="card flex flex-col gap-4 h-full">
-      <div>
-        <h3 className="font-semibold">Reclaim from pool</h3>
-        <p className="text-xs text-subtle">
-          Withdraw unspent TRUST you previously funded.
-        </p>
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <span className="text-[10px] font-mono uppercase tracking-widest text-muted">
+          Admin only
+        </span>
+        <div>
+          <h2 className="font-semibold">Reclaim from pool</h2>
+          <p className="text-xs text-subtle">
+            Withdraw unspent TRUST you previously funded.
+          </p>
+        </div>
       </div>
 
       <label className="block space-y-1">
