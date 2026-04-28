@@ -75,6 +75,7 @@
       "name": "@intuition-fee-proxy/webapp",
       "version": "2.0.0-alpha",
       "dependencies": {
+        "@intuition-fee-proxy/safe-tx": "workspace:*",
         "@intuition-fee-proxy/sdk": "workspace:*",
         "@rainbow-me/rainbowkit": "^2.1.0",
         "@tanstack/react-query": "^5.51.0",
