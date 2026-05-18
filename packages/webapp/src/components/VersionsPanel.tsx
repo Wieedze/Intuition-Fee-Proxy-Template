@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isAddress, stringToHex, type Address, type Hex } from 'viem'
-import { useWaitForTransactionReceipt } from 'wagmi'
+import { useReadContract, useWaitForTransactionReceipt } from 'wagmi'
 
 import {
+  IntuitionVersionedFeeProxyABI,
   listVersionsByFamily,
   type CanonicalVersion,
   type NetworkName,
   type ProxyFamily,
 } from '@intuition-fee-proxy/sdk'
+import { ops } from '@intuition-fee-proxy/safe-tx'
 import {
   useRegisterVersion,
   useSetDefaultVersion,
 } from '../hooks/useVersionedProxy'
+import { useSafePropose } from '../hooks/useSafePropose'
+import { useSafeStatus } from '../hooks/useSafeStatus'
 import { decodeVersion } from '../lib/format'
+import { SafeProposeFeedback } from './SafeProposeFeedback'
 
 interface Props {
   proxy: Address
@@ -120,6 +125,43 @@ export function VersionsPanel({
   const registerReceipt = useWaitForTransactionReceipt({ hash: registerHash })
   const defaultReceipt = useWaitForTransactionReceipt({ hash: defaultHash })
 
+  // Read the current proxyAdmin so we can detect whether it's a Safe
+  // (and surface "Propose via Safe" buttons when a Safe holds Role 1).
+  const proxyAdminRead = useReadContract({
+    abi: IntuitionVersionedFeeProxyABI,
+    address: proxy,
+    functionName: 'proxyAdmin',
+  })
+  const proxyAdmin = proxyAdminRead.data as Address | undefined
+  const proxyAdminStatus = useSafeStatus(proxyAdmin)
+  const proxyAdminSafe =
+    proxyAdminStatus.kind === 'safe' ? proxyAdmin : undefined
+  const safePropose = useSafePropose({ safeAddress: proxyAdminSafe })
+
+  async function onProposePromote(row: Row) {
+    if (!row.impl || !proxyAdminSafe) return
+    safePropose.reset()
+    try {
+      await safePropose.propose(
+        ops.versionedProxy.registerVersion(proxy, row.labelHex, row.impl),
+      )
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  async function onProposeMakeDefault(row: Row) {
+    if (!proxyAdminSafe) return
+    safePropose.reset()
+    try {
+      await safePropose.propose(
+        ops.versionedProxy.setDefaultVersion(proxy, row.labelHex),
+      )
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   // Tracks the label being *promoted* (register → auto-setDefault chain).
   // Also used by "Make default" clicks (they skip the register step by
   // starting with status === 'registered').
@@ -212,40 +254,39 @@ export function VersionsPanel({
 
   return (
     <section className="card space-y-4">
-      <div>
-        <h2 className="font-semibold">
-          Versions (
-          <a
-            href="https://eips.ethereum.org/EIPS/eip-7936"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-0.5 text-brand underline decoration-brand/60 decoration-from-font hover:decoration-brand"
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <a
+          href="https://eips.ethereum.org/EIPS/eip-7936"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-0.5 text-[10px] font-mono uppercase tracking-widest text-muted hover:text-brand transition-colors"
+        >
+          ERC-7936
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            aria-hidden="true"
+            className="-translate-y-px"
           >
-            ERC-7936
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              aria-hidden="true"
-              className="-translate-y-px"
-            >
-              <path
-                d="M7 17L17 7M17 7H9M17 7v8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </a>
-          )
-        </h2>
-        <p className="text-xs text-subtle leading-relaxed">
-          Every implementation this proxy has registered + the canonical
-          directory published by the team. Pin any past version with{' '}
-          <code className="font-mono">executeAtVersion(v, data)</code>.
-        </p>
+            <path
+              d="M7 17L17 7M17 7H9M17 7v8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </a>
+        <div>
+          <h2 className="font-semibold">Versions</h2>
+          <p className="text-xs text-subtle leading-relaxed">
+            Every implementation this proxy has registered + the canonical
+            directory published by the team. Pin any past version with{' '}
+            <code className="font-mono">executeAtVersion(v, data)</code>.
+          </p>
+        </div>
       </div>
 
       <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-subtle leading-relaxed">
@@ -266,11 +307,15 @@ export function VersionsPanel({
             key={row.label}
             row={row}
             isProxyAdmin={isProxyAdmin}
+            proxyAdminIsSafe={Boolean(proxyAdminSafe)}
             busy={isBusyFor(row)}
             busyLabel={busyLabelFor(row)}
             anyBusy={pendingStage !== 'idle'}
+            safeProposing={safePropose.isProposing}
             onPromote={() => onPromote(row)}
             onMakeDefault={() => onMakeDefault(row)}
+            onProposePromote={() => onProposePromote(row)}
+            onProposeMakeDefault={() => onProposeMakeDefault(row)}
           />
         ))}
       </ul>
@@ -281,6 +326,8 @@ export function VersionsPanel({
         </p>
       )}
 
+      <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
+
       {isProxyAdmin && (
         <AdvancedCustomPaste
           proxy={proxy}
@@ -289,9 +336,15 @@ export function VersionsPanel({
         />
       )}
 
-      {!isProxyAdmin && (
+      {!isProxyAdmin && !proxyAdminSafe && (
         <p className="text-xs text-subtle">
           Registering or promoting versions is proxy-admin only.
+        </p>
+      )}
+      {!isProxyAdmin && proxyAdminSafe && (
+        <p className="text-xs text-subtle">
+          The proxyAdmin is a Safe — register / promote actions above
+          open a multisig proposal. Co-sign and execute in Den.
         </p>
       )}
     </section>
@@ -301,19 +354,27 @@ export function VersionsPanel({
 function VersionRow({
   row,
   isProxyAdmin,
+  proxyAdminIsSafe,
   busy,
   busyLabel,
   anyBusy,
+  safeProposing,
   onPromote,
   onMakeDefault,
+  onProposePromote,
+  onProposeMakeDefault,
 }: {
   row: Row
   isProxyAdmin: boolean
+  proxyAdminIsSafe: boolean
   busy: boolean
   busyLabel: string
   anyBusy: boolean
+  safeProposing: boolean
   onPromote: () => void
   onMakeDefault: () => void
+  onProposePromote: () => void
+  onProposeMakeDefault: () => void
 }) {
   const impl = row.impl ?? '—'
 
@@ -353,8 +414,8 @@ function VersionRow({
         )}
       </div>
 
-      {isProxyAdmin && (
-        <div className="shrink-0">
+      {(isProxyAdmin || proxyAdminIsSafe) && (
+        <div className="shrink-0 flex items-center gap-2">
           {row.status.kind === 'default' && (
             <span className="inline-flex items-center gap-1.5 text-[11px] text-subtle">
               <span
@@ -368,26 +429,46 @@ function VersionRow({
               live
             </span>
           )}
-          {row.status.kind === 'registered' && (
+          {row.status.kind === 'registered' && isProxyAdmin && (
             <button
               type="button"
               onClick={onMakeDefault}
-              disabled={busy || anyBusy}
+              disabled={busy || anyBusy || safeProposing}
               className="btn-secondary text-xs px-3 py-1.5 inline-flex items-center gap-1.5"
             >
               {busy ? <InlineSpinner /> : null}
               {busy ? busyLabel : 'Make default'}
             </button>
           )}
-          {row.status.kind === 'available' && (
+          {row.status.kind === 'registered' && proxyAdminIsSafe && (
+            <button
+              type="button"
+              onClick={onProposeMakeDefault}
+              disabled={anyBusy || safeProposing}
+              className="text-xs text-muted hover:text-ink transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {safeProposing ? 'Proposing…' : 'Propose via Safe'}
+            </button>
+          )}
+          {row.status.kind === 'available' && isProxyAdmin && (
             <button
               type="button"
               onClick={onPromote}
-              disabled={busy || anyBusy}
+              disabled={busy || anyBusy || safeProposing}
               className="btn-primary text-xs px-3 py-1.5 inline-flex items-center gap-1.5"
             >
               {busy ? <InlineSpinner /> : null}
               {busy ? busyLabel : 'Promote'}
+            </button>
+          )}
+          {row.status.kind === 'available' && proxyAdminIsSafe && (
+            <button
+              type="button"
+              onClick={onProposePromote}
+              disabled={anyBusy || safeProposing}
+              className="text-xs text-muted hover:text-ink transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {safeProposing ? 'Proposing…' : 'Propose register via Safe'}
             </button>
           )}
         </div>

@@ -2,8 +2,12 @@ import { useEffect, useState } from 'react'
 import { formatEther, parseEther, type Address } from 'viem'
 import { useWaitForTransactionReceipt } from 'wagmi'
 
+import { ops } from '@intuition-fee-proxy/safe-tx'
 import { useSetClaimLimits } from '../hooks/useSponsoredProxy'
+import { useSafeAdmin } from '../hooks/useSafeAdmin'
+import { useSafePropose } from '../hooks/useSafePropose'
 import { WINDOW_PRESETS, formatWindow } from '../lib/format'
+import { SafeProposeFeedback } from './SafeProposeFeedback'
 
 interface Limits {
   maxClaimPerTx: bigint
@@ -38,6 +42,9 @@ export function ClaimLimitsPanel({ proxy, current, onDone }: Props) {
   const { setClaimLimits, hash, isPending, error, reset } =
     useSetClaimLimits(proxy)
   const receipt = useWaitForTransactionReceipt({ hash })
+
+  const { safe } = useSafeAdmin(proxy)
+  const safePropose = useSafePropose({ safeAddress: safe })
 
   useEffect(() => {
     if (current) {
@@ -85,6 +92,24 @@ export function ClaimLimitsPanel({ proxy, current, onDone }: Props) {
     }
   }
 
+  async function onProposeSetLimits() {
+    if (!allValid || !safe) return
+    safePropose.reset()
+    try {
+      await safePropose.propose(
+        ops.sponsored.setClaimLimits(
+          proxy,
+          parseEther(maxPerTx),
+          BigInt(maxPerWindow),
+          parseEther(maxVolume),
+          BigInt(windowSec),
+        ),
+      )
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   // Live recap values
   const recapTx = toNumberOrUndefined(maxPerTx)
   const recapCount = toNumberOrUndefined(maxPerWindow)
@@ -97,14 +122,19 @@ export function ClaimLimitsPanel({ proxy, current, onDone }: Props) {
   return (
     <section className="card space-y-6">
       {/* ── Header + intro ─────────────────────────────── */}
-      <div>
-        <h3 className="font-semibold">Claim limits</h3>
-        <p className="text-sm text-subtle mt-1.5 leading-relaxed">
-          Your sponsor pool is a shared reserve of TRUST you fund. When users
-          interact with this proxy, the pool pays for their transactions
-          instead of their wallet. These four caps control how much any single
-          user can consume — so one person can&apos;t drain your whole pool.
-        </p>
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <span className="text-[10px] font-mono uppercase tracking-widest text-muted">
+          Admin only
+        </span>
+        <div>
+          <h2 className="font-semibold">Claim limits</h2>
+          <p className="text-sm text-subtle mt-1.5 leading-relaxed">
+            Your sponsor pool is a shared reserve of TRUST you fund. When users
+            interact with this proxy, the pool pays for their transactions
+            instead of their wallet. These four caps control how much any single
+            user can consume — so one person can&apos;t drain your whole pool.
+          </p>
+        </div>
       </div>
 
       {/* ── Per-tx block ───────────────────────────────── */}
@@ -285,14 +315,28 @@ export function ClaimLimitsPanel({ proxy, current, onDone }: Props) {
         </p>
       </div>
 
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={!allValid || isPending || receipt.isLoading}
-        className="btn-primary"
-      >
-        {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Update limits'}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={!allValid || isPending || receipt.isLoading || safePropose.isProposing}
+          className="btn-primary"
+        >
+          {isPending ? 'Sign…' : receipt.isLoading ? 'Mining…' : 'Update limits'}
+        </button>
+        {safe && (
+          <button
+            type="button"
+            onClick={onProposeSetLimits}
+            disabled={!allValid || isPending || receipt.isLoading || safePropose.isProposing}
+            className="btn-secondary text-xs px-3"
+          >
+            {safePropose.isProposing ? 'Proposing…' : 'Propose via Safe'}
+          </button>
+        )}
+      </div>
+
+      <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
 
       {error && (
         <p className="text-xs text-rose-400 font-mono">

@@ -6,6 +6,7 @@ import { ops } from '@intuition-fee-proxy/safe-tx'
 import { useSetFees } from '../hooks/useProxy'
 import { useSafeAdmin } from '../hooks/useSafeAdmin'
 import { useSafePropose } from '../hooks/useSafePropose'
+import { SafeProposeFeedback } from './SafeProposeFeedback'
 
 interface Props {
   proxy: Address
@@ -75,12 +76,17 @@ export function SetFeesPanel({ proxy, currentFixed, currentPct, onDone }: Props)
 
   return (
     <section className="card space-y-4">
-      <div>
-        <h2 className="font-semibold">Update fees</h2>
-        <p className="text-xs text-subtle">
-          Admin-only. Direct write takes effect immediately. Safe propose
-          opens a multisig transaction for owners to co-sign in Den.
-        </p>
+      <div className="flex items-baseline gap-3 flex-wrap">
+        <span className="text-[10px] font-mono uppercase tracking-widest text-muted">
+          Admin only
+        </span>
+        <div>
+          <h2 className="font-semibold">Update fees</h2>
+          <p className="text-xs text-subtle">
+            Direct write takes effect immediately. Safe propose opens a
+            multisig transaction for owners to co-sign in Den.
+          </p>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -146,32 +152,7 @@ export function SetFeesPanel({ proxy, currentFixed, currentPct, onDone }: Props)
         </label>
       </div>
 
-      {safePropose.proposed && (
-        <div className="rounded-md border border-emerald-400/30 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-300 space-y-1">
-          <div>
-            <strong>Proposed.</strong> safeTxHash:{' '}
-            <code className="font-mono break-all">{safePropose.proposed.safeTxHash}</code>
-          </div>
-          <div>
-            Owners can co-sign and execute in{' '}
-            <a
-              href={safePropose.proposed.denUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="underline decoration-emerald-400/60 hover:decoration-emerald-200"
-            >
-              Den
-            </a>
-            .
-          </div>
-        </div>
-      )}
-
-      {safePropose.error && (
-        <p className="text-xs text-rose-400 font-mono">
-          Safe propose: {safePropose.error}
-        </p>
-      )}
+      <SafeProposeFeedback proposed={safePropose.proposed} error={safePropose.error} />
 
       {error && (
         <p className="text-xs text-rose-400 font-mono">

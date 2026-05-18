@@ -12,7 +12,13 @@ export const INTUITION_RPC = process.env.INTUITION_RPC ?? 'https://rpc.intuition
 
 export const FORK_BLOCK = 3_250_000
 
-export const ANVIL_PORT = Number(process.env.ANVIL_PORT ?? 8545)
+// 8546 by default (not 8545) so the test suite doesn't collide with a
+// Hardhat / localhost node a developer commonly keeps running on 8545
+// from another package. Anvil silently fails to bind a busy port and the
+// fixture's RPC-ready probe would otherwise talk to the foreign node,
+// which doesn't expose the `anvil_*` namespace and produces opaque
+// "Method not supported" failures in unrelated tests.
+export const ANVIL_PORT = Number(process.env.ANVIL_PORT ?? 8546)
 export const ANVIL_HOST = '127.0.0.1'
 export const ANVIL_RPC = `http://${ANVIL_HOST}:${ANVIL_PORT}`
 

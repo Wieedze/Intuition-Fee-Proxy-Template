@@ -56,7 +56,6 @@ export function UpgradeAuthorityPanel({
       ),
   )
 
-  // Direct setProxyAdmin write (the user's own EOA acts as a proxyAdmin)
   const {
     setProxyAdmin,
     hash,
@@ -142,8 +141,6 @@ export function UpgradeAuthorityPanel({
     }
   }
 
-  // The form is interactive if (a) the user is a direct proxyAdmin or
-  // (b) a Safe is in the whitelist (Safe owners can propose).
   const canInteract = isYou || Boolean(safeAdmin)
 
   return (
@@ -392,7 +389,6 @@ function GrantBothRolesForm({
 
   const inputValid = isAddress(input.trim())
 
-  // Once Role 1 grant mines, fire Role 2 grant.
   useEffect(() => {
     if (stage === 'role1' && role1Receipt.isSuccess) {
       setStage('role2')
@@ -400,7 +396,6 @@ function GrantBothRolesForm({
     }
   }, [stage, role1Receipt.isSuccess])
 
-  // Once Role 2 grant mines, refresh parent.
   useEffect(() => {
     if (stage === 'role2' && role2Receipt.isSuccess) {
       setStage('idle')

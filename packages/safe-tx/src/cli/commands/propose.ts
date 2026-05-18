@@ -24,7 +24,7 @@ function buildProposeCommand(op: OpRegistration): Command {
   cmd.option('--network <name>', 'Target network', 'intuition-mainnet')
   cmd.addOption(
     new Option('--signer <strategy>', 'Signer strategy')
-      .choices(['env', 'walletconnect', 'ledger'])
+      .choices(['env', 'walletconnect', 'ledger', 'trezor'])
       .default('env'),
   )
 

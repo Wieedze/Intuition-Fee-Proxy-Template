@@ -13,7 +13,7 @@ const PK_B = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 const SAFE = getAddress('0xf10D442D0fB934D4037DC30769a6EfCf2f54F7B6')
 const PROXY = getAddress('0x29fcB43b46531BcA003ddC8FCB67FFE91900C762')
 
-const PORT = 8889 // distinct from anvil-sanity (8545) and direct-sign (8546)
+const PORT = 8889 // distinct from anvil-sanity (8546) and direct-sign (8547)
 
 describe('api-kit mode against mock STS', () => {
   let mock: MockSts

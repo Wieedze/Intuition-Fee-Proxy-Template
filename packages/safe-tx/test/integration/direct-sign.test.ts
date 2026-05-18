@@ -20,8 +20,8 @@ import {
 } from '../fixtures/constants.js'
 import { impersonateAndFund } from '../fixtures/impersonate.js'
 
-// Distinct port from anvil-sanity (8545) to allow vitest parallelism.
-const PORT = 8546
+// Distinct port from anvil-sanity (8546) to allow vitest parallelism.
+const PORT = 8547
 
 // Anvil's default first account is well-known and pre-funded on the
 // fork — used as the executor (no impersonation needed).

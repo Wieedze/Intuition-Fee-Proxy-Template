@@ -175,32 +175,39 @@ export default function DeployPage() {
   const txExplorer = TX_EXPLORER_BY_CHAIN[chainId]
   const atomPortal = ATOM_PORTAL_BY_CHAIN[chainId]
 
-  return (
-    <div className="space-y-8 max-w-2xl mx-auto">
-      <div className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-ink">
-          Deploy a fee proxy
-        </h1>
-        <p className="text-sm text-muted">
-          Configure fees and admins. The proxy is upgradeable via version registry.
-        </p>
-      </div>
+  const isDeploying = isPending || receipt.isLoading
+  const proxySucceeded = receipt.isSuccess && Boolean(newProxyAddress)
+  const showResultCard = isDeploying || proxySucceeded
 
-      {receipt.isSuccess && newProxyAddress && (
+  if (showResultCard) {
+    const proxyState: 'pending' | 'success' = proxySucceeded ? 'success' : 'pending'
+    const proxyLabel = proxySucceeded
+      ? 'Proxy deployed'
+      : isPending
+        ? 'Confirm deployment in wallet…'
+        : 'Mining proxy deployment…'
+    return (
+      <div className="space-y-8 max-w-2xl mx-auto">
         <div className="rounded-xl border border-brand/30 bg-brand/10 p-5 space-y-4">
-          {/* Step 1 — Proxy deployment (always green once we reach this card) */}
+          {/* Step 1 — Proxy deployment (progressive: signing → mining → success) */}
           <div className="space-y-2">
-            <StepHeader state="success" label="Proxy deployed" />
-            <div className="flex items-start gap-2 pl-6">
-              <code className="font-mono text-xs text-ink break-all flex-1 leading-relaxed">
-                {newProxyAddress}
-              </code>
-              <CopyInline value={newProxyAddress} />
-            </div>
+            <StepHeader state={proxyState} label={proxyLabel} />
+            {newProxyAddress ? (
+              <div className="flex items-start gap-2 pl-6">
+                <code className="font-mono text-xs text-ink break-all flex-1 leading-relaxed">
+                  {newProxyAddress}
+                </code>
+                <CopyInline value={newProxyAddress} />
+              </div>
+            ) : hash ? (
+              <div className="pl-6 font-mono text-[11px] text-muted break-all">
+                tx {hash}
+              </div>
+            ) : null}
           </div>
 
-          {/* Step 2 — Intuition atom (progressive: loading → success/error) */}
-          {caip10 && (
+          {/* Step 2 — Intuition atom (renders only after the proxy lands) */}
+          {proxySucceeded && caip10 && (
             <div className="pt-4 border-t border-brand/20">
               <AtomStep
                 signing={atomSigning}
@@ -218,23 +225,38 @@ export default function DeployPage() {
             </div>
           )}
 
-          <div className="flex gap-4 pt-2 border-t border-brand/20 text-sm">
-            <Link
-              to={`/proxy/${newProxyAddress}`}
-              className="text-brand hover:opacity-80 transition-opacity"
-            >
-              Open detail →
-            </Link>
-            <button
-              type="button"
-              onClick={() => navigate('/my-proxies')}
-              className="text-muted hover:text-ink"
-            >
-              See all my proxies
-            </button>
-          </div>
+          {proxySucceeded && newProxyAddress && (
+            <div className="flex gap-4 pt-2 border-t border-brand/20 text-sm">
+              <Link
+                to={`/proxy/${newProxyAddress}`}
+                className="text-brand hover:opacity-80 transition-opacity"
+              >
+                Open detail →
+              </Link>
+              <button
+                type="button"
+                onClick={() => navigate('/my-proxies')}
+                className="text-muted hover:text-ink"
+              >
+                See all my proxies
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-8 max-w-2xl mx-auto">
+      <div className="space-y-2">
+        <h1 className="text-3xl font-semibold tracking-tight text-ink">
+          Deploy a fee proxy
+        </h1>
+        <p className="text-sm text-muted">
+          Configure fees and admins. The proxy is upgradeable via version registry.
+        </p>
+      </div>
 
       {!factory && (
         <div className="rounded-lg border-l-4 border-l-brand border border-line bg-surface p-4 text-sm text-ink">

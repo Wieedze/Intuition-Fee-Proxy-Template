@@ -18,7 +18,7 @@ export function buildExecuteCommand(): Command {
     .option('--network <name>', 'Target network', 'intuition-mainnet')
     .addOption(
       new Option('--signer <strategy>', 'Signer strategy for the executor (does not need to be a Safe owner)')
-        .choices(['env', 'walletconnect', 'ledger'])
+        .choices(['env', 'walletconnect', 'ledger', 'trezor'])
         .default('env'),
     )
     .action(
